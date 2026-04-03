@@ -22,7 +22,6 @@ from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional
 from contextlib import asynccontextmanager
-from authlib.integrations.starlette_client import OAuth
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -591,17 +590,6 @@ app = FastAPI(title="WinDesk Cloud API", lifespan=lifespan)
 # Session middleware for OAuth state
 app.add_middleware(SessionMiddleware, secret_key=JWT_SECRET)
 
-# Initialize OAuth with Zitadel
-oauth = OAuth()
-if ZITADEL_DOMAIN and ZITADEL_CLIENT_ID:
-    oauth.register(
-        name='zitadel',
-        client_id=ZITADEL_CLIENT_ID,
-        client_secret=None,  # PKCE flow, no secret needed
-        server_metadata_url=f'{ZITADEL_DOMAIN}/.well-known/openid-configuration',
-        client_kwargs={'scope': 'openid profile email'},
-    )
-
 api_router = APIRouter(prefix="/api")
 
 # ==================== AUTH ROUTES ====================
@@ -737,37 +725,107 @@ async def reset_password(data: ResetPasswordRequest):
 
 # ==================== ZITADEL OIDC ROUTES ====================
 
+import hashlib
+import base64
+
+def generate_code_verifier():
+    """Generate a random code verifier for PKCE"""
+    return secrets.token_urlsafe(64)[:128]
+
+def generate_code_challenge(verifier: str):
+    """Generate code challenge from verifier using S256"""
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b'=').decode('ascii')
+
 @api_router.get("/auth/zitadel/login")
 async def zitadel_login(request: Request):
-    """Initiate Zitadel OIDC login flow"""
-    if not ZITADEL_DOMAIN:
+    """Initiate Zitadel OIDC login flow with PKCE"""
+    if not ZITADEL_DOMAIN or not ZITADEL_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Zitadel not configured")
-    redirect_uri = ZITADEL_CALLBACK_URL
-    return await oauth.zitadel.authorize_redirect(request, redirect_uri)
+    
+    # Generate PKCE codes
+    code_verifier = generate_code_verifier()
+    code_challenge = generate_code_challenge(code_verifier)
+    state = secrets.token_urlsafe(32)
+    
+    # Store in session
+    request.session['oauth_state'] = state
+    request.session['code_verifier'] = code_verifier
+    
+    # Build authorization URL
+    auth_url = (
+        f"{ZITADEL_DOMAIN}/oauth/v2/authorize?"
+        f"client_id={ZITADEL_CLIENT_ID}&"
+        f"redirect_uri={ZITADEL_CALLBACK_URL}&"
+        f"response_type=code&"
+        f"scope=openid%20profile%20email&"
+        f"state={state}&"
+        f"code_challenge={code_challenge}&"
+        f"code_challenge_method=S256"
+    )
+    
+    return RedirectResponse(url=auth_url, status_code=302)
 
 @api_router.get("/auth/zitadel/callback")
-async def zitadel_callback(request: Request, response: Response):
+async def zitadel_callback(request: Request, code: str = None, state: str = None, error: str = None):
     """Handle Zitadel OIDC callback"""
     try:
-        token = await oauth.zitadel.authorize_access_token(request)
-        userinfo = token.get('userinfo', {})
+        if error:
+            logger.error(f"Zitadel auth error: {error}")
+            return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error={error}", status_code=302)
         
-        if not userinfo:
-            # Fetch userinfo manually
-            async with httpx.AsyncClient() as client:
-                userinfo_response = await client.get(
-                    f'{ZITADEL_DOMAIN}/oidc/v1/userinfo',
-                    headers={'Authorization': f'Bearer {token["access_token"]}'}
-                )
-                if userinfo_response.status_code == 200:
-                    userinfo = userinfo_response.json()
+        # Verify state
+        stored_state = request.session.get('oauth_state')
+        if not state or state != stored_state:
+            logger.error("State mismatch in Zitadel callback")
+            return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error=state_mismatch", status_code=302)
+        
+        # Get code verifier
+        code_verifier = request.session.get('code_verifier')
+        if not code_verifier:
+            logger.error("Code verifier not found in session")
+            return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error=session_error", status_code=302)
+        
+        # Exchange code for tokens
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(
+                f'{ZITADEL_DOMAIN}/oauth/v2/token',
+                data={
+                    'grant_type': 'authorization_code',
+                    'client_id': ZITADEL_CLIENT_ID,
+                    'code': code,
+                    'redirect_uri': ZITADEL_CALLBACK_URL,
+                    'code_verifier': code_verifier
+                },
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            if token_response.status_code != 200:
+                logger.error(f"Token exchange failed: {token_response.text}")
+                return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error=token_error", status_code=302)
+            
+            tokens = token_response.json()
+            access_token_zitadel = tokens.get('access_token')
+            id_token = tokens.get('id_token')
+            
+            # Fetch userinfo
+            userinfo_response = await client.get(
+                f'{ZITADEL_DOMAIN}/oidc/v1/userinfo',
+                headers={'Authorization': f'Bearer {access_token_zitadel}'}
+            )
+            
+            if userinfo_response.status_code != 200:
+                logger.error(f"Userinfo fetch failed: {userinfo_response.text}")
+                return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error=userinfo_error", status_code=302)
+            
+            userinfo = userinfo_response.json()
         
         email = userinfo.get('email', '').lower()
         name = userinfo.get('name') or userinfo.get('preferred_username') or email.split('@')[0]
         zitadel_sub = userinfo.get('sub')
         
         if not email:
-            raise HTTPException(status_code=400, detail="Email not provided by Zitadel")
+            return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error=no_email", status_code=302)
         
         # Find or create user
         user = await db.users.find_one({"email": email})
@@ -776,7 +834,7 @@ async def zitadel_callback(request: Request, response: Response):
             # Create new user from Zitadel
             user_doc = {
                 "email": email,
-                "password_hash": None,  # No password for SSO users
+                "password_hash": None,
                 "name": name,
                 "role": "customer",
                 "zitadel_sub": zitadel_sub,
@@ -788,12 +846,9 @@ async def zitadel_callback(request: Request, response: Response):
             }
             result = await db.users.insert_one(user_doc)
             user_id = str(result.inserted_id)
-            user_role = "customer"
             logger.info(f"New user created from Zitadel: {email}")
         else:
             user_id = str(user["_id"])
-            user_role = user.get("role", "customer")
-            # Update Zitadel sub if not set
             if not user.get("zitadel_sub"):
                 await db.users.update_one(
                     {"_id": user["_id"]},
@@ -804,13 +859,13 @@ async def zitadel_callback(request: Request, response: Response):
         access_token = create_access_token(user_id, email)
         refresh_token = create_refresh_token(user_id)
         
-        # Create response with redirect
+        # Store Zitadel ID token for logout
+        request.session['zitadel_id_token'] = id_token
+        
+        # Create redirect response with cookies
         redirect_response = RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/dashboard", status_code=302)
         redirect_response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=3600, path="/")
         redirect_response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
-        
-        # Store Zitadel tokens in session for logout
-        request.session['zitadel_id_token'] = token.get('id_token')
         
         return redirect_response
         
@@ -821,20 +876,20 @@ async def zitadel_callback(request: Request, response: Response):
 @api_router.get("/auth/zitadel/logout")
 async def zitadel_logout(request: Request, response: Response):
     """Logout from Zitadel"""
-    # Clear local session
-    response.delete_cookie("access_token", path="/", secure=True, samesite="none")
-    response.delete_cookie("refresh_token", path="/", secure=True, samesite="none")
-    
     # Get ID token for Zitadel logout
     id_token = request.session.get('zitadel_id_token')
     request.session.clear()
     
-    # Redirect to Zitadel end session endpoint
+    # Create response that clears cookies
     logout_url = f'{ZITADEL_DOMAIN}/oidc/v1/end_session?post_logout_redirect_uri={ZITADEL_POST_LOGOUT_URL}'
     if id_token:
         logout_url += f'&id_token_hint={id_token}'
     
-    return RedirectResponse(url=logout_url, status_code=302)
+    redirect_response = RedirectResponse(url=logout_url, status_code=302)
+    redirect_response.delete_cookie("access_token", path="/", secure=True, samesite="none")
+    redirect_response.delete_cookie("refresh_token", path="/", secure=True, samesite="none")
+    
+    return redirect_response
 
 @api_router.get("/auth/zitadel/config")
 async def get_zitadel_config():
