@@ -3,15 +3,15 @@
 ## Project Overview
 **Name:** WinDesk Cloud  
 **Type:** SaaS Platform for Windows Virtual Desktops  
-**Status:** MVP Complete with Admin Features (Demo Mode)
+**Status:** MVP Complete with Onboarding System (Demo Mode)
 
 ## Original Problem Statement
-Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust access. Extended with admin panel for users, groups, roles, ACLs and policies management.
+Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust access. Extended with admin panel and onboarding wizard for new customers.
 
 ## User Personas
 1. **Customer** - End user who provisions and uses Windows VMs
-2. **MSP Admin** - Managed Service Provider managing multiple customers (future)
-3. **Platform Admin** - Internal admin with full platform access, user/group/policy management
+2. **Technical Admin** - First user from organization, goes through onboarding
+3. **Platform Admin** - Internal admin with full platform access
 
 ## Tech Stack
 - **Frontend:** React 19 + TailwindCSS + Radix UI
@@ -20,79 +20,71 @@ Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust acces
 - **Auth:** JWT (httpOnly cookies)
 - **Styling:** Dark Industrial / Cyber-Ops theme
 
-## Core Requirements (Static)
-- [x] Landing page with pricing cards
-- [x] User authentication (JWT)
-- [x] Plan selection (Starter/Business/Enterprise)
-- [x] Order creation and payment simulation
-- [x] VM provisioning simulation
-- [x] Dashboard with VM list and metrics
-- [x] VM management (restart, snapshot)
-- [x] Admin panel with stats/users/orders/vms
-- [x] Groups management (create, edit, members)
-- [x] Roles management with permissions
-- [x] ACLs for action control
-- [x] Policies to associate users/groups with VMs
-- [x] Dual connection: TSplus + 1Panel
+## Onboarding Flow
+1. **Detection:** System checks if user has organization in DB
+2. **Step 1 - Organization:** Company name and domain
+3. **Step 2 - Admin:** Confirm admin user details
+4. **Step 3 - Plan:** Select Starter/Business/Enterprise
+5. **Step 4 - Review:** Confirm all settings
+6. **Guided Tour:** 8-step interactive tour of dashboard features
+
+## Core Requirements
+### Completed ✅
+- Landing page with pricing cards
+- User authentication (JWT)
+- Plan selection (Starter/Business/Enterprise)
+- Order creation and payment simulation
+- VM provisioning simulation
+- Dashboard with VM list and metrics
+- VM management (restart, snapshot)
+- Admin panel (users, groups, roles, ACLs, policies)
+- **Onboarding Wizard (4 steps)**
+- **Guided Tour (8 steps)**
+- Dual connection: TSplus + 1Panel
 
 ## What's Been Implemented
 
-### 2026-04-03 - MVP Complete
-**Backend:**
-- FastAPI server with 40+ endpoints
-- JWT authentication with httpOnly cookies
-- MongoDB models: users, plans, orders, vms, snapshots, groups, roles, acls, policies
-- Demo mode simulating: payments, VM provisioning, metrics
-- Admin APIs for CRUD on all entities
+### 2026-04-03 - Onboarding System
+**New Features:**
+- Onboarding wizard with 4 steps
+- Auto-detection of new customers
+- Organization creation flow
+- Admin confirmation step
+- Plan selection during onboarding
+- Review/confirmation step
+- Guided tour after onboarding completion
+- Tour progress tracking (8 steps)
+- Skip tour option
+- Tour completion persistence
 
-**Frontend:**
-- Landing page with hero, features, pricing
-- Auth pages (Login/Register)
-- Dashboard with VM cards and real-time metrics
-- Plans selection with billing toggle
-- Checkout with simulated payment
-- VM detail page with dual connection buttons
-- Full Admin panel with tabs:
-  - Panel General (stats overview)
-  - Usuarios (CRUD, enable/disable)
-  - Grupos (CRUD, member management)
-  - Roles (CRUD, permissions)
-  - Máquinas Virtuales (CRUD, assignment)
-  - ACLs (CRUD, action control)
-  - Políticas (associate users/groups to VMs)
-  - Órdenes (history)
+**Backend Endpoints:**
+- GET /api/onboarding/status
+- POST /api/onboarding/organization
+- POST /api/onboarding/admin
+- POST /api/onboarding/plan
+- POST /api/onboarding/complete
+- POST /api/onboarding/complete-tour
+- GET /api/onboarding/summary
 
-**Design:**
-- Dark Industrial / Cyber-Ops theme
-- Syne + JetBrains Mono typography
-- Teal (#00d4aa) primary brand color
+**Frontend Components:**
+- Onboarding.js - 4-step wizard
+- GuidedTour.js - Interactive tour overlay
+
+## Test Credentials
+- Admin: `admin@windesk.cloud` / `Admin123!`
+- Demo users: `usuario1@windesk.cloud` / `Demo123!`
 
 ## Pre-built VMs
-| ID | Name | IP | Specs | 1Panel Port |
-|----|------|-----|-------|-------------|
-| vm-prod-001 | WinDesk-PROD-001 | 10.100.10.150 | 4 vCPU, 8GB RAM | 33491 |
-| vm-prod-002 | WinDesk-PROD-002 | 10.100.10.151 | 4 vCPU, 8GB RAM | 33492 |
-| vm-prod-003 | WinDesk-PROD-003 | 10.100.10.152 | 8 vCPU, 16GB RAM | 33493 |
-| vm-prod-004 | WinDesk-PROD-004 | 10.100.10.153 | 2 vCPU, 4GB RAM | 33494 |
-
-## Default Groups
-- Desarrollo
-- Soporte Técnico
-- Finanzas
-
-## Default Roles
-- Administrador (full access)
-- Operador (manage VMs, view users)
-- Usuario (connect assigned only)
-
-## Default ACLs
-- Acceso Completo (all actions)
-- Solo Conexión (connect + view)
-- Solo Lectura (view only)
+| VM | IP | 1Panel Port |
+|----|-----|-------------|
+| vm-prod-001 | 10.100.10.150 | 33491 |
+| vm-prod-002 | 10.100.10.151 | 33492 |
+| vm-prod-003 | 10.100.10.152 | 33493 |
+| vm-prod-004 | 10.100.10.153 | 33494 |
 
 ## Connection Methods
 1. **TSplus HTML5:** https://web.tsplus.html5/
-2. **1Panel Direct:** http://{internal_ip}:{panel_port}/ (e.g., http://10.100.10.150:33491/)
+2. **1Panel Direct:** http://{internal_ip}:{panel_port}/
 
 ## Prioritized Backlog
 
@@ -100,25 +92,17 @@ Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust acces
 - All items completed
 
 ### P1 - High Priority (Next)
-- [ ] Enforce ACL rules in backend (check permissions before actions)
+- [ ] Enforce ACL rules in backend
 - [ ] Real Stripe integration
 - [ ] Email notifications (SendGrid)
-- [ ] User self-service portal
+- [ ] Onboarding email welcome sequence
 
 ### P2 - Medium Priority
+- [ ] Custom branding per organization
 - [ ] Zitadel OIDC integration
-- [ ] Real NetBird integration
-- [ ] LXD/GCP VM provisioning
 - [ ] Audit logs
 
 ### P3 - Future/Nice to Have
 - [ ] MSP white-label
 - [ ] SSE for real-time updates
 - [ ] Mobile app
-
-## Mocked Services (Demo Mode)
-- Stripe payments → Simulated
-- NetBird VPN → Random IPs
-- Cloudflare Tunnel → hostname as {orderId}.desk.kappa4.com
-- VM metrics → Random values
-- 1Panel → Direct link to internal IP:port
