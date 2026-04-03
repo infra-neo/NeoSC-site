@@ -3,15 +3,15 @@
 ## Project Overview
 **Name:** WinDesk Cloud  
 **Type:** SaaS Platform for Windows Virtual Desktops  
-**Status:** MVP Complete (Demo Mode)
+**Status:** MVP Complete with Admin Features (Demo Mode)
 
 ## Original Problem Statement
-Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust access (NetBird + Cloudflare Tunnel). MVP with demo mode simulating external services.
+Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust access. Extended with admin panel for users, groups, roles, ACLs and policies management.
 
 ## User Personas
 1. **Customer** - End user who provisions and uses Windows VMs
 2. **MSP Admin** - Managed Service Provider managing multiple customers (future)
-3. **Platform Admin** - Internal admin with full platform access
+3. **Platform Admin** - Internal admin with full platform access, user/group/policy management
 
 ## Tech Stack
 - **Frontend:** React 19 + TailwindCSS + Radix UI
@@ -29,16 +29,21 @@ Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust acces
 - [x] Dashboard with VM list and metrics
 - [x] VM management (restart, snapshot)
 - [x] Admin panel with stats/users/orders/vms
+- [x] Groups management (create, edit, members)
+- [x] Roles management with permissions
+- [x] ACLs for action control
+- [x] Policies to associate users/groups with VMs
+- [x] Dual connection: TSplus + 1Panel
 
 ## What's Been Implemented
 
 ### 2026-04-03 - MVP Complete
 **Backend:**
-- FastAPI server with 23 endpoints
+- FastAPI server with 40+ endpoints
 - JWT authentication with httpOnly cookies
-- MongoDB models: users, plans, orders, vms, snapshots
+- MongoDB models: users, plans, orders, vms, snapshots, groups, roles, acls, policies
 - Demo mode simulating: payments, VM provisioning, metrics
-- Admin APIs for stats and management
+- Admin APIs for CRUD on all entities
 
 **Frontend:**
 - Landing page with hero, features, pricing
@@ -46,33 +51,48 @@ Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust acces
 - Dashboard with VM cards and real-time metrics
 - Plans selection with billing toggle
 - Checkout with simulated payment
-- VM detail page with actions
-- Admin panel with tabs (Orders/VMs/Users)
+- VM detail page with dual connection buttons
+- Full Admin panel with tabs:
+  - Panel General (stats overview)
+  - Usuarios (CRUD, enable/disable)
+  - Grupos (CRUD, member management)
+  - Roles (CRUD, permissions)
+  - Máquinas Virtuales (CRUD, assignment)
+  - ACLs (CRUD, action control)
+  - Políticas (associate users/groups to VMs)
+  - Órdenes (history)
 
 **Design:**
 - Dark Industrial / Cyber-Ops theme
 - Syne + JetBrains Mono typography
 - Teal (#00d4aa) primary brand color
-- Glass morphism effects
-- Grid pattern backgrounds
 
-## API Endpoints
-- POST /api/auth/register
-- POST /api/auth/login
-- POST /api/auth/logout
-- GET /api/auth/me
-- POST /api/auth/refresh
-- GET /api/plans
-- POST /api/orders
-- GET /api/orders
-- POST /api/billing/simulate
-- GET /api/vms
-- GET /api/vms/{id}/metrics
-- POST /api/vms/{id}/restart
-- POST /api/vms/{id}/snapshot
-- GET /api/admin/stats
-- GET /api/admin/users
-- GET /api/admin/orders
+## Pre-built VMs
+| ID | Name | IP | Specs | 1Panel Port |
+|----|------|-----|-------|-------------|
+| vm-prod-001 | WinDesk-PROD-001 | 10.100.10.150 | 4 vCPU, 8GB RAM | 33491 |
+| vm-prod-002 | WinDesk-PROD-002 | 10.100.10.151 | 4 vCPU, 8GB RAM | 33492 |
+| vm-prod-003 | WinDesk-PROD-003 | 10.100.10.152 | 8 vCPU, 16GB RAM | 33493 |
+| vm-prod-004 | WinDesk-PROD-004 | 10.100.10.153 | 2 vCPU, 4GB RAM | 33494 |
+
+## Default Groups
+- Desarrollo
+- Soporte Técnico
+- Finanzas
+
+## Default Roles
+- Administrador (full access)
+- Operador (manage VMs, view users)
+- Usuario (connect assigned only)
+
+## Default ACLs
+- Acceso Completo (all actions)
+- Solo Conexión (connect + view)
+- Solo Lectura (view only)
+
+## Connection Methods
+1. **TSplus HTML5:** https://web.tsplus.html5/
+2. **1Panel Direct:** http://{internal_ip}:{panel_port}/ (e.g., http://10.100.10.150:33491/)
 
 ## Prioritized Backlog
 
@@ -80,31 +100,25 @@ Build a SaaS platform for on-demand Windows VMs with TSplus and Zero Trust acces
 - All items completed
 
 ### P1 - High Priority (Next)
-- [ ] MSP multi-tenant support
+- [ ] Enforce ACL rules in backend (check permissions before actions)
 - [ ] Real Stripe integration
 - [ ] Email notifications (SendGrid)
-- [ ] VM usage tracking and billing
+- [ ] User self-service portal
 
 ### P2 - Medium Priority
 - [ ] Zitadel OIDC integration
 - [ ] Real NetBird integration
-- [ ] Real Cloudflare Tunnel setup
 - [ ] LXD/GCP VM provisioning
+- [ ] Audit logs
 
 ### P3 - Future/Nice to Have
-- [ ] Custom domain per tenant
-- [ ] SSE for real-time provisioning updates
-- [ ] White-label for MSPs
-- [ ] Mobile responsive improvements
+- [ ] MSP white-label
+- [ ] SSE for real-time updates
+- [ ] Mobile app
 
 ## Mocked Services (Demo Mode)
-- Stripe payments → Simulated successful payment
-- NetBird VPN → Random IPs generated
-- Cloudflare Tunnel → hostname generated as {orderId}.desk.kappa4.com
-- TSplus → Demo access URL
-- VM metrics → Random values (10-70% usage)
-
-## Next Steps
-1. Connect real Stripe for payments
-2. Set up email notifications
-3. Implement MSP multi-tenant features
+- Stripe payments → Simulated
+- NetBird VPN → Random IPs
+- Cloudflare Tunnel → hostname as {orderId}.desk.kappa4.com
+- VM metrics → Random values
+- 1Panel → Direct link to internal IP:port
