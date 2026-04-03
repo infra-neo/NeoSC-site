@@ -189,6 +189,31 @@ class VMUpdate(BaseModel):
     assigned_user_ids: Optional[List[str]] = None
     assigned_group_ids: Optional[List[str]] = None
 
+# ==================== ONBOARDING MODELS ====================
+
+class OrganizationSetup(BaseModel):
+    name: str
+    domain: Optional[str] = None
+
+class AdminSetup(BaseModel):
+    admin_name: str
+    admin_email: EmailStr
+    admin_password: str
+
+class PlanSetup(BaseModel):
+    selected_plan: str  # starter, business, enterprise
+
+class OnboardingComplete(BaseModel):
+    organization: OrganizationSetup
+    admin: AdminSetup
+    plan: PlanSetup
+
+class OnboardingStatus(BaseModel):
+    is_new_customer: bool
+    onboarding_completed: bool
+    current_step: int
+    organization_name: Optional[str] = None
+
 # ==================== AUTH HELPERS ====================
 
 def hash_password(password: str) -> str:
@@ -1240,6 +1265,175 @@ async def get_access_url(vm_id: str, user: dict = Depends(get_current_user)):
         "panel_url": panel_url,
         "rdp_ip": vm.get("netbird_ip"),
         "internal_ip": vm.get("internal_ip")
+    }
+
+# ==================== ONBOARDING ROUTES ====================
+
+@api_router.get("/onboarding/status")
+async def get_onboarding_status(user: dict = Depends(get_current_user)):
+    """Check if user needs onboarding"""
+    # Check if organization exists for this user
+    org = await db.organizations.find_one({"admin_user_id": user["id"]})
+    
+    if not org:
+        # New customer - needs onboarding
+        return {
+            "is_new_customer": True,
+            "onboarding_completed": False,
+            "current_step": 1,
+            "organization_name": None,
+            "show_tour": False
+        }
+    
+    return {
+        "is_new_customer": False,
+        "onboarding_completed": org.get("onboarding_completed", True),
+        "current_step": org.get("onboarding_step", 4),
+        "organization_name": org.get("name"),
+        "show_tour": not org.get("tour_completed", False)
+    }
+
+@api_router.post("/onboarding/organization")
+async def setup_organization(data: OrganizationSetup, user: dict = Depends(get_current_user)):
+    """Step 1: Setup organization"""
+    existing = await db.organizations.find_one({"admin_user_id": user["id"]})
+    
+    org_data = {
+        "admin_user_id": user["id"],
+        "name": data.name,
+        "domain": data.domain,
+        "onboarding_step": 2,
+        "onboarding_completed": False,
+        "tour_completed": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if existing:
+        await db.organizations.update_one(
+            {"admin_user_id": user["id"]},
+            {"$set": {"name": data.name, "domain": data.domain, "onboarding_step": 2}}
+        )
+    else:
+        await db.organizations.insert_one(org_data)
+    
+    return {"message": "Organization setup completed", "next_step": 2}
+
+@api_router.post("/onboarding/admin")
+async def setup_admin_user(data: AdminSetup, user: dict = Depends(get_current_user)):
+    """Step 2: Setup additional admin (optional) or confirm current admin"""
+    org = await db.organizations.find_one({"admin_user_id": user["id"]})
+    if not org:
+        raise HTTPException(status_code=400, detail="Complete organization setup first")
+    
+    # Update current user's name if different
+    if data.admin_email.lower() == user["email"]:
+        await db.users.update_one(
+            {"_id": ObjectId(user["id"])},
+            {"$set": {"name": data.admin_name}}
+        )
+    else:
+        # Create additional admin user
+        existing = await db.users.find_one({"email": data.admin_email.lower()})
+        if not existing:
+            await db.users.insert_one({
+                "email": data.admin_email.lower(),
+                "password_hash": hash_password(data.admin_password),
+                "name": data.admin_name,
+                "role": "platform_admin",
+                "organization_id": str(org["_id"]) if "_id" in org else org.get("id"),
+                "group_ids": [],
+                "enabled": True,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+    
+    await db.organizations.update_one(
+        {"admin_user_id": user["id"]},
+        {"$set": {"onboarding_step": 3}}
+    )
+    
+    return {"message": "Admin setup completed", "next_step": 3}
+
+@api_router.post("/onboarding/plan")
+async def setup_plan(data: PlanSetup, user: dict = Depends(get_current_user)):
+    """Step 3: Select plan"""
+    org = await db.organizations.find_one({"admin_user_id": user["id"]})
+    if not org:
+        raise HTTPException(status_code=400, detail="Complete organization setup first")
+    
+    plan = await db.plans.find_one({"id": data.selected_plan})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    await db.organizations.update_one(
+        {"admin_user_id": user["id"]},
+        {"$set": {"selected_plan": data.selected_plan, "onboarding_step": 4}}
+    )
+    
+    return {"message": "Plan selected", "next_step": 4, "plan": plan["name"]}
+
+@api_router.post("/onboarding/complete")
+async def complete_onboarding(user: dict = Depends(get_current_user)):
+    """Step 4: Complete onboarding and provision initial resources"""
+    org = await db.organizations.find_one({"admin_user_id": user["id"]})
+    if not org:
+        raise HTTPException(status_code=400, detail="Complete organization setup first")
+    
+    # Mark onboarding as completed
+    await db.organizations.update_one(
+        {"admin_user_id": user["id"]},
+        {"$set": {"onboarding_completed": True, "onboarding_step": 4}}
+    )
+    
+    # Create a default group for the organization
+    org_name = org.get("name", "Default")
+    group_id = f"group-{uuid.uuid4().hex[:8]}"
+    existing_group = await db.groups.find_one({"name": f"{org_name} - General"})
+    if not existing_group:
+        await db.groups.insert_one({
+            "id": group_id,
+            "name": f"{org_name} - General",
+            "description": f"Grupo general de {org_name}",
+            "member_ids": [user["id"]],
+            "organization_id": str(org["_id"]) if "_id" in org else None,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return {
+        "message": "Onboarding completed successfully",
+        "organization_name": org.get("name"),
+        "show_tour": True
+    }
+
+@api_router.post("/onboarding/complete-tour")
+async def complete_tour(user: dict = Depends(get_current_user)):
+    """Mark the guided tour as completed"""
+    await db.organizations.update_one(
+        {"admin_user_id": user["id"]},
+        {"$set": {"tour_completed": True}}
+    )
+    return {"message": "Tour completed"}
+
+@api_router.get("/onboarding/summary")
+async def get_onboarding_summary(user: dict = Depends(get_current_user)):
+    """Get summary of onboarding data for review step"""
+    org = await db.organizations.find_one({"admin_user_id": user["id"]})
+    if not org:
+        raise HTTPException(status_code=404, detail="No organization found")
+    
+    plan = None
+    if org.get("selected_plan"):
+        plan = await db.plans.find_one({"id": org["selected_plan"]}, {"_id": 0})
+    
+    return {
+        "organization": {
+            "name": org.get("name"),
+            "domain": org.get("domain")
+        },
+        "admin": {
+            "name": user["name"],
+            "email": user["email"]
+        },
+        "plan": plan
     }
 
 # ==================== HEALTH CHECK ====================

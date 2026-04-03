@@ -14,6 +14,7 @@ import Plans from "./pages/Plans";
 import Checkout from "./pages/Checkout";
 import VMDetail from "./pages/VMDetail";
 import Admin from "./pages/Admin";
+import Onboarding from "./pages/Onboarding";
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -84,6 +85,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/onboarding"
+              element={
+                <ProtectedRoute>
+                  <Onboarding />
                 </ProtectedRoute>
               }
             />

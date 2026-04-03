@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getVMs, getOrders, getVMMetrics } from '../services/api';
+import { getVMs, getOrders, getVMMetrics, getOnboardingStatus, completeTour } from '../services/api';
+import GuidedTour from '../components/GuidedTour';
 import { 
   Monitor, Plus, ExternalLink, RefreshCw, Cpu, HardDrive, 
   Activity, Globe, LogOut, Settings, User, LayoutDashboard,
@@ -13,10 +14,45 @@ import { Progress } from '@/components/ui/progress';
 const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [vms, setVMs] = useState([]);
   const [orders, setOrders] = useState([]);
   const [metrics, setMetrics] = useState({});
   const [loading, setLoading] = useState(true);
+  const [showTour, setShowTour] = useState(false);
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+
+  // Check onboarding status
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        const res = await getOnboardingStatus();
+        if (res.data.is_new_customer && !res.data.onboarding_completed) {
+          // New customer, redirect to onboarding
+          navigate('/onboarding');
+          return;
+        }
+        // Check if tour should be shown
+        if (searchParams.get('tour') === 'true' || res.data.show_tour) {
+          setShowTour(true);
+        }
+      } catch (err) {
+        console.error('Onboarding check failed:', err);
+      } finally {
+        setCheckingOnboarding(false);
+      }
+    };
+    checkOnboarding();
+  }, [navigate, searchParams]);
+
+  const handleTourComplete = async () => {
+    setShowTour(false);
+    try {
+      await completeTour();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -43,10 +79,12 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 10000); // Refresh every 10s
-    return () => clearInterval(interval);
-  }, []);
+    if (!checkingOnboarding) {
+      fetchData();
+      const interval = setInterval(fetchData, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [checkingOnboarding]);
 
   const handleLogout = async () => {
     await logout();
@@ -67,8 +105,24 @@ const Dashboard = () => {
 
   const pendingOrders = orders.filter(o => ['pending', 'paid', 'provisioning'].includes(o.status));
 
+  if (checkingOnboarding) {
+    return (
+      <div className="min-h-screen bg-[var(--color-bg-primary)] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-brand-teal animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-bg-primary)]">
+      {/* Guided Tour */}
+      {showTour && (
+        <GuidedTour 
+          onComplete={handleTourComplete} 
+          onSkip={handleTourComplete}
+        />
+      )}
+      
       {/* Sidebar */}
       <aside className="fixed left-0 top-0 bottom-0 w-64 bg-surface border-r border-custom p-4 flex flex-col">
         <Link to="/" className="flex items-center gap-2 mb-10">

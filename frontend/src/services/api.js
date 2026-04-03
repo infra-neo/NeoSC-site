@@ -75,4 +75,13 @@ export const updateAdminVM = (vmId, data) => api.put(`/admin/vms/${vmId}`, data)
 export const deleteAdminVM = (vmId) => api.delete(`/admin/vms/${vmId}`);
 export const assignVM = (vmId, userIds, groupIds) => api.post(`/admin/vms/${vmId}/assign`, { user_ids: userIds, group_ids: groupIds });
 
+// Onboarding
+export const getOnboardingStatus = () => api.get('/onboarding/status');
+export const setupOrganization = (data) => api.post('/onboarding/organization', data);
+export const setupAdmin = (data) => api.post('/onboarding/admin', data);
+export const setupPlan = (data) => api.post('/onboarding/plan', data);
+export const completeOnboarding = () => api.post('/onboarding/complete');
+export const completeTour = () => api.post('/onboarding/complete-tour');
+export const getOnboardingSummary = () => api.get('/onboarding/summary');
+
 export default api;
