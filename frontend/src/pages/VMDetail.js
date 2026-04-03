@@ -126,9 +126,17 @@ const VMDetail = () => {
                 <a href="https://web.tsplus.html5/" target="_blank" rel="noopener noreferrer">
                   <Button className="btn-cyber" data-testid="connect-tsplus">
                     <ExternalLink className="w-4 h-4 mr-2" />
-                    Connect via TSplus
+                    Conectar via TSplus
                   </Button>
                 </a>
+                {accessUrls?.panel_url && (
+                  <a href={accessUrls.panel_url} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" className="btn-cyber-outline" data-testid="connect-1panel">
+                      <Terminal className="w-4 h-4 mr-2" />
+                      Conectar via 1Panel
+                    </Button>
+                  </a>
+                )}
                 <Button 
                   variant="outline" 
                   className="btn-cyber-outline"
@@ -220,7 +228,10 @@ const VMDetail = () => {
                   <span className="terminal-dot terminal-dot-green" />
                 </div>
                 <div className="space-y-2 text-sm">
-                  <p><span className="text-brand-teal">TSplus URL:</span> {accessUrls?.tsplus_url}</p>
+                  <p><span className="text-brand-teal">TSplus URL:</span> https://web.tsplus.html5/</p>
+                  {accessUrls?.panel_url && (
+                    <p><span className="text-brand-amber">1Panel URL:</span> {accessUrls.panel_url}</p>
+                  )}
                   <p><span className="text-brand-blue">NetBird IP:</span> {accessUrls?.rdp_ip}</p>
                   <p><span className="text-muted-custom">Internal IP:</span> {accessUrls?.internal_ip}</p>
                 </div>

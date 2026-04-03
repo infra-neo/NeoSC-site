@@ -290,12 +290,23 @@ const Dashboard = () => {
                           >
                             <Button className="btn-cyber" data-testid={`connect-vm-${vm.id}`}>
                               <ExternalLink className="w-4 h-4 mr-2" />
-                              Connect
+                              TSplus
                             </Button>
                           </a>
+                          {vm.panel_port && (
+                            <a
+                              href={`http://${vm.internal_ip}:${vm.panel_port}/`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Button variant="outline" className="btn-cyber-outline" data-testid={`connect-panel-${vm.id}`}>
+                                1Panel
+                              </Button>
+                            </a>
+                          )}
                           <Link to={`/vm/${vm.id}`}>
                             <Button variant="outline" className="btn-cyber-outline" data-testid={`manage-vm-${vm.id}`}>
-                              Manage
+                              Gestionar
                             </Button>
                           </Link>
                         </div>

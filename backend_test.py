@@ -293,6 +293,166 @@ class WinDeskAPITester:
             return isinstance(orders, list)
         return False
 
+    def test_admin_vms(self):
+        """Test GET /api/admin/vms - should return 7 VMs including 4 PROD VMs"""
+        if not hasattr(self, 'admin_session'):
+            return False
+        response = self.admin_session.get(f"{self.base_url}/api/admin/vms")
+        if response.status_code == 200:
+            vms = response.json()
+            if isinstance(vms, list):
+                # Should have at least 4 pre-built VMs
+                prod_vms = [vm for vm in vms if vm.get('name', '').startswith('WinDesk-PROD')]
+                self.log(f"Found {len(vms)} total VMs, {len(prod_vms)} PROD VMs")
+                return len(prod_vms) >= 4 and len(vms) >= 4
+        return False
+
+    def test_admin_groups(self):
+        """Test GET /api/admin/groups - should return 3 default groups"""
+        if not hasattr(self, 'admin_session'):
+            return False
+        response = self.admin_session.get(f"{self.base_url}/api/admin/groups")
+        if response.status_code == 200:
+            groups = response.json()
+            if isinstance(groups, list):
+                expected_groups = ['Desarrollo', 'Soporte Técnico', 'Finanzas']
+                group_names = [g.get('name') for g in groups]
+                self.log(f"Found groups: {group_names}")
+                return len(groups) >= 3 and all(name in group_names for name in expected_groups)
+        return False
+
+    def test_admin_roles(self):
+        """Test GET /api/admin/roles - should return 3 default roles"""
+        if not hasattr(self, 'admin_session'):
+            return False
+        response = self.admin_session.get(f"{self.base_url}/api/admin/roles")
+        if response.status_code == 200:
+            roles = response.json()
+            if isinstance(roles, list):
+                expected_roles = ['Administrador', 'Operador', 'Usuario']
+                role_names = [r.get('name') for r in roles]
+                self.log(f"Found roles: {role_names}")
+                return len(roles) >= 3 and all(name in role_names for name in expected_roles)
+        return False
+
+    def test_admin_acls(self):
+        """Test GET /api/admin/acls - should return 3 default ACLs"""
+        if not hasattr(self, 'admin_session'):
+            return False
+        response = self.admin_session.get(f"{self.base_url}/api/admin/acls")
+        if response.status_code == 200:
+            acls = response.json()
+            if isinstance(acls, list):
+                expected_acls = ['Acceso Completo', 'Solo Conexión', 'Solo Lectura']
+                acl_names = [a.get('name') for a in acls]
+                self.log(f"Found ACLs: {acl_names}")
+                return len(acls) >= 3 and all(name in acl_names for name in expected_acls)
+        return False
+
+    def test_create_policy(self):
+        """Test POST /api/admin/policies - create new policy"""
+        if not hasattr(self, 'admin_session'):
+            return False
+        
+        # First get available users and VMs
+        users_response = self.admin_session.get(f"{self.base_url}/api/admin/users")
+        vms_response = self.admin_session.get(f"{self.base_url}/api/admin/vms")
+        acls_response = self.admin_session.get(f"{self.base_url}/api/admin/acls")
+        
+        if users_response.status_code != 200 or vms_response.status_code != 200 or acls_response.status_code != 200:
+            return False
+            
+        users = users_response.json()
+        vms = vms_response.json()
+        acls = acls_response.json()
+        
+        if not users or not vms or not acls:
+            return False
+            
+        # Create a test policy
+        policy_data = {
+            "name": "Test Policy",
+            "description": "Test policy for API testing",
+            "policy_type": "user_vm",
+            "subject_type": "user",
+            "subject_ids": [users[0]['id']],
+            "vm_ids": [vms[0]['id']],
+            "acl_id": acls[0]['id'],
+            "enabled": True
+        }
+        
+        response = self.admin_session.post(f"{self.base_url}/api/admin/policies", json=policy_data)
+        if response.status_code == 200:
+            policy = response.json()
+            self.test_policy_id = policy.get('id')
+            return policy.get('name') == 'Test Policy'
+        return False
+
+    def test_vm_assignment(self):
+        """Test VM assignment to users/groups"""
+        if not hasattr(self, 'admin_session'):
+            return False
+            
+        # Get a VM and user for assignment
+        vms_response = self.admin_session.get(f"{self.base_url}/api/admin/vms")
+        users_response = self.admin_session.get(f"{self.base_url}/api/admin/users")
+        
+        if vms_response.status_code != 200 or users_response.status_code != 200:
+            return False
+            
+        vms = vms_response.json()
+        users = users_response.json()
+        
+        if not vms or not users:
+            return False
+            
+        vm_id = vms[0]['id']
+        user_id = users[0]['id']
+        
+        # Test VM assignment via PUT /api/admin/vms/{vm_id}
+        assignment_data = {
+            "assigned_user_ids": [user_id],
+            "assigned_group_ids": []
+        }
+        
+        response = self.admin_session.put(f"{self.base_url}/api/admin/vms/{vm_id}", json=assignment_data)
+        if response.status_code == 200:
+            updated_vm = response.json()
+            return user_id in updated_vm.get('assigned_user_ids', [])
+        return False
+
+    def test_access_url_dual_connection(self):
+        """Test access URL returns both tsplus_url and panel_url"""
+        if not hasattr(self, 'admin_session'):
+            return False
+            
+        # Get a VM with panel_port
+        vms_response = self.admin_session.get(f"{self.base_url}/api/admin/vms")
+        if vms_response.status_code != 200:
+            return False
+            
+        vms = vms_response.json()
+        vm_with_panel = None
+        
+        for vm in vms:
+            if vm.get('panel_port'):
+                vm_with_panel = vm
+                break
+                
+        if not vm_with_panel:
+            self.log("No VM with panel_port found for dual connection test")
+            return False
+            
+        # Test access URL
+        response = self.admin_session.get(f"{self.base_url}/api/vms/{vm_with_panel['id']}/access-url")
+        if response.status_code == 200:
+            access_data = response.json()
+            has_tsplus = 'tsplus_url' in access_data
+            has_panel = 'panel_url' in access_data and access_data['panel_url'] is not None
+            self.log(f"Access URL data: {access_data}")
+            return has_tsplus and has_panel
+        return False
+
     def test_logout(self):
         """Test POST /api/auth/logout"""
         response = self.session.post(f"{self.base_url}/api/auth/logout")
@@ -339,6 +499,15 @@ class WinDeskAPITester:
         self.run_test("Admin Stats", self.test_admin_stats)
         self.run_test("Admin Users", self.test_admin_users)
         self.run_test("Admin Orders", self.test_admin_orders)
+        
+        # Extended admin tests for new features
+        self.run_test("Admin VMs (7 VMs including 4 PROD)", self.test_admin_vms)
+        self.run_test("Admin Groups (3 default groups)", self.test_admin_groups)
+        self.run_test("Admin Roles (3 default roles)", self.test_admin_roles)
+        self.run_test("Admin ACLs (3 default ACLs)", self.test_admin_acls)
+        self.run_test("Create Policy", self.test_create_policy)
+        self.run_test("VM Assignment to Users/Groups", self.test_vm_assignment)
+        self.run_test("Access URL Dual Connection (TSplus + 1Panel)", self.test_access_url_dual_connection)
         
         # Cleanup
         self.run_test("User Logout", self.test_logout)

@@ -111,6 +111,84 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
+# ==================== GROUP, ROLE, ACL, POLICY MODELS ====================
+
+class GroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    member_ids: Optional[List[str]] = None
+
+class RoleCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    permissions: List[str] = []
+
+class RoleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    permissions: Optional[List[str]] = None
+
+class ACLCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    resource_type: str  # "vm", "group", "all"
+    resource_ids: List[str] = []
+    allowed_actions: List[str] = []  # "connect_tsplus", "connect_1panel", "restart", "snapshot", "view"
+    enabled: bool = True
+
+class ACLUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    resource_ids: Optional[List[str]] = None
+    allowed_actions: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+
+class PolicyCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    policy_type: str  # "user_vm", "group_vm"
+    subject_type: str  # "user", "group"
+    subject_ids: List[str] = []
+    vm_ids: List[str] = []
+    acl_id: Optional[str] = None
+    enabled: bool = True
+
+class PolicyUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    subject_ids: Optional[List[str]] = None
+    vm_ids: Optional[List[str]] = None
+    acl_id: Optional[str] = None
+    enabled: Optional[bool] = None
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    group_ids: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+
+class VMCreate(BaseModel):
+    name: str
+    internal_ip: str
+    vcpu: int = 2
+    ram_gb: int = 4
+    disk_gb: int = 80
+    region: str = "eu-west"
+    has_tsplus: bool = True
+    panel_port: Optional[int] = None  # For 1panel access
+
+class VMUpdate(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    internal_ip: Optional[str] = None
+    panel_port: Optional[int] = None
+    assigned_user_ids: Optional[List[str]] = None
+    assigned_group_ids: Optional[List[str]] = None
+
 # ==================== AUTH HELPERS ====================
 
 def hash_password(password: str) -> str:
@@ -175,15 +253,41 @@ async def seed_data():
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
     
     existing_admin = await db.users.find_one({"email": admin_email})
+    admin_id = None
     if not existing_admin:
-        await db.users.insert_one({
+        result = await db.users.insert_one({
             "email": admin_email,
             "password_hash": hash_password(admin_password),
             "name": "Platform Admin",
             "role": "platform_admin",
+            "group_ids": [],
+            "enabled": True,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
+        admin_id = str(result.inserted_id)
         logger.info(f"Admin user created: {admin_email}")
+    else:
+        admin_id = str(existing_admin["_id"])
+    
+    # Seed demo users
+    demo_users = [
+        {"email": "usuario1@windesk.cloud", "name": "Usuario Demo 1", "password": "Demo123!"},
+        {"email": "usuario2@windesk.cloud", "name": "Usuario Demo 2", "password": "Demo123!"},
+        {"email": "usuario3@windesk.cloud", "name": "Usuario Demo 3", "password": "Demo123!"},
+    ]
+    
+    for demo_user in demo_users:
+        existing = await db.users.find_one({"email": demo_user["email"]})
+        if not existing:
+            await db.users.insert_one({
+                "email": demo_user["email"],
+                "password_hash": hash_password(demo_user["password"]),
+                "name": demo_user["name"],
+                "role": "customer",
+                "group_ids": [],
+                "enabled": True,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
     
     # Seed plans
     plans = [
@@ -226,10 +330,198 @@ async def seed_data():
         await db.plans.update_one({"id": plan["id"]}, {"$set": plan}, upsert=True)
     logger.info("Plans seeded")
     
+    # Seed 4 pre-built VMs
+    prebuilt_vms = [
+        {
+            "id": "vm-prod-001",
+            "order_id": "prebuilt",
+            "user_id": None,
+            "name": "WinDesk-PROD-001",
+            "status": "available",
+            "internal_ip": "10.100.10.150",
+            "netbird_ip": "100.79.10.150",
+            "tunnel_hostname": "prod001.desk.kappa4.com",
+            "vcpu": 4,
+            "ram_gb": 8,
+            "disk_gb": 160,
+            "region": "eu-west",
+            "has_tsplus": True,
+            "panel_port": 33491,
+            "assigned_user_ids": [],
+            "assigned_group_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "vm-prod-002",
+            "order_id": "prebuilt",
+            "user_id": None,
+            "name": "WinDesk-PROD-002",
+            "status": "available",
+            "internal_ip": "10.100.10.151",
+            "netbird_ip": "100.79.10.151",
+            "tunnel_hostname": "prod002.desk.kappa4.com",
+            "vcpu": 4,
+            "ram_gb": 8,
+            "disk_gb": 160,
+            "region": "eu-west",
+            "has_tsplus": True,
+            "panel_port": 33492,
+            "assigned_user_ids": [],
+            "assigned_group_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "vm-prod-003",
+            "order_id": "prebuilt",
+            "user_id": None,
+            "name": "WinDesk-PROD-003",
+            "status": "available",
+            "internal_ip": "10.100.10.152",
+            "netbird_ip": "100.79.10.152",
+            "tunnel_hostname": "prod003.desk.kappa4.com",
+            "vcpu": 8,
+            "ram_gb": 16,
+            "disk_gb": 320,
+            "region": "eu-central",
+            "has_tsplus": True,
+            "panel_port": 33493,
+            "assigned_user_ids": [],
+            "assigned_group_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "vm-prod-004",
+            "order_id": "prebuilt",
+            "user_id": None,
+            "name": "WinDesk-PROD-004",
+            "status": "available",
+            "internal_ip": "10.100.10.153",
+            "netbird_ip": "100.79.10.153",
+            "tunnel_hostname": "prod004.desk.kappa4.com",
+            "vcpu": 2,
+            "ram_gb": 4,
+            "disk_gb": 80,
+            "region": "us-east",
+            "has_tsplus": True,
+            "panel_port": 33494,
+            "assigned_user_ids": [],
+            "assigned_group_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+    
+    for vm in prebuilt_vms:
+        existing_vm = await db.vms.find_one({"id": vm["id"]})
+        if not existing_vm:
+            await db.vms.insert_one(vm)
+    logger.info("Pre-built VMs seeded")
+    
+    # Seed default roles
+    default_roles = [
+        {
+            "id": "role-admin",
+            "name": "Administrador",
+            "description": "Acceso total a todas las funciones",
+            "permissions": ["manage_users", "manage_groups", "manage_vms", "manage_acls", "manage_policies", "connect_all", "view_all"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "role-operator",
+            "name": "Operador",
+            "description": "Puede gestionar VMs y ver usuarios",
+            "permissions": ["manage_vms", "view_users", "connect_assigned"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "role-user",
+            "name": "Usuario",
+            "description": "Solo puede conectarse a VMs asignadas",
+            "permissions": ["connect_assigned", "view_own"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+    
+    for role in default_roles:
+        await db.roles.update_one({"id": role["id"]}, {"$set": role}, upsert=True)
+    logger.info("Default roles seeded")
+    
+    # Seed default groups
+    default_groups = [
+        {
+            "id": "group-desarrollo",
+            "name": "Desarrollo",
+            "description": "Equipo de desarrollo de software",
+            "member_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "group-soporte",
+            "name": "Soporte Técnico",
+            "description": "Equipo de soporte y help desk",
+            "member_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "group-finanzas",
+            "name": "Finanzas",
+            "description": "Departamento de finanzas y contabilidad",
+            "member_ids": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+    
+    for group in default_groups:
+        existing = await db.groups.find_one({"id": group["id"]})
+        if not existing:
+            await db.groups.insert_one(group)
+    logger.info("Default groups seeded")
+    
+    # Seed default ACLs
+    default_acls = [
+        {
+            "id": "acl-full-access",
+            "name": "Acceso Completo",
+            "description": "Permite todas las acciones en los recursos",
+            "resource_type": "all",
+            "resource_ids": [],
+            "allowed_actions": ["connect_tsplus", "connect_1panel", "restart", "snapshot", "view"],
+            "enabled": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "acl-connect-only",
+            "name": "Solo Conexión",
+            "description": "Solo permite conectarse a las VMs",
+            "resource_type": "vm",
+            "resource_ids": [],
+            "allowed_actions": ["connect_tsplus", "connect_1panel", "view"],
+            "enabled": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "acl-view-only",
+            "name": "Solo Lectura",
+            "description": "Solo puede ver información, sin conectar",
+            "resource_type": "vm",
+            "resource_ids": [],
+            "allowed_actions": ["view"],
+            "enabled": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+    
+    for acl in default_acls:
+        await db.acls.update_one({"id": acl["id"]}, {"$set": acl}, upsert=True)
+    logger.info("Default ACLs seeded")
+    
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.groups.create_index("id", unique=True)
+    await db.roles.create_index("id", unique=True)
+    await db.acls.create_index("id", unique=True)
+    await db.policies.create_index("id", unique=True)
     
     # Write test credentials
     os.makedirs("/app/memory", exist_ok=True)
@@ -239,11 +531,15 @@ async def seed_data():
         f.write(f"- Email: {admin_email}\n")
         f.write(f"- Password: {admin_password}\n")
         f.write("- Role: platform_admin\n\n")
-        f.write("## Auth Endpoints\n")
-        f.write("- POST /api/auth/register\n")
-        f.write("- POST /api/auth/login\n")
-        f.write("- POST /api/auth/logout\n")
-        f.write("- GET /api/auth/me\n")
+        f.write("## Demo Users\n")
+        f.write("- usuario1@windesk.cloud / Demo123!\n")
+        f.write("- usuario2@windesk.cloud / Demo123!\n")
+        f.write("- usuario3@windesk.cloud / Demo123!\n\n")
+        f.write("## Pre-built VMs\n")
+        f.write("- vm-prod-001: 10.100.10.150 (4 vCPU, 8GB RAM)\n")
+        f.write("- vm-prod-002: 10.100.10.151 (4 vCPU, 8GB RAM)\n")
+        f.write("- vm-prod-003: 10.100.10.152 (8 vCPU, 16GB RAM)\n")
+        f.write("- vm-prod-004: 10.100.10.153 (2 vCPU, 4GB RAM)\n")
 
 # ==================== LIFESPAN ====================
 
@@ -559,7 +855,7 @@ async def create_snapshot(vm_id: str, user: dict = Depends(get_current_user)):
     vm = await db.vms.find_one({"id": vm_id})
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if user["role"] not in ["admin", "platform_admin"] and vm["user_id"] != user["id"]:
+    if user["role"] not in ["admin", "platform_admin"] and vm.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     snapshot_id = f"snap-{uuid.uuid4().hex[:8]}"
@@ -570,20 +866,6 @@ async def create_snapshot(vm_id: str, user: dict = Depends(get_current_user)):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     return {"message": "Snapshot created", "snapshot_id": snapshot_id}
-
-@api_router.get("/vms/{vm_id}/access-url")
-async def get_access_url(vm_id: str, user: dict = Depends(get_current_user)):
-    vm = await db.vms.find_one({"id": vm_id}, {"_id": 0})
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if user["role"] not in ["admin", "platform_admin"] and vm["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    return {
-        "tsplus_url": "https://web.tsplus.html5/",
-        "rdp_ip": vm["netbird_ip"],
-        "internal_ip": vm["internal_ip"]
-    }
 
 # ==================== ADMIN ROUTES ====================
 
@@ -614,6 +896,351 @@ async def get_all_users(user: dict = Depends(require_admin)):
 async def get_all_orders(user: dict = Depends(require_admin)):
     orders = await db.orders.find({}, {"_id": 0}).to_list(1000)
     return orders
+
+# ==================== ADMIN USER MANAGEMENT ====================
+
+@api_router.put("/admin/users/{user_id}")
+async def update_user(user_id: str, data: UserUpdate, user: dict = Depends(require_admin)):
+    existing = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
+    
+    updated = await db.users.find_one({"_id": ObjectId(user_id)}, {"password_hash": 0})
+    updated["id"] = str(updated.pop("_id"))
+    return updated
+
+@api_router.delete("/admin/users/{user_id}")
+async def delete_user(user_id: str, user: dict = Depends(require_admin)):
+    existing = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    if existing["email"] == user["email"]:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    
+    await db.users.delete_one({"_id": ObjectId(user_id)})
+    return {"message": "User deleted"}
+
+@api_router.post("/admin/users")
+async def create_user_admin(data: UserRegister, user: dict = Depends(require_admin)):
+    email = data.email.lower()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user_doc = {
+        "email": email,
+        "password_hash": hash_password(data.password),
+        "name": data.name,
+        "role": "customer",
+        "group_ids": [],
+        "enabled": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    result = await db.users.insert_one(user_doc)
+    return {"id": str(result.inserted_id), "email": email, "name": data.name, "role": "customer"}
+
+# ==================== GROUPS MANAGEMENT ====================
+
+@api_router.get("/admin/groups")
+async def get_groups(user: dict = Depends(require_admin)):
+    groups = await db.groups.find({}, {"_id": 0}).to_list(1000)
+    return groups
+
+@api_router.post("/admin/groups")
+async def create_group(data: GroupCreate, user: dict = Depends(require_admin)):
+    group_id = f"group-{uuid.uuid4().hex[:8]}"
+    group_doc = {
+        "id": group_id,
+        "name": data.name,
+        "description": data.description,
+        "member_ids": [],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.groups.insert_one(group_doc)
+    group_doc.pop("_id", None)
+    return group_doc
+
+@api_router.get("/admin/groups/{group_id}")
+async def get_group(group_id: str, user: dict = Depends(require_admin)):
+    group = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return group
+
+@api_router.put("/admin/groups/{group_id}")
+async def update_group(group_id: str, data: GroupUpdate, user: dict = Depends(require_admin)):
+    existing = await db.groups.find_one({"id": group_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.groups.update_one({"id": group_id}, {"$set": update_data})
+    
+    updated = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/admin/groups/{group_id}")
+async def delete_group(group_id: str, user: dict = Depends(require_admin)):
+    existing = await db.groups.find_one({"id": group_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # Remove group from all users
+    await db.users.update_many({"group_ids": group_id}, {"$pull": {"group_ids": group_id}})
+    await db.groups.delete_one({"id": group_id})
+    return {"message": "Group deleted"}
+
+@api_router.post("/admin/groups/{group_id}/members")
+async def add_group_member(group_id: str, user_id: str, user: dict = Depends(require_admin)):
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    target_user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.groups.update_one({"id": group_id}, {"$addToSet": {"member_ids": user_id}})
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$addToSet": {"group_ids": group_id}})
+    return {"message": "Member added to group"}
+
+@api_router.delete("/admin/groups/{group_id}/members/{member_id}")
+async def remove_group_member(group_id: str, member_id: str, user: dict = Depends(require_admin)):
+    await db.groups.update_one({"id": group_id}, {"$pull": {"member_ids": member_id}})
+    await db.users.update_one({"_id": ObjectId(member_id)}, {"$pull": {"group_ids": group_id}})
+    return {"message": "Member removed from group"}
+
+# ==================== ROLES MANAGEMENT ====================
+
+@api_router.get("/admin/roles")
+async def get_roles(user: dict = Depends(require_admin)):
+    roles = await db.roles.find({}, {"_id": 0}).to_list(1000)
+    return roles
+
+@api_router.post("/admin/roles")
+async def create_role(data: RoleCreate, user: dict = Depends(require_admin)):
+    role_id = f"role-{uuid.uuid4().hex[:8]}"
+    role_doc = {
+        "id": role_id,
+        "name": data.name,
+        "description": data.description,
+        "permissions": data.permissions,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.roles.insert_one(role_doc)
+    role_doc.pop("_id", None)
+    return role_doc
+
+@api_router.put("/admin/roles/{role_id}")
+async def update_role(role_id: str, data: RoleUpdate, user: dict = Depends(require_admin)):
+    existing = await db.roles.find_one({"id": role_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Role not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.roles.update_one({"id": role_id}, {"$set": update_data})
+    
+    updated = await db.roles.find_one({"id": role_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/admin/roles/{role_id}")
+async def delete_role(role_id: str, user: dict = Depends(require_admin)):
+    if role_id in ["role-admin", "role-operator", "role-user"]:
+        raise HTTPException(status_code=400, detail="Cannot delete default roles")
+    
+    await db.roles.delete_one({"id": role_id})
+    return {"message": "Role deleted"}
+
+# ==================== ACLs MANAGEMENT ====================
+
+@api_router.get("/admin/acls")
+async def get_acls(user: dict = Depends(require_admin)):
+    acls = await db.acls.find({}, {"_id": 0}).to_list(1000)
+    return acls
+
+@api_router.post("/admin/acls")
+async def create_acl(data: ACLCreate, user: dict = Depends(require_admin)):
+    acl_id = f"acl-{uuid.uuid4().hex[:8]}"
+    acl_doc = {
+        "id": acl_id,
+        "name": data.name,
+        "description": data.description,
+        "resource_type": data.resource_type,
+        "resource_ids": data.resource_ids,
+        "allowed_actions": data.allowed_actions,
+        "enabled": data.enabled,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.acls.insert_one(acl_doc)
+    acl_doc.pop("_id", None)
+    return acl_doc
+
+@api_router.put("/admin/acls/{acl_id}")
+async def update_acl(acl_id: str, data: ACLUpdate, user: dict = Depends(require_admin)):
+    existing = await db.acls.find_one({"id": acl_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="ACL not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.acls.update_one({"id": acl_id}, {"$set": update_data})
+    
+    updated = await db.acls.find_one({"id": acl_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/admin/acls/{acl_id}")
+async def delete_acl(acl_id: str, user: dict = Depends(require_admin)):
+    await db.acls.delete_one({"id": acl_id})
+    # Remove ACL reference from policies
+    await db.policies.update_many({"acl_id": acl_id}, {"$set": {"acl_id": None}})
+    return {"message": "ACL deleted"}
+
+# ==================== POLICIES MANAGEMENT ====================
+
+@api_router.get("/admin/policies")
+async def get_policies(user: dict = Depends(require_admin)):
+    policies = await db.policies.find({}, {"_id": 0}).to_list(1000)
+    return policies
+
+@api_router.post("/admin/policies")
+async def create_policy(data: PolicyCreate, user: dict = Depends(require_admin)):
+    policy_id = f"policy-{uuid.uuid4().hex[:8]}"
+    policy_doc = {
+        "id": policy_id,
+        "name": data.name,
+        "description": data.description,
+        "policy_type": data.policy_type,
+        "subject_type": data.subject_type,
+        "subject_ids": data.subject_ids,
+        "vm_ids": data.vm_ids,
+        "acl_id": data.acl_id,
+        "enabled": data.enabled,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.policies.insert_one(policy_doc)
+    policy_doc.pop("_id", None)
+    return policy_doc
+
+@api_router.put("/admin/policies/{policy_id}")
+async def update_policy(policy_id: str, data: PolicyUpdate, user: dict = Depends(require_admin)):
+    existing = await db.policies.find_one({"id": policy_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.policies.update_one({"id": policy_id}, {"$set": update_data})
+    
+    updated = await db.policies.find_one({"id": policy_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/admin/policies/{policy_id}")
+async def delete_policy(policy_id: str, user: dict = Depends(require_admin)):
+    await db.policies.delete_one({"id": policy_id})
+    return {"message": "Policy deleted"}
+
+# ==================== ADMIN VM MANAGEMENT ====================
+
+@api_router.get("/admin/vms")
+async def get_all_vms(user: dict = Depends(require_admin)):
+    vms = await db.vms.find({}, {"_id": 0}).to_list(1000)
+    return vms
+
+@api_router.post("/admin/vms")
+async def create_vm_admin(data: VMCreate, user: dict = Depends(require_admin)):
+    vm_id = f"vm-{uuid.uuid4().hex[:8]}"
+    vm_doc = {
+        "id": vm_id,
+        "order_id": "admin-created",
+        "user_id": None,
+        "name": data.name,
+        "status": "available",
+        "internal_ip": data.internal_ip,
+        "netbird_ip": f"100.79.{random.randint(1, 254)}.{random.randint(1, 254)}",
+        "tunnel_hostname": f"{vm_id}.desk.kappa4.com",
+        "vcpu": data.vcpu,
+        "ram_gb": data.ram_gb,
+        "disk_gb": data.disk_gb,
+        "region": data.region,
+        "has_tsplus": data.has_tsplus,
+        "panel_port": data.panel_port,
+        "assigned_user_ids": [],
+        "assigned_group_ids": [],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.vms.insert_one(vm_doc)
+    vm_doc.pop("_id", None)
+    return vm_doc
+
+@api_router.put("/admin/vms/{vm_id}")
+async def update_vm_admin(vm_id: str, data: VMUpdate, user: dict = Depends(require_admin)):
+    existing = await db.vms.find_one({"id": vm_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="VM not found")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.vms.update_one({"id": vm_id}, {"$set": update_data})
+    
+    updated = await db.vms.find_one({"id": vm_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/admin/vms/{vm_id}")
+async def delete_vm_admin(vm_id: str, user: dict = Depends(require_admin)):
+    await db.vms.delete_one({"id": vm_id})
+    return {"message": "VM deleted"}
+
+@api_router.post("/admin/vms/{vm_id}/assign")
+async def assign_vm(vm_id: str, user_ids: List[str] = [], group_ids: List[str] = [], user: dict = Depends(require_admin)):
+    vm = await db.vms.find_one({"id": vm_id})
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    
+    update_data = {}
+    if user_ids:
+        update_data["assigned_user_ids"] = user_ids
+    if group_ids:
+        update_data["assigned_group_ids"] = group_ids
+    if update_data:
+        await db.vms.update_one({"id": vm_id}, {"$set": update_data})
+    
+    updated = await db.vms.find_one({"id": vm_id}, {"_id": 0})
+    return updated
+
+# ==================== ACCESS URL WITH 1PANEL SUPPORT ====================
+
+@api_router.get("/vms/{vm_id}/access-url")
+async def get_access_url(vm_id: str, user: dict = Depends(get_current_user)):
+    vm = await db.vms.find_one({"id": vm_id}, {"_id": 0})
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if user["role"] not in ["admin", "platform_admin"] and vm.get("user_id") != user["id"]:
+        # Check if user is assigned or in assigned group
+        user_id = user["id"]
+        user_groups = user.get("group_ids", [])
+        assigned_users = vm.get("assigned_user_ids", [])
+        assigned_groups = vm.get("assigned_group_ids", [])
+        
+        has_access = user_id in assigned_users or any(g in assigned_groups for g in user_groups)
+        if not has_access and user["role"] not in ["admin", "platform_admin"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    panel_url = None
+    if vm.get("panel_port"):
+        panel_url = f"http://{vm['internal_ip']}:{vm['panel_port']}/"
+    
+    return {
+        "tsplus_url": "https://web.tsplus.html5/",
+        "panel_url": panel_url,
+        "rdp_ip": vm.get("netbird_ip"),
+        "internal_ip": vm.get("internal_ip")
+    }
 
 # ==================== HEALTH CHECK ====================
 
