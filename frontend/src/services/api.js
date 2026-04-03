@@ -84,4 +84,9 @@ export const completeOnboarding = () => api.post('/onboarding/complete');
 export const completeTour = () => api.post('/onboarding/complete-tour');
 export const getOnboardingSummary = () => api.get('/onboarding/summary');
 
+// Zitadel OIDC
+export const getZitadelConfig = () => api.get('/auth/zitadel/config');
+export const zitadelLogin = () => `${API_URL}/api/auth/zitadel/login`;
+export const zitadelLogout = () => `${API_URL}/api/auth/zitadel/logout`;
+
 export default api;

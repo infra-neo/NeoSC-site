@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Monitor, ArrowRight, AlertCircle } from 'lucide-react';
+import { getZitadelConfig, zitadelLogin } from '../services/api';
+import { Monitor, ArrowRight, AlertCircle, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,8 +21,23 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [zitadelEnabled, setZitadelEnabled] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    // Check for auth errors from callback
+    const authError = searchParams.get('error');
+    if (authError) {
+      setError('Authentication failed. Please try again.');
+    }
+
+    // Check Zitadel config
+    getZitadelConfig()
+      .then(res => setZitadelEnabled(res.data.enabled))
+      .catch(() => setZitadelEnabled(false));
+  }, [searchParams]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,6 +53,10 @@ const Login = () => {
     }
   };
 
+  const handleZitadelLogin = () => {
+    window.location.href = zitadelLogin();
+  };
+
   return (
     <div className="min-h-screen gradient-hero grid-pattern flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -47,8 +67,8 @@ const Login = () => {
               <span className="text-2xl font-bold text-brand-teal">WinDesk</span>
               <span className="text-2xl font-light text-muted2">Cloud</span>
             </Link>
-            <h1 className="text-2xl font-bold mb-2">Welcome back</h1>
-            <p className="text-muted-custom">Sign in to access your virtual desktop</p>
+            <h1 className="text-2xl font-bold mb-2">Bienvenido</h1>
+            <p className="text-muted-custom">Inicia sesión para acceder a tu escritorio virtual</p>
           </div>
 
           {error && (
@@ -58,13 +78,37 @@ const Login = () => {
             </div>
           )}
 
+          {/* Zitadel SSO Button */}
+          {zitadelEnabled && (
+            <>
+              <Button
+                type="button"
+                onClick={handleZitadelLogin}
+                className="w-full mb-4 bg-[#5469d4] hover:bg-[#4356b4] text-white py-6"
+                data-testid="zitadel-login-btn"
+              >
+                <Shield className="w-5 h-5 mr-3" />
+                Iniciar sesión con Zitadel SSO
+              </Button>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-custom"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-4 bg-surface text-muted-custom">o continuar con email</span>
+                </div>
+              </div>
+            </>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="tu@empresa.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -73,7 +117,7 @@ const Login = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Contraseña</Label>
               <Input
                 id="password"
                 type="password"
@@ -91,21 +135,21 @@ const Login = () => {
               disabled={loading}
               data-testid="login-submit-btn"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
               {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm text-muted-custom">
-            Don't have an account?{' '}
+            ¿No tienes cuenta?{' '}
             <Link to="/register" className="text-brand-teal hover:underline" data-testid="go-to-register">
-              Create one
+              Crear una
             </Link>
           </div>
 
           <div className="mt-4 p-3 rounded-lg bg-elevated border border-custom text-center">
             <p className="text-xs text-muted2 mono">
-              Demo Mode: admin@windesk.cloud / Admin123!
+              Demo: usuario1@windesk.cloud / Demo123!
             </p>
           </div>
         </div>

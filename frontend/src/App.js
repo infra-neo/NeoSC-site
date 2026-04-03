@@ -15,6 +15,7 @@ import Checkout from "./pages/Checkout";
 import VMDetail from "./pages/VMDetail";
 import Admin from "./pages/Admin";
 import Onboarding from "./pages/Onboarding";
+import AuthCallback from "./pages/AuthCallback";
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -78,6 +79,7 @@ function App() {
                 </PublicRoute>
               }
             />
+            <Route path="/auth/callback" element={<AuthCallback />} />
 
             {/* Protected Routes */}
             <Route

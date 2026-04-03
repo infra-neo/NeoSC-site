@@ -5,6 +5,8 @@ load_dotenv(ROOT_DIR / '.env')
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, BackgroundTasks
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import RedirectResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 import os
@@ -15,10 +17,12 @@ import jwt
 import secrets
 import asyncio
 import random
+import httpx
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional
 from contextlib import asynccontextmanager
+from authlib.integrations.starlette_client import OAuth
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -28,6 +32,12 @@ db = client[os.environ['DB_NAME']]
 # JWT Config
 JWT_ALGORITHM = "HS256"
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
+
+# Zitadel OIDC Config
+ZITADEL_DOMAIN = os.environ.get("ZITADEL_DOMAIN", "")
+ZITADEL_CLIENT_ID = os.environ.get("ZITADEL_CLIENT_ID", "")
+ZITADEL_CALLBACK_URL = os.environ.get("ZITADEL_CALLBACK_URL", "")
+ZITADEL_POST_LOGOUT_URL = os.environ.get("ZITADEL_POST_LOGOUT_URL", "")
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -577,6 +587,21 @@ async def lifespan(app: FastAPI):
 # ==================== APP SETUP ====================
 
 app = FastAPI(title="WinDesk Cloud API", lifespan=lifespan)
+
+# Session middleware for OAuth state
+app.add_middleware(SessionMiddleware, secret_key=JWT_SECRET)
+
+# Initialize OAuth with Zitadel
+oauth = OAuth()
+if ZITADEL_DOMAIN and ZITADEL_CLIENT_ID:
+    oauth.register(
+        name='zitadel',
+        client_id=ZITADEL_CLIENT_ID,
+        client_secret=None,  # PKCE flow, no secret needed
+        server_metadata_url=f'{ZITADEL_DOMAIN}/.well-known/openid-configuration',
+        client_kwargs={'scope': 'openid profile email'},
+    )
+
 api_router = APIRouter(prefix="/api")
 
 # ==================== AUTH ROUTES ====================
@@ -709,6 +734,117 @@ async def reset_password(data: ResetPasswordRequest):
     )
     await db.password_reset_tokens.update_one({"token": data.token}, {"$set": {"used": True}})
     return {"message": "Password reset successfully"}
+
+# ==================== ZITADEL OIDC ROUTES ====================
+
+@api_router.get("/auth/zitadel/login")
+async def zitadel_login(request: Request):
+    """Initiate Zitadel OIDC login flow"""
+    if not ZITADEL_DOMAIN:
+        raise HTTPException(status_code=503, detail="Zitadel not configured")
+    redirect_uri = ZITADEL_CALLBACK_URL
+    return await oauth.zitadel.authorize_redirect(request, redirect_uri)
+
+@api_router.get("/auth/zitadel/callback")
+async def zitadel_callback(request: Request, response: Response):
+    """Handle Zitadel OIDC callback"""
+    try:
+        token = await oauth.zitadel.authorize_access_token(request)
+        userinfo = token.get('userinfo', {})
+        
+        if not userinfo:
+            # Fetch userinfo manually
+            async with httpx.AsyncClient() as client:
+                userinfo_response = await client.get(
+                    f'{ZITADEL_DOMAIN}/oidc/v1/userinfo',
+                    headers={'Authorization': f'Bearer {token["access_token"]}'}
+                )
+                if userinfo_response.status_code == 200:
+                    userinfo = userinfo_response.json()
+        
+        email = userinfo.get('email', '').lower()
+        name = userinfo.get('name') or userinfo.get('preferred_username') or email.split('@')[0]
+        zitadel_sub = userinfo.get('sub')
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="Email not provided by Zitadel")
+        
+        # Find or create user
+        user = await db.users.find_one({"email": email})
+        
+        if not user:
+            # Create new user from Zitadel
+            user_doc = {
+                "email": email,
+                "password_hash": None,  # No password for SSO users
+                "name": name,
+                "role": "customer",
+                "zitadel_sub": zitadel_sub,
+                "auth_provider": "zitadel",
+                "group_ids": [],
+                "enabled": True,
+                "email_verified": userinfo.get('email_verified', False),
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            result = await db.users.insert_one(user_doc)
+            user_id = str(result.inserted_id)
+            user_role = "customer"
+            logger.info(f"New user created from Zitadel: {email}")
+        else:
+            user_id = str(user["_id"])
+            user_role = user.get("role", "customer")
+            # Update Zitadel sub if not set
+            if not user.get("zitadel_sub"):
+                await db.users.update_one(
+                    {"_id": user["_id"]},
+                    {"$set": {"zitadel_sub": zitadel_sub, "auth_provider": "zitadel"}}
+                )
+        
+        # Create JWT tokens
+        access_token = create_access_token(user_id, email)
+        refresh_token = create_refresh_token(user_id)
+        
+        # Create response with redirect
+        redirect_response = RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/dashboard", status_code=302)
+        redirect_response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=3600, path="/")
+        redirect_response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+        
+        # Store Zitadel tokens in session for logout
+        request.session['zitadel_id_token'] = token.get('id_token')
+        
+        return redirect_response
+        
+    except Exception as e:
+        logger.error(f"Zitadel callback error: {str(e)}")
+        return RedirectResponse(url=f"{ZITADEL_POST_LOGOUT_URL}/login?error=auth_failed", status_code=302)
+
+@api_router.get("/auth/zitadel/logout")
+async def zitadel_logout(request: Request, response: Response):
+    """Logout from Zitadel"""
+    # Clear local session
+    response.delete_cookie("access_token", path="/", secure=True, samesite="none")
+    response.delete_cookie("refresh_token", path="/", secure=True, samesite="none")
+    
+    # Get ID token for Zitadel logout
+    id_token = request.session.get('zitadel_id_token')
+    request.session.clear()
+    
+    # Redirect to Zitadel end session endpoint
+    logout_url = f'{ZITADEL_DOMAIN}/oidc/v1/end_session?post_logout_redirect_uri={ZITADEL_POST_LOGOUT_URL}'
+    if id_token:
+        logout_url += f'&id_token_hint={id_token}'
+    
+    return RedirectResponse(url=logout_url, status_code=302)
+
+@api_router.get("/auth/zitadel/config")
+async def get_zitadel_config():
+    """Return Zitadel configuration for frontend"""
+    return {
+        "enabled": bool(ZITADEL_DOMAIN and ZITADEL_CLIENT_ID),
+        "domain": ZITADEL_DOMAIN,
+        "client_id": ZITADEL_CLIENT_ID,
+        "callback_url": ZITADEL_CALLBACK_URL
+    }
 
 # ==================== PLANS ROUTES ====================
 
