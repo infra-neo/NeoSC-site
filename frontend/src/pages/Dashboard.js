@@ -32,18 +32,18 @@ const Dashboard = () => {
           navigate('/onboarding');
           return;
         }
-        // Check if tour should be shown
-        if (searchParams.get('tour') === 'true' || res.data.show_tour) {
-          setShowTour(true);
-        }
+        // Always show tour on login
+        setShowTour(true);
       } catch (err) {
         console.error('Onboarding check failed:', err);
+        // Still show tour even if check fails
+        setShowTour(true);
       } finally {
         setCheckingOnboarding(false);
       }
     };
     checkOnboarding();
-  }, [navigate, searchParams]);
+  }, [navigate]);
 
   const handleTourComplete = async () => {
     setShowTour(false);

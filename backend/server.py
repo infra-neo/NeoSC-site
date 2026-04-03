@@ -831,7 +831,21 @@ async def simulate_payment(data: SimulatePaymentRequest, background_tasks: Backg
 
 @api_router.get("/vms", response_model=List[VMResponse])
 async def get_vms(user: dict = Depends(get_current_user)):
-    query = {} if user["role"] in ["admin", "platform_admin"] else {"user_id": user["id"]}
+    # Admin sees all VMs, regular users only see their own VMs (created via orders)
+    # Plus VMs where they are explicitly assigned
+    if user["role"] in ["admin", "platform_admin"]:
+        query = {}
+    else:
+        # User sees: VMs they own OR VMs they are assigned to
+        user_id = user["id"]
+        user_groups = user.get("group_ids", [])
+        query = {
+            "$or": [
+                {"user_id": user_id},
+                {"assigned_user_ids": user_id},
+                {"assigned_group_ids": {"$in": user_groups}} if user_groups else {"_id": None}
+            ]
+        }
     vms = await db.vms.find(query, {"_id": 0}).to_list(100)
     return vms
 
@@ -840,8 +854,17 @@ async def get_vm(vm_id: str, user: dict = Depends(get_current_user)):
     vm = await db.vms.find_one({"id": vm_id}, {"_id": 0})
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if user["role"] not in ["admin", "platform_admin"] and vm["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check access: admin, owner, or assigned
+    if user["role"] not in ["admin", "platform_admin"]:
+        user_id = user["id"]
+        user_groups = user.get("group_ids", [])
+        is_owner = vm.get("user_id") == user_id
+        is_assigned_user = user_id in vm.get("assigned_user_ids", [])
+        is_assigned_group = any(g in vm.get("assigned_group_ids", []) for g in user_groups)
+        
+        if not (is_owner or is_assigned_user or is_assigned_group):
+            raise HTTPException(status_code=403, detail="Access denied")
     return vm
 
 @api_router.get("/vms/{vm_id}/metrics", response_model=VMMetrics)
@@ -850,8 +873,17 @@ async def get_vm_metrics(vm_id: str, user: dict = Depends(get_current_user)):
     vm = await db.vms.find_one({"id": vm_id})
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if user["role"] not in ["admin", "platform_admin"] and vm["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check access
+    if user["role"] not in ["admin", "platform_admin"]:
+        user_id = user["id"]
+        user_groups = user.get("group_ids", [])
+        is_owner = vm.get("user_id") == user_id
+        is_assigned_user = user_id in vm.get("assigned_user_ids", [])
+        is_assigned_group = any(g in vm.get("assigned_group_ids", []) for g in user_groups)
+        
+        if not (is_owner or is_assigned_user or is_assigned_group):
+            raise HTTPException(status_code=403, detail="Access denied")
     
     # Simulated metrics
     return VMMetrics(
@@ -1272,11 +1304,21 @@ async def get_access_url(vm_id: str, user: dict = Depends(get_current_user)):
 @api_router.get("/onboarding/status")
 async def get_onboarding_status(user: dict = Depends(get_current_user)):
     """Check if user needs onboarding"""
-    # Check if organization exists for this user
+    # Only platform_admin users go through onboarding
+    if user["role"] != "platform_admin":
+        return {
+            "is_new_customer": False,
+            "onboarding_completed": True,
+            "current_step": 4,
+            "organization_name": None,
+            "show_tour": True  # Always show tour for regular users
+        }
+    
+    # Check if organization exists for this admin user
     org = await db.organizations.find_one({"admin_user_id": user["id"]})
     
     if not org:
-        # New customer - needs onboarding
+        # New admin customer - needs onboarding
         return {
             "is_new_customer": True,
             "onboarding_completed": False,
@@ -1290,7 +1332,7 @@ async def get_onboarding_status(user: dict = Depends(get_current_user)):
         "onboarding_completed": org.get("onboarding_completed", True),
         "current_step": org.get("onboarding_step", 4),
         "organization_name": org.get("name"),
-        "show_tour": not org.get("tour_completed", False)
+        "show_tour": True  # Always show tour
     }
 
 @api_router.post("/onboarding/organization")
