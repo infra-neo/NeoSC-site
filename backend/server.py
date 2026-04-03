@@ -580,7 +580,7 @@ async def get_access_url(vm_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
     
     return {
-        "tsplus_url": f"https://{vm['tunnel_hostname']}/",
+        "tsplus_url": "https://web.tsplus.html5/",
         "rdp_ip": vm["netbird_ip"],
         "internal_ip": vm["internal_ip"]
     }

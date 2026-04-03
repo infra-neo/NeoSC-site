@@ -284,7 +284,7 @@ const Dashboard = () => {
                         {/* Actions */}
                         <div className="flex items-center gap-3">
                           <a
-                            href={`https://${vm.tunnel_hostname}`}
+                            href="https://web.tsplus.html5/"
                             target="_blank"
                             rel="noopener noreferrer"
                           >

@@ -123,7 +123,7 @@ const VMDetail = () => {
             <div className="card-cyber p-6">
               <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
               <div className="flex flex-wrap gap-3">
-                <a href={accessUrls?.tsplus_url} target="_blank" rel="noopener noreferrer">
+                <a href="https://web.tsplus.html5/" target="_blank" rel="noopener noreferrer">
                   <Button className="btn-cyber" data-testid="connect-tsplus">
                     <ExternalLink className="w-4 h-4 mr-2" />
                     Connect via TSplus
