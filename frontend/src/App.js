@@ -1,142 +1,144 @@
-import React from "react";
-import "@/App.css";
-import "@/index.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { Toaster } from "@/components/ui/sonner";
+import "@/App.css";
 
 // Pages
-import Landing from "./pages/Landing";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
-import Plans from "./pages/Plans";
-import Checkout from "./pages/Checkout";
-import VMDetail from "./pages/VMDetail";
-import Admin from "./pages/Admin";
-import Onboarding from "./pages/Onboarding";
-import AuthCallback from "./pages/AuthCallback";
+import LandingPage from "@/pages/LandingPage";
+import LoginPage from "@/pages/LoginPage";
+import AuthCallbackPage from "@/pages/AuthCallbackPage";
+import DashboardPage from "@/pages/DashboardPage";
+import WorkspacesPage from "@/pages/WorkspacesPage";
+import SessionsPage from "@/pages/SessionsPage";
+import AuditLogsPage from "@/pages/AuditLogsPage";
+import PoliciesPage from "@/pages/PoliciesPage";
+import OrganizationsPage from "@/pages/OrganizationsPage";
+import SettingsPage from "@/pages/SettingsPage";
+import WorkspaceViewerPage from "@/pages/WorkspaceViewerPage";
+import MultiViewPage from "@/pages/MultiViewPage";
+import ApplicationsPage from "@/pages/ApplicationsPage";
+
+// Market — Windows VDI self-service
+import MarketPage from "@/pages/market/MarketPage";
+import CheckoutPage from "@/pages/market/CheckoutPage";
+import ProvisionProgressPage from "@/pages/market/ProvisionProgressPage";
+
+// Auth Context
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+// Language Context
+import { LanguageProvider } from "@/i18n/LanguageContext";
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
-
+  
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--color-bg-primary)] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-brand-teal border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
       </div>
     );
   }
-
+  
   if (!user) {
     return <Navigate to="/login" replace />;
   }
-
-  return children;
-};
-
-// Public Route (redirect to dashboard if logged in)
-const PublicRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[var(--color-bg-primary)] flex items-center justify-center">
-        <div className="w-8 h-8 border-brand-teal border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
+  
   return children;
 };
 
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <LanguageProvider>
         <div className="App">
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<Landing />} />
-            <Route
-              path="/login"
-              element={
-                <PublicRoute>
-                  <Login />
-                </PublicRoute>
-              }
-            />
-            <Route
-              path="/register"
-              element={
-                <PublicRoute>
-                  <Register />
-                </PublicRoute>
-              }
-            />
-            <Route path="/auth/callback" element={<AuthCallback />} />
+          <BrowserRouter>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-            {/* Protected Routes */}
-            <Route
-              path="/dashboard"
-              element={
+              {/* Market — Windows VDI (plan selection public, checkout requires auth) */}
+              <Route path="/market" element={<MarketPage />} />
+              <Route path="/market/checkout" element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <CheckoutPage />
                 </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/onboarding"
-              element={
+              } />
+              <Route path="/market/progress" element={
                 <ProtectedRoute>
-                  <Onboarding />
+                  <ProvisionProgressPage />
                 </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/plans"
-              element={
+              } />
+              
+              {/* Protected Routes */}
+              <Route path="/dashboard" element={
                 <ProtectedRoute>
-                  <Plans />
+                  <DashboardPage />
                 </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/checkout/:planId"
-              element={
+              } />
+              <Route path="/workspaces" element={
                 <ProtectedRoute>
-                  <Checkout />
+                  <WorkspacesPage />
                 </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/vm/:vmId"
-              element={
+              } />
+              <Route path="/applications" element={
                 <ProtectedRoute>
-                  <VMDetail />
+                  <ApplicationsPage />
                 </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin"
-              element={
+              } />
+              <Route path="/multi-view" element={
                 <ProtectedRoute>
-                  <Admin />
+                  <MultiViewPage />
                 </ProtectedRoute>
-              }
-            />
-
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-          <Toaster />
+              } />
+              <Route path="/sessions" element={
+                <ProtectedRoute>
+                  <SessionsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/audit-logs" element={
+                <ProtectedRoute>
+                  <AuditLogsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/policies" element={
+                <ProtectedRoute>
+                  <PoliciesPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/organizations" element={
+                <ProtectedRoute>
+                  <OrganizationsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/settings" element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/viewer/:sessionId" element={
+                <ProtectedRoute>
+                  <WorkspaceViewerPage />
+                </ProtectedRoute>
+              } />
+            </Routes>
+          </BrowserRouter>
+          <Toaster 
+            position="bottom-right" 
+            toastOptions={{
+              style: {
+                background: '#0f172a',
+                border: '1px solid #1e293b',
+                color: '#f8fafc',
+              },
+            }}
+          />
         </div>
-      </BrowserRouter>
+      </LanguageProvider>
     </AuthProvider>
   );
 }
