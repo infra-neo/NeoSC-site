@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeoSC — WinDesk Market · Flujo de Pantallas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#020617;--surface:#0f172a;--surface2:#1e293b;--surface3:#334155;
+  --cyan:#06b6d4;--orange:#f97316;--green:#10b981;--red:#ef4444;--amber:#f59e0b;--purple:#a855f7;
+  --text:#f8fafc;--muted:#94a3b8;--border:#1e293b;
+  --font-head:'Outfit',sans-serif;--font-body:'Inter',sans-serif;--font-mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:13px;overflow-x:hidden}
+
+/* ── NAV ── */
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.96);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0;overflow-x:auto;
+  padding:0 1.5rem;height:52px}
+.nav-brand{font-family:var(--font-head);font-size:15px;font-weight:800;color:var(--cyan);
+  white-space:nowrap;margin-right:2rem;letter-spacing:-.03em}
+.nav-brand span{color:var(--orange)}
+nav a{color:var(--muted);text-decoration:none;font-size:11px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;padding:0 .85rem;height:52px;display:flex;align-items:center;
+  border-bottom:2px solid transparent;white-space:nowrap;transition:color .2s,border-color .2s;cursor:pointer}
+nav a:hover,nav a.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.nav-badge{background:var(--cyan);color:#000;font-size:9px;font-weight:800;padding:1px 5px;
+  border-radius:3px;margin-left:6px}
+
+/* ── SECTION ── */
+section{display:none;animation:fadeIn .25s ease}
+section.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.container{max-width:1200px;margin:0 auto;padding:2rem 1.5rem}
+
+/* ── CARD ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem}
+.card-glow{box-shadow:0 0 0 1px var(--cyan),0 0 30px rgba(6,182,212,.1)}
+
+/* ── SCREEN WRAPPER ── */
+.screen-label{display:inline-flex;align-items:center;gap:.5rem;background:rgba(6,182,212,.08);
+  border:1px solid rgba(6,182,212,.2);border-radius:6px;padding:.3rem .75rem;font-size:10px;
+  font-weight:700;color:var(--cyan);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1.25rem}
+.screen-num{background:var(--cyan);color:#000;font-size:10px;font-weight:800;padding:.1rem .4rem;border-radius:3px}
+
+/* ── TYPOGRAPHY ── */
+h1{font-family:var(--font-head);font-size:2rem;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+h2{font-family:var(--font-head);font-size:1.25rem;font-weight:700;margin-bottom:.6rem}
+h3{font-family:var(--font-head);font-size:.95rem;font-weight:700;margin-bottom:.4rem}
+.mono{font-family:var(--font-mono)}
+
+/* ── GRIDS ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:.65rem}
+@media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* ── TAGS ── */
+.tag{display:inline-flex;align-items:center;gap:.25rem;font-size:9px;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;padding:.2rem .5rem;border-radius:4px}
+.tc{background:rgba(6,182,212,.12);color:var(--cyan);border:1px solid rgba(6,182,212,.25)}
+.to{background:rgba(249,115,22,.12);color:var(--orange);border:1px solid rgba(249,115,22,.25)}
+.tg{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.25)}
+.tr{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.25)}
+.tp{background:rgba(168,85,247,.12);color:var(--purple);border:1px solid rgba(168,85,247,.25)}
+.ta{background:rgba(245,158,11,.12);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+
+/* ── PROGRESS STEP ── */
+.step-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin:.75rem 0}
+.step{border:1px solid var(--border);border-radius:10px;padding:.65rem;transition:all .3s}
+.step.done{border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.05)}
+.step.run{border-color:rgba(6,182,212,.6);background:rgba(6,182,212,.08);animation:pulse 1.5s infinite}
+.step.pend{opacity:.45}
+.step.fail{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.05)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(6,182,212,.3)}50%{box-shadow:0 0 0 6px rgba(6,182,212,0)}}
+.step-icon{font-size:1.1rem;margin-bottom:.3rem}
+.step-name{font-size:10px;font-weight:600;color:var(--muted);line-height:1.3}
+.step.done .step-name{color:var(--green)}
+.step.run .step-name{color:var(--cyan)}
+
+/* ── PLAN CARD ── */
+.plan-card{background:var(--surface);border:2px solid var(--border);border-radius:14px;
+  padding:1.25rem;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.plan-card:hover{border-color:var(--surface3);transform:translateY(-2px)}
+.plan-card.active-plan{border-color:var(--cyan);box-shadow:0 0 24px rgba(6,182,212,.15)}
+.plan-card.popular::before{content:'POPULAR';position:absolute;top:-1px;right:-.5rem;
+  background:var(--cyan);color:#000;font-size:8px;font-weight:900;padding:.2rem .8rem;
+  letter-spacing:.1em;transform:rotate(0deg);border-radius:0 14px 0 6px}
+.plan-price{font-family:var(--font-head);font-size:2rem;font-weight:900;color:var(--cyan);line-height:1}
+.plan-per{font-size:11px;color:var(--muted)}
+
+/* ── SLIDER ── */
+.slider-wrap{margin:.75rem 0}
+.slider-wrap label{display:flex;justify-content:space-between;font-size:11px;margin-bottom:.4rem}
+.slider-wrap label span:last-child{color:var(--cyan);font-weight:700;font-family:var(--font-mono)}
+input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;
+  background:linear-gradient(to right,var(--cyan) var(--val,50%),var(--surface3) var(--val,50%));
+  outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;
+  border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 8px rgba(6,182,212,.4)}
+
+/* ── ADDON PILL ── */
+.addon{display:flex;align-items:center;justify-content:space-between;padding:.6rem .85rem;
+  border-radius:10px;border:1px solid var(--border);cursor:pointer;transition:all .2s}
+.addon:hover,.addon.active-addon{border-color:rgba(6,182,212,.5);background:rgba(6,182,212,.06)}
+.addon.active-addon .addon-check{background:var(--cyan);border-color:var(--cyan)}
+.addon-check{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--surface3);
+  flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.addon-check::after{content:'✓';font-size:9px;color:#000;display:none}
+.addon.active-addon .addon-check::after{display:block}
+
+/* ── PAYMENT METHOD ── */
+.pay-method{display:flex;flex-direction:column;align-items:center;gap:.35rem;padding:.85rem .65rem;
+  border-radius:10px;border:1.5px solid var(--border);cursor:pointer;transition:all .2s;font-size:11px}
+.pay-method:hover,.pay-method.active-pay{border-color:var(--cyan);background:rgba(6,182,212,.08)}
+.pay-method .pay-icon{font-size:1.5rem}
+
+/* ── LOG TERMINAL ── */
+.terminal{background:#000;border:1px solid var(--surface3);border-radius:8px;padding:.75rem;
+  font-family:var(--font-mono);font-size:10px;line-height:1.8;height:110px;overflow:hidden;position:relative}
+.terminal-line{color:var(--muted)}
+.terminal-line.success-l{color:var(--green)}
+.terminal-line.info-l{color:var(--cyan)}
+.terminal-line.run-l{color:var(--amber)}
+.cursor{display:inline-block;width:6px;height:12px;background:var(--cyan);animation:blink .8s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── VM CARD ── */
+.vm-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.vm-header{background:var(--surface2);padding:.75rem 1rem;display:flex;align-items:center;gap:.75rem;
+  border-bottom:1px solid var(--border)}
+.vm-status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 8px var(--green);flex-shrink:0}
+.vm-body{padding:.85rem 1rem}
+.vm-metric{display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem}
+.vm-metric-bar{height:4px;border-radius:2px;background:var(--surface3);flex:1;margin:0 .5rem;overflow:hidden}
+.vm-metric-fill{height:100%;border-radius:2px;transition:width 1s ease}
+
+/* ── PROGRESS BAR ── */
+.pbar-wrap{margin:.5rem 0}
+.pbar-track{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
+.pbar-fill{height:100%;border-radius:3px;transition:width 1.2s cubic-bezier(.4,0,.2,1)}
+
+/* ── SUMMARY BOX ── */
+.summary-row{display:flex;justify-content:space-between;align-items:center;
+  padding:.35rem 0;border-bottom:1px solid rgba(30,41,59,.5);font-size:11px}
+.summary-row:last-child{border-bottom:none}
+.summary-row .label{color:var(--muted)}
+.summary-total{display:flex;justify-content:space-between;align-items:baseline;
+  margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)}
+
+/* ── BUTTON ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font-size:12px;
+  font-weight:700;padding:.55rem 1.1rem;border-radius:8px;cursor:pointer;transition:all .2s;
+  border:none;letter-spacing:.02em;font-family:var(--font-body)}
+.btn-cyan{background:var(--cyan);color:#000}
+.btn-cyan:hover{background:#22d3ee}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--surface3);color:var(--text)}
+.btn-orange{background:var(--orange);color:#fff}
+.btn-sm{padding:.35rem .75rem;font-size:11px}
+.btn-full{width:100%;font-size:13px;padding:.7rem}
+
+/* ── SECTION TITLE ── */
+.section-title{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);margin-bottom:.6rem;display:flex;align-items:center;gap:.4rem}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── INPUT ── */
+input[type=text],input[type=email]{background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;padding:.45rem .75rem;color:var(--text);font-size:12px;width:100%;
+  font-family:var(--font-body);outline:none;transition:border-color .2s}
+input[type=text]:focus,input[type=email]:focus{border-color:var(--cyan)}
+
+/* ── RESPONSIVE FLOW NAV ── */
+.flow-nav{display:flex;align-items:center;gap:0;justify-content:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:.25rem}
+.flow-step-pill{display:flex;align-items:center;gap:.3rem;padding:.3rem .65rem;border-radius:20px;
+  font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;border:1px solid transparent;letter-spacing:.03em}
+.flow-step-pill.done-pill{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.3);color:var(--green)}
+.flow-step-pill.active-pill{background:rgba(6,182,212,.15);border-color:var(--cyan);color:var(--cyan)}
+.flow-step-pill.inactive-pill{background:var(--surface);border-color:var(--border);color:var(--muted)}
+.flow-arrow{color:var(--surface3);font-size:12px;margin:0 .1rem}
+
+/* ── MISC ── */
+hr{border:none;border-top:1px solid var(--border);margin:.85rem 0}
+.row{display:flex;gap:.5rem;align-items:center}
+.col{display:flex;flex-direction:column;gap:.35rem}
+.mini-badge{font-size:9px;font-weight:800;padding:.1rem .4rem;border-radius:3px}
+.badge-new{background:var(--orange);color:#fff}
+.badge-live{background:var(--green);color:#000}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">Neo<span>SC</span> &nbsp;·&nbsp; WinDesk Market</div>
+  <a onclick="show('s1',this)" class="active">S1 Landing</a>
+  <a onclick="show('s2',this)">S2 Planes <span class="nav-badge">NEW</span></a>
+  <a onclick="show('s3',this)">S3 Configurador</a>
+  <a onclick="show('s4',this)">S4 Checkout</a>
+  <a onclick="show('s5',this)">S5 Progreso</a>
+  <a onclick="show('s6',this)">S6 Portal VM</a>
+  <a onclick="show('s7',this)">S7 Panel Admin</a>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S1 — LANDING PAGE (hero con CTA al market)
+════════════════════════════════════════════════════════════ -->
+<section id="s1" class="active">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S1</span> Landing Page · / (público)</div>
+
+  <!-- Mini landing simulada -->
+  <div class="card" style="border-color:rgba(6,182,212,.2);overflow:hidden;position:relative">
+    <!-- Glow bg -->
+    <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:400px;height:200px;
+      background:radial-gradient(ellipse,rgba(6,182,212,.12) 0%,transparent 70%);pointer-events:none"></div>
+
+    <div style="text-align:center;padding:2rem 1rem 1.5rem;position:relative">
+      <div class="tag tc" style="margin-bottom:.85rem">🔒 Zero Trust Windows VDI · Powered by Netbird + Zitadel</div>
+      <h1 style="font-size:2.2rem;margin-bottom:.5rem">
+        Tu escritorio Windows<br>
+        <span style="color:var(--cyan)">seguro en la nube</span>
+      </h1>
+      <p style="color:var(--muted);max-width:480px;margin:.5rem auto 1.5rem;line-height:1.6">
+        TSplus HTML5 + Netbird mesh + Zitadel SSO. Acceso desde cualquier navegador, sin VPN.
+        Listo en <span style="color:var(--cyan);font-weight:700">~8 minutos</span>.
+      </p>
+
+      <div style="display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-cyan" style="padding:.65rem 1.4rem;font-size:12px" onclick="show('s2',document.querySelector('nav a:nth-child(3)'))">
+          🪟 Ver planes Windows VDI
+        </button>
+        <button class="btn btn-ghost" style="padding:.65rem 1.1rem;font-size:12px">▶ Ver demo en vivo</button>
+        <button class="btn btn-ghost" style="padding:.65rem 1.1rem;font-size:12px">Precios →</button>
+      </div>
+
+      <div style="display:flex;gap:1.5rem;justify-content:center;margin-top:1.5rem;font-size:10px;color:var(--muted)">
+        <span>🔒 Zero Trust</span><span>🌐 HTML5 clientless</span>
+        <span>⚡ ~8 min deploy</span><span>🛡️ Netbird WireGuard</span>
+      </div>
+    </div>
+
+    <hr>
+    <!-- Pricing preview -->
+    <div style="padding:.75rem .5rem">
+      <div class="section-title">Planes Windows VDI <span class="mini-badge badge-new">NUEVO</span></div>
+      <div class="g3">
+        <div class="plan-card" onclick="show('s2',document.querySelector('nav a:nth-child(3)'))">
+          <div class="tag tc" style="margin-bottom:.5rem">5 usuarios TSplus</div>
+          <h3 style="font-family:var(--font-head)">NeoSC Starter</h3>
+          <div style="margin:.35rem 0"><span class="plan-price" style="font-size:1.5rem">$49</span><span class="plan-per">/mes</span></div>
+          <div style="font-size:10px;color:var(--muted)">2 vCPU · 4GB · 60GB NVMe</div>
+        </div>
+        <div class="plan-card popular active-plan">
+          <div class="tag tc" style="margin-bottom:.5rem">10 usuarios TSplus</div>
+          <h3 style="font-family:var(--font-head)">NeoSC Business</h3>
+          <div style="margin:.35rem 0"><span class="plan-price" style="font-size:1.5rem">$99</span><span class="plan-per">/mes</span></div>
+          <div style="font-size:10px;color:var(--muted)">4 vCPU · 8GB · 80GB NVMe</div>
+        </div>
+        <div class="plan-card" onclick="show('s2',document.querySelector('nav a:nth-child(3)'))">
+          <div class="tag tp" style="margin-bottom:.5rem">25 usuarios TSplus</div>
+          <h3 style="font-family:var(--font-head)">NeoSC Enterprise</h3>
+          <div style="margin:.35rem 0"><span class="plan-price" style="font-size:1.5rem">$199</span><span class="plan-per">/mes</span></div>
+          <div style="font-size:10px;color:var(--muted)">8 vCPU · 16GB · 160GB NVMe</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S2 — MARKET PAGE: selección de plan + billing toggle
+════════════════════════════════════════════════════════════ -->
+<section id="s2">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S2</span> Market Page · /market (público)</div>
+
+  <div class="card" id="s2-card">
+    <!-- Header Market -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.5rem">
+      <div>
+        <h2 style="font-family:var(--font-head);font-size:1.4rem">Elige tu plan <span style="color:var(--cyan)">Windows VDI</span></h2>
+        <p style="color:var(--muted);font-size:11px;margin-top:.2rem">TSplus HTML5 · Netbird Zero Trust · Zitadel SSO. Sin VPN, sin cliente.</p>
+      </div>
+      <!-- Billing toggle -->
+      <div style="display:flex;align-items:center;gap:.5rem;background:var(--surface2);padding:.25rem;border-radius:20px;border:1px solid var(--border)">
+        <button onclick="setBilling('monthly',this)" id="btn-mo" class="btn btn-cyan btn-sm" style="border-radius:16px">Mensual</button>
+        <button onclick="setBilling('annual',this)" id="btn-yr" class="btn btn-ghost btn-sm" style="border-radius:16px">
+          Anual <span class="mini-badge badge-live" style="margin-left:3px">−20%</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="g3" id="plan-cards">
+      <!-- Plan Starter -->
+      <div class="plan-card" id="plan-starter" onclick="selectPlan('starter')">
+        <div class="tag tc" style="margin-bottom:.5rem">5 usuarios TSplus</div>
+        <div style="font-family:var(--font-head);font-weight:800;margin-bottom:.25rem">NeoSC Starter</div>
+        <div><span class="plan-price" id="price-starter">$49</span><span class="plan-per">/mes</span></div>
+        <div style="font-size:10px;color:var(--muted);margin:.35rem 0 .75rem">2 vCPU · 4GB RAM · 60GB NVMe</div>
+        <ul style="list-style:none;font-size:10px;color:var(--muted);line-height:2">
+          <li>✓ 5 licencias TSplus HTML5</li>
+          <li>✓ Netbird Zero Trust</li>
+          <li>✓ Zitadel SSO + TOTP</li>
+          <li>✓ Soporte email</li>
+        </ul>
+      </div>
+
+      <!-- Plan Business (popular) -->
+      <div class="plan-card popular active-plan" id="plan-business" onclick="selectPlan('business')">
+        <div class="tag tc" style="margin-bottom:.5rem">10 usuarios TSplus</div>
+        <div style="font-family:var(--font-head);font-weight:800;margin-bottom:.25rem">NeoSC Business</div>
+        <div><span class="plan-price" id="price-business">$99</span><span class="plan-per">/mes</span></div>
+        <div style="font-size:10px;color:var(--muted);margin:.35rem 0 .75rem">4 vCPU · 8GB RAM · 80GB NVMe</div>
+        <ul style="list-style:none;font-size:10px;color:var(--muted);line-height:2">
+          <li>✓ 10 licencias TSplus HTML5</li>
+          <li>✓ Netbird Zero Trust</li>
+          <li>✓ Zitadel SSO + Google/MS SSO</li>
+          <li>✓ Soporte prioritario 4h</li>
+          <li>✓ Grabación de sesiones</li>
+        </ul>
+      </div>
+
+      <!-- Plan Enterprise -->
+      <div class="plan-card" id="plan-enterprise" onclick="selectPlan('enterprise')">
+        <div class="tag tp" style="margin-bottom:.5rem">25 usuarios TSplus</div>
+        <div style="font-family:var(--font-head);font-weight:800;margin-bottom:.25rem">NeoSC Enterprise</div>
+        <div><span class="plan-price" id="price-enterprise">$199</span><span class="plan-per">/mes</span></div>
+        <div style="font-size:10px;color:var(--muted);margin:.35rem 0 .75rem">8 vCPU · 16GB RAM · 160GB NVMe</div>
+        <ul style="list-style:none;font-size:10px;color:var(--muted);line-height:2">
+          <li>✓ 25 licencias TSplus HTML5</li>
+          <li>✓ Relay Netbird dedicado</li>
+          <li>✓ Zitadel SSO + AD/LDAP</li>
+          <li>✓ Soporte 24/7 · SLA 99.9%</li>
+          <li>✓ Grabación de sesiones</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:1.25rem">
+      <button class="btn btn-cyan" onclick="show('s3',document.querySelector('nav a:nth-child(4)'))" style="padding:.65rem 1.75rem;font-size:13px">
+        Configurar Business → Paso 2
+      </button>
+      <p style="font-size:10px;color:var(--muted);margin-top:.5rem">🔒 Sin compromisos · Cancela cuando quieras</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S3 — CONFIGURADOR: recursos + TSplus + addons + región
+════════════════════════════════════════════════════════════ -->
+<section id="s3">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S3</span> Configurador · /market (paso 2)</div>
+
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:.85rem">
+    <!-- Panel izquierdo -->
+    <div class="col" style="gap:.75rem">
+
+      <!-- Recursos VM -->
+      <div class="card">
+        <h3>🖥 Recursos de la VM</h3>
+        <hr>
+        <div class="slider-wrap">
+          <label><span>vCPU</span><span id="vcpu-val">4 cores</span></label>
+          <input type="range" min="2" max="16" value="4" step="2" oninput="updateSlider(this,'vcpu-val',this.value+' cores')" style="--val:20%">
+        </div>
+        <div class="slider-wrap">
+          <label><span>RAM</span><span id="ram-val">8 GB</span></label>
+          <input type="range" min="4" max="32" value="8" step="4" oninput="updateSlider(this,'ram-val',this.value+' GB')" style="--val:13%">
+        </div>
+        <div class="slider-wrap">
+          <label><span>Disco NVMe</span><span id="disk-val">80 GB</span></label>
+          <input type="range" min="60" max="500" value="80" step="20" oninput="updateSlider(this,'disk-val',this.value+' GB')" style="--val:5%">
+        </div>
+      </div>
+
+      <!-- TSplus -->
+      <div class="card">
+        <h3>📦 Configuración TSplus</h3>
+        <hr>
+        <div class="section-title">Licencias de usuario</div>
+        <div style="display:flex;gap:.4rem;margin-bottom:.75rem">
+          <button onclick="setTs(5,this)" class="btn btn-ghost btn-sm" style="flex:1">5</button>
+          <button onclick="setTs(10,this)" class="btn btn-cyan btn-sm" id="ts-10" style="flex:1">10</button>
+          <button onclick="setTs(25,this)" class="btn btn-ghost btn-sm" style="flex:1">25</button>
+        </div>
+        <div class="g2" style="gap:.4rem">
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:.3rem">Empresa (para la licencia)</div>
+            <input type="text" placeholder="Mi Empresa S.A.">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:.3rem">Hostname personalizado</div>
+            <div style="display:flex;align-items:center;gap:.3rem">
+              <input type="text" placeholder="miempresa" style="flex:1">
+              <span style="font-size:9px;color:var(--muted);white-space:nowrap">.desk.kappa4.com</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Región -->
+      <div class="card">
+        <h3>🌎 Región del servidor</h3>
+        <hr>
+        <div class="g3" style="gap:.4rem">
+          <div class="plan-card active-plan" style="padding:.65rem;text-align:center;cursor:pointer">
+            <div style="font-size:1.5rem">🇲🇽</div>
+            <div style="font-size:11px;font-weight:700">México</div>
+            <div style="font-size:9px;color:var(--muted)">~5ms · Bare Metal</div>
+          </div>
+          <div class="plan-card" style="padding:.65rem;text-align:center;cursor:pointer">
+            <div style="font-size:1.5rem">🇺🇸</div>
+            <div style="font-size:11px;font-weight:700">USA Central</div>
+            <div style="font-size:9px;color:var(--muted)">~35ms · GCP</div>
+          </div>
+          <div class="plan-card" style="padding:.65rem;text-align:center;opacity:.4;cursor:not-allowed">
+            <div style="font-size:1.5rem">🇪🇺</div>
+            <div style="font-size:11px;font-weight:700">Europa</div>
+            <div style="font-size:9px;color:var(--muted)">Próximamente</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add-ons -->
+      <div class="card">
+        <h3>✨ Add-ons opcionales</h3>
+        <hr>
+        <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.65rem">
+          <button class="btn btn-cyan btn-sm" style="border-radius:20px">Todos</button>
+          <button class="btn btn-ghost btn-sm" style="border-radius:20px">security</button>
+          <button class="btn btn-ghost btn-sm" style="border-radius:20px">storage</button>
+          <button class="btn btn-ghost btn-sm" style="border-radius:20px">support</button>
+          <button class="btn btn-ghost btn-sm" style="border-radius:20px">network</button>
+        </div>
+        <div class="g2" style="gap:.35rem" id="addon-list">
+          <div class="addon active-addon" onclick="this.classList.toggle('active-addon')">
+            <div class="row"><span>💾</span><div><div style="font-size:11px;font-weight:600">Backup Diario</div><div style="font-size:9px;color:var(--muted)">Snapshot auto + 30 días</div></div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:10px;font-weight:700;color:var(--cyan)">+$15</div><div class="addon-check"></div></div>
+          </div>
+          <div class="addon" onclick="this.classList.toggle('active-addon')">
+            <div class="row"><span>🔐</span><div><div style="font-size:11px;font-weight:600">SSO Google</div><div style="font-size:9px;color:var(--muted)">Login con Google Workspace</div></div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:10px;font-weight:700;color:var(--cyan)">+$10</div><div class="addon-check"></div></div>
+          </div>
+          <div class="addon" onclick="this.classList.toggle('active-addon')">
+            <div class="row"><span>🎥</span><div><div style="font-size:11px;font-weight:600">Grabación Sesiones</div><div style="font-size:9px;color:var(--muted)">Auditoría visual</div></div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:10px;font-weight:700;color:var(--cyan)">+$25</div><div class="addon-check"></div></div>
+          </div>
+          <div class="addon" onclick="this.classList.toggle('active-addon')">
+            <div class="row"><span>🛡️</span><div><div style="font-size:11px;font-weight:600">MFA Obligatorio</div><div style="font-size:9px;color:var(--muted)">Forzar 2FA</div></div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:10px;font-weight:700;color:var(--cyan)">+$5</div><div class="addon-check"></div></div>
+          </div>
+          <div class="addon" onclick="this.classList.toggle('active-addon')">
+            <div class="row"><span>📞</span><div><div style="font-size:11px;font-weight:600">Soporte 24/7</div><div style="font-size:9px;color:var(--muted)">Teléfono, 1h respuesta</div></div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:10px;font-weight:700;color:var(--cyan)">+$50</div><div class="addon-check"></div></div>
+          </div>
+          <div class="addon" onclick="this.classList.toggle('active-addon')">
+            <div class="row"><span>🌐</span><div><div style="font-size:11px;font-weight:600">Dominio Propio</div><div style="font-size:9px;color:var(--muted)">Tu propio dominio</div></div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:10px;font-weight:700;color:var(--cyan)">+$15</div><div class="addon-check"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel derecho sticky: resumen -->
+    <div class="card" style="position:sticky;top:64px;height:fit-content">
+      <h3>Resumen</h3>
+      <hr>
+      <!-- Billing mini toggle -->
+      <div style="display:flex;gap:.3rem;background:var(--surface2);padding:.2rem;border-radius:8px;margin-bottom:.85rem">
+        <button class="btn btn-cyan btn-sm" style="flex:1;border-radius:6px;font-size:10px">Mensual</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1;border-radius:6px;font-size:10px">Anual −20%</button>
+      </div>
+      <!-- Desglose -->
+      <div class="summary-row"><span class="label">NeoSC Business</span><span>$99.99</span></div>
+      <div class="summary-row"><span class="label">TSplus 10 lic.</span><span>incl.</span></div>
+      <div class="summary-row"><span class="label">Backup Diario</span><span style="color:var(--cyan)">+$15</span></div>
+      <div class="summary-row"><span class="label">4 vCPU / 8GB / 80GB</span><span style="color:var(--muted)">base</span></div>
+      <div class="summary-total">
+        <span style="color:var(--muted);font-size:11px">Total/mes</span>
+        <div style="text-align:right">
+          <span style="font-family:var(--font-head);font-size:1.8rem;font-weight:900;color:var(--cyan)">$114</span>
+          <span style="font-size:10px;color:var(--muted)">/mes</span>
+        </div>
+      </div>
+      <!-- Mini spec -->
+      <div style="background:var(--surface2);border-radius:8px;padding:.65rem;font-size:10px;font-family:var(--font-mono);line-height:2;margin:.75rem 0;color:var(--muted)">
+        ✓ Windows 11 · 4vCPU / 8GB / 80GB<br>
+        ✓ TSplus HTML5 — 10 usuarios<br>
+        ✓ Netbird mesh Zero Trust<br>
+        ✓ miempresa.desk.kappa4.com<br>
+        ✓ Listo en ~8 minutos
+      </div>
+      <button class="btn btn-cyan btn-full" onclick="show('s4',document.querySelector('nav a:nth-child(5)'))">
+        Continuar al pago →
+      </button>
+      <p style="font-size:9px;color:var(--muted);text-align:center;margin-top:.5rem">🔒 Sin permanencia · Cancela cuando quieras</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S4 — CHECKOUT: Stripe + PayPal + Demo
+════════════════════════════════════════════════════════════ -->
+<section id="s4">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S4</span> Checkout · /market/checkout (requiere auth)</div>
+
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:.85rem">
+    <div class="col" style="gap:.75rem">
+      <div class="card">
+        <h3>🔒 Pago seguro</h3>
+        <hr>
+
+        <!-- Método de pago -->
+        <div class="section-title" style="margin-bottom:.5rem">Método de pago</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.4rem;margin-bottom:1rem">
+          <div class="pay-method active-pay" onclick="selectPay(this)">
+            <div class="pay-icon">💳</div><div>Tarjeta</div>
+          </div>
+          <div class="pay-method" onclick="selectPay(this)">
+            <div class="pay-icon">🅿️</div><div>PayPal</div>
+          </div>
+          <div class="pay-method" onclick="selectPay(this)">
+            <div class="pay-icon">🧪</div><div>Demo</div>
+            <div style="font-size:9px;color:var(--muted)">Sin cobro</div>
+          </div>
+        </div>
+
+        <!-- Stripe Elements simulado -->
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:.75rem">
+          <div class="section-title">Datos de tarjeta</div>
+          <div class="col" style="gap:.4rem">
+            <input type="text" placeholder="4242 4242 4242 4242" style="font-family:var(--font-mono)">
+            <div class="g2" style="gap:.4rem">
+              <input type="text" placeholder="MM / YY" style="font-family:var(--font-mono)">
+              <input type="text" placeholder="CVC" style="font-family:var(--font-mono)">
+            </div>
+            <input type="text" placeholder="Nombre en la tarjeta">
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem;margin-top:.65rem;font-size:9px;color:var(--muted)">
+            🔒 Procesado por Stripe. Nunca almacenamos datos de tarjeta.
+          </div>
+        </div>
+
+        <!-- Términos -->
+        <div style="display:flex;align-items:flex-start;gap:.5rem;font-size:10px;color:var(--muted);margin-bottom:.85rem">
+          <input type="checkbox" id="terms" style="margin-top:.1rem">
+          <label for="terms">Acepto los <span style="color:var(--cyan)">términos de servicio</span> y la <span style="color:var(--cyan)">política de privacidad</span> de Kappa4 / Neogenesys.</label>
+        </div>
+
+        <button class="btn btn-cyan btn-full" onclick="show('s5',document.querySelector('nav a:nth-child(6)'))">
+          💳 Pagar $114.00 / mes
+        </button>
+      </div>
+    </div>
+
+    <!-- Resumen del pedido (readonly) -->
+    <div class="card" style="height:fit-content">
+      <h3>Pedido</h3>
+      <hr>
+      <div class="summary-row"><span class="label">Plan</span><span class="tag tc" style="font-size:9px">Business</span></div>
+      <div class="summary-row"><span class="label">VM</span><span>4vCPU / 8GB / 80GB</span></div>
+      <div class="summary-row"><span class="label">TSplus</span><span>10 usuarios</span></div>
+      <div class="summary-row"><span class="label">Región</span><span>🇲🇽 México</span></div>
+      <div class="summary-row"><span class="label">Addons</span><span>1 activo</span></div>
+      <div class="summary-row"><span class="label">Billing</span><span>Mensual</span></div>
+      <div class="summary-total">
+        <span style="color:var(--muted);font-size:11px">Total</span>
+        <div><span style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--cyan)">$114</span><span style="font-size:10px;color:var(--muted)">/mes</span></div>
+      </div>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:1.9">
+        ✓ Listo en ~8 min<br>
+        ✓ TSplus HTML5 activado<br>
+        ✓ Netbird mesh live<br>
+        ✓ Credenciales por email
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S5 — PROGRESS: 12 pasos SSE en tiempo real
+════════════════════════════════════════════════════════════ -->
+<section id="s5">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S5</span> Provisioning Progress · /market/progress (auth)</div>
+
+  <div class="card">
+    <!-- Header con timer -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div>
+        <h3>Aprovisionando tu VM Windows</h3>
+        <p style="font-size:10px;color:var(--muted);margin-top:.2rem">Orden #ORD-3F8A2C · NeoSC Business · 10 usuarios TSplus</p>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:9px;color:var(--muted)">Tiempo</div>
+        <div style="font-family:var(--font-mono);color:var(--cyan);font-size:1.1rem;font-weight:700" id="s5-timer">03:47</div>
+      </div>
+    </div>
+
+    <!-- Progress bar animada -->
+    <div class="pbar-wrap" style="margin-bottom:.5rem">
+      <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:.3rem">
+        <span style="color:var(--muted)" id="s5-current-step">🔒 Instalando Netbird mesh...</span>
+        <span style="color:var(--cyan);font-weight:700" id="s5-pct">67%</span>
+      </div>
+      <div class="pbar-track">
+        <div class="pbar-fill" id="s5-pbar" style="width:67%;background:linear-gradient(90deg,var(--cyan),var(--purple))"></div>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:.25rem">Estimado: ~3 minutos restantes</div>
+    </div>
+
+    <!-- Grid de 12 steps -->
+    <div class="step-grid">
+      <div class="step done"><div class="step-icon">💳</div><div class="step-name">Pago confirmado</div></div>
+      <div class="step done"><div class="step-icon">🔑</div><div class="step-name">Credenciales TSplus</div></div>
+      <div class="step done"><div class="step-icon">🖥️</div><div class="step-name">Creando VM</div></div>
+      <div class="step done"><div class="step-icon">⚙️</div><div class="step-name">Windows config</div></div>
+      <div class="step done"><div class="step-icon">📦</div><div class="step-name">TSplus install</div></div>
+      <div class="step run"><div class="step-icon">🔒</div><div class="step-name">Netbird install</div></div>
+      <div class="step pend"><div class="step-icon">🌐</div><div class="step-name">HTML5 portal</div></div>
+      <div class="step pend"><div class="step-icon">🕸️</div><div class="step-name">Mesh config</div></div>
+      <div class="step pend"><div class="step-icon">👤</div><div class="step-name">Zitadel org</div></div>
+      <div class="step pend"><div class="step-icon">📡</div><div class="step-name">DNS crear</div></div>
+      <div class="step pend"><div class="step-icon">📧</div><div class="step-name">Email envío</div></div>
+      <div class="step pend"><div class="step-icon">🎉</div><div class="step-name">¡Listo!</div></div>
+    </div>
+
+    <!-- Terminal log -->
+    <div style="margin:.75rem 0 .5rem" class="section-title">Log en tiempo real <span class="tag tc" style="font-size:8px">SSE STREAM</span></div>
+    <div class="terminal" id="s5-log">
+      <div class="terminal-line success-l">[03:12] ✓ Pago verificado y confirmado</div>
+      <div class="terminal-line success-l">[03:14] ✓ Licencia TSplus generada: TSPLUS-K4X9M2...</div>
+      <div class="terminal-line success-l">[03:22] ✓ VM windesk-3f8a2c creada en bare-metal-mx</div>
+      <div class="terminal-line success-l">[03:35] ✓ WinRM + OpenSSH + políticas de seguridad OK</div>
+      <div class="terminal-line success-l">[03:42] ✓ TSplus instalado y licencia perpetua activada</div>
+      <div class="terminal-line run-l">[03:47] ⟳ Instalando Netbird silent + configurando autostart...</div>
+      <span class="cursor"></span>
+    </div>
+  </div>
+
+  <!-- Panel éxito (preview) -->
+  <div class="card" style="margin-top:.75rem;border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.04)">
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <div style="font-size:2rem">🎉</div>
+      <div style="flex:1">
+        <h3 style="color:var(--green)">¡Tu VM Windows está lista! (preview del estado final)</h3>
+        <p style="font-size:10px;color:var(--muted);margin-top:.2rem">Revisa tu email con credenciales. Redirigiendo a Portal en 4s...</p>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:10px;background:var(--surface2);padding:.5rem .75rem;border-radius:8px;color:var(--muted);line-height:1.8">
+        🌐 https://miempresa.desk.kappa4.com<br>
+        🔒 Netbird IP: 100.79.92.225<br>
+        👥 TSplus: 10 licencias activas
+      </div>
+      <button class="btn btn-cyan" onclick="show('s6',document.querySelector('nav a:nth-child(7)'))">
+        Ir al Portal →
+      </button>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S6 — PORTAL CLIENTE: dashboard de VM + acceso HTML5
+════════════════════════════════════════════════════════════ -->
+<section id="s6">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S6</span> Portal Cliente · /workspaces (auth + sidebar)</div>
+
+  <!-- Sidebar simulado + main -->
+  <div style="display:grid;grid-template-columns:200px 1fr;gap:.85rem">
+    <!-- Sidebar mini -->
+    <div class="card" style="padding:.75rem">
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.5rem;margin-bottom:.5rem;border-bottom:1px solid var(--border)">
+        <div style="width:28px;height:28px;background:linear-gradient(135deg,var(--cyan),var(--purple));
+          border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;color:#000">N</div>
+        <div style="font-size:11px;font-weight:700">Neogénesys</div>
+      </div>
+      <div style="font-size:9px;padding:.2rem .5rem;color:var(--muted);margin-bottom:.3rem">NAVEGACIÓN</div>
+      <div style="font-size:10px;color:var(--muted);line-height:2.2;padding:.1rem .5rem">
+        <div>📊 Dashboard</div>
+        <div style="background:var(--surface2);border-left:2px solid var(--cyan);padding:.1rem .3rem;border-radius:0 4px 4px 0;color:var(--text)">🖥️ Workspaces</div>
+        <div>🌐 Aplicaciones</div>
+        <div>⚡ Sesiones</div>
+        <div style="color:var(--cyan);border:1px solid rgba(6,182,212,.3);border-radius:6px;padding:.1rem .3rem;margin-top:.3rem">
+          🛒 Windows VDI Market <span class="mini-badge badge-new">NEW</span>
+        </div>
+      </div>
+      <hr>
+      <div style="font-size:9px;padding:.2rem .5rem;color:var(--muted);margin-bottom:.3rem">ADMIN</div>
+      <div style="font-size:10px;color:var(--muted);line-height:2.2;padding:.1rem .5rem">
+        <div>🏢 Organizaciones</div>
+        <div>🛡️ Políticas</div>
+        <div>📋 Auditoría</div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="col" style="gap:.65rem">
+      <!-- KPIs -->
+      <div class="g4" style="gap:.5rem">
+        <div class="card" style="text-align:center;padding:.75rem">
+          <div style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--cyan)">1</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase">VMs Activas</div>
+        </div>
+        <div class="card" style="text-align:center;padding:.75rem">
+          <div style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--green)">3</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Sesiones</div>
+        </div>
+        <div class="card" style="text-align:center;padding:.75rem">
+          <div style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--amber)">10</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Licencias</div>
+        </div>
+        <div class="card" style="text-align:center;padding:.75rem">
+          <div style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--purple)">99.9%</div>
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Uptime</div>
+        </div>
+      </div>
+
+      <!-- VM Card -->
+      <div class="vm-card">
+        <div class="vm-header">
+          <div class="vm-status-dot"></div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:12px">windesk-3f8a2c · Windows 11 Pro</div>
+            <div style="font-size:9px;color:var(--muted)">miempresa.desk.kappa4.com · 100.79.92.225</div>
+          </div>
+          <div class="tag tc">NeoSC Business</div>
+          <button class="btn btn-cyan btn-sm">🌐 Abrir HTML5</button>
+        </div>
+        <div class="vm-body">
+          <div class="g2" style="gap:.65rem">
+            <div>
+              <!-- Métricas -->
+              <div class="vm-metric">
+                <span style="font-size:10px;color:var(--muted);width:40px">CPU</span>
+                <div class="vm-metric-bar"><div class="vm-metric-fill" style="width:34%;background:var(--cyan)"></div></div>
+                <span style="font-size:10px;font-family:var(--font-mono)">34%</span>
+              </div>
+              <div class="vm-metric">
+                <span style="font-size:10px;color:var(--muted);width:40px">RAM</span>
+                <div class="vm-metric-bar"><div class="vm-metric-fill" style="width:52%;background:var(--amber)"></div></div>
+                <span style="font-size:10px;font-family:var(--font-mono)">52%</span>
+              </div>
+              <div class="vm-metric">
+                <span style="font-size:10px;color:var(--muted);width:40px">Disco</span>
+                <div class="vm-metric-bar"><div class="vm-metric-fill" style="width:28%;background:var(--green)"></div></div>
+                <span style="font-size:10px;font-family:var(--font-mono)">28%</span>
+              </div>
+              <div style="margin-top:.5rem;font-size:10px;color:var(--muted)">
+                Sesiones TSplus activas: <span style="color:var(--cyan);font-weight:700">3 / 10</span>
+              </div>
+            </div>
+            <div>
+              <!-- Acciones -->
+              <div class="section-title">Acciones</div>
+              <div style="display:flex;flex-wrap:wrap;gap:.3rem">
+                <button class="btn btn-ghost btn-sm">⏸ Pausar</button>
+                <button class="btn btn-ghost btn-sm">🔄 Reiniciar</button>
+                <button class="btn btn-ghost btn-sm">📸 Snapshot</button>
+                <button class="btn btn-ghost btn-sm">🔒 Lockdown</button>
+                <button class="btn btn-ghost btn-sm" onclick="show('s2',document.querySelector('nav a:nth-child(3)'))">➕ Comprar otra VM</button>
+              </div>
+              <!-- Políticas Netbird -->
+              <div style="margin-top:.6rem">
+                <div class="section-title">Política de acceso <span class="tag tc">Netbird</span></div>
+                <div style="font-size:10px;color:var(--muted)">Grupos permitidos: <span style="color:var(--text)">admins, remote-users</span></div>
+                <div style="font-size:10px;color:var(--muted)">Máx. dispositivos: <span style="color:var(--text)">2 por usuario</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-ghost" onclick="show('s2',document.querySelector('nav a:nth-child(3)'))">
+        + Agregar otra VM Windows VDI
+      </button>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     S7 — PANEL ADMIN GLOBAL
+════════════════════════════════════════════════════════════ -->
+<section id="s7">
+<div class="container">
+  <div class="screen-label"><span class="screen-num">S7</span> Admin Global · /admin (role: platform_admin)</div>
+
+  <!-- KPIs globales -->
+  <div class="g4" style="margin-bottom:.75rem">
+    <div class="card card-glow" style="text-align:center;padding:.75rem">
+      <div style="font-family:var(--font-head);font-size:2rem;font-weight:900;color:var(--cyan)">12</div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Tenants activos</div>
+    </div>
+    <div class="card" style="text-align:center;padding:.75rem">
+      <div style="font-family:var(--font-head);font-size:2rem;font-weight:900;color:var(--green)">18</div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase">VMs corriendo</div>
+    </div>
+    <div class="card" style="text-align:center;padding:.75rem">
+      <div style="font-family:var(--font-head);font-size:2rem;font-weight:900;color:var(--orange)">$4,820</div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase">MRR</div>
+    </div>
+    <div class="card" style="text-align:center;padding:.75rem">
+      <div style="font-family:var(--font-head);font-size:2rem;font-weight:900;color:var(--amber)">2</div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Órdenes activas</div>
+    </div>
+  </div>
+
+  <div class="g2" style="gap:.65rem">
+    <!-- Tabla de tenants -->
+    <div class="card">
+      <h3>Tenants y sus VMs</h3>
+      <hr>
+      <table style="width:100%;border-collapse:collapse;font-size:10px">
+        <thead><tr style="color:var(--muted);text-transform:uppercase;font-size:8px;letter-spacing:.06em">
+          <th style="text-align:left;padding:.3rem .4rem">Empresa</th>
+          <th style="padding:.3rem .4rem">Plan</th>
+          <th style="padding:.3rem .4rem">VMs</th>
+          <th style="padding:.3rem .4rem">Usuarios</th>
+          <th style="padding:.3rem .4rem">Estado</th>
+        </tr></thead>
+        <tbody>
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:.45rem .4rem;font-weight:600">Neogenesys SA</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tc">Business</span></td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">2</td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">8/10</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tg">activo</span></td>
+          </tr>
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:.45rem .4rem;font-weight:600">Constructora MX</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tp">Enterprise</span></td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">5</td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">22/25</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tg">activo</span></td>
+          </tr>
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:.45rem .4rem;font-weight:600">Logística Rápida</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tc">Starter</span></td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">1</td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">3/5</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag ta">trial</span></td>
+          </tr>
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:.45rem .4rem;font-weight:600">FinTech Alpha</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tc">Business</span></td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">3</td>
+            <td style="padding:.45rem .4rem;text-align:center;font-family:var(--font-mono)">9/10</td>
+            <td style="padding:.45rem .4rem;text-align:center"><span class="tag tg">activo</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Orquestador live -->
+    <div class="card">
+      <h3>Orquestador — Órdenes en proceso <span class="tag tg" style="margin-left:.4rem">LIVE</span></h3>
+      <hr>
+      <!-- Orden activa -->
+      <div style="background:var(--surface2);border-radius:8px;padding:.65rem;margin-bottom:.5rem">
+        <div style="display:flex;justify-content:space-between;margin-bottom:.4rem">
+          <div>
+            <span style="font-size:10px;font-weight:700">ORD-9B2F1A</span>
+            <span style="font-size:9px;color:var(--muted);margin-left:.4rem">Logística Rápida · Starter</span>
+          </div>
+          <span class="tag ta">provisioning</span>
+        </div>
+        <div class="pbar-wrap">
+          <div class="pbar-track" style="height:4px">
+            <div class="pbar-fill" style="width:42%;background:var(--amber)"></div>
+          </div>
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:.2rem">⟳ windows_bootstrap — paso 3/12</div>
+      </div>
+      <!-- Celery workers -->
+      <div class="section-title">Workers Celery</div>
+      <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted);line-height:2">
+        <div>provision@worker-1 <span class="tag tg">activo</span> · 1 tarea</div>
+        <div>provision@worker-2 <span class="tag tg">activo</span> · idle</div>
+        <div>winrm@worker-1 <span class="tag tg">activo</span> · 1 tarea</div>
+        <div>notify@worker-1 <span class="tag tg">activo</span> · idle</div>
+      </div>
+      <hr>
+      <div class="section-title">Controles de emergencia</div>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" style="color:var(--red);border-color:rgba(239,68,68,.3)">🔒 Lockdown tenant</button>
+        <button class="btn btn-ghost btn-sm">⏸ Suspender VM</button>
+        <button class="btn btn-ghost btn-sm">🔁 Retry step</button>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<script>
+// ── Navegación de secciones ──
+function show(id, el) {
+  document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (el) el.classList.add('active');
+}
+
+// ── Billing toggle ──
+const prices = {
+  starter:    { mo: 49, yr: 39 },
+  business:   { mo: 99, yr: 79 },
+  enterprise: { mo: 199, yr: 159 },
+};
+let currentBilling = 'monthly';
+function setBilling(mode, el) {
+  currentBilling = mode;
+  document.querySelectorAll('[id^=price-]').forEach(el => {
+    const plan = el.id.replace('price-','');
+    el.textContent = '$' + (mode === 'annual' ? prices[plan].yr : prices[plan].mo);
+  });
+  document.getElementById('btn-mo').className = mode === 'monthly' ? 'btn btn-cyan btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('btn-yr').className = mode === 'annual'  ? 'btn btn-cyan btn-sm' : 'btn btn-ghost btn-sm';
+  document.querySelectorAll('[id^=btn-mo],[id^=btn-yr]').forEach(b => {
+    b.style.borderRadius = '16px';
+  });
+}
+
+// ── Selección de plan ──
+function selectPlan(plan) {
+  document.querySelectorAll('.plan-card').forEach(c => c.classList.remove('active-plan'));
+  document.getElementById('plan-' + plan).classList.add('active-plan');
+}
+
+// ── Sliders ──
+function updateSlider(el, labelId, val) {
+  document.getElementById(labelId).textContent = val;
+  const pct = ((el.value - el.min) / (el.max - el.min) * 100) + '%';
+  el.style.setProperty('--val', pct);
+}
+
+// ── TSplus selector ──
+function setTs(n, el) {
+  document.querySelectorAll('#s3 .btn').forEach(b => {
+    if(['5','10','25'].includes(b.textContent.trim())) {
+      b.className = 'btn btn-ghost btn-sm';
+    }
+  });
+  el.className = 'btn btn-cyan btn-sm';
+}
+
+// ── Payment methods ──
+function selectPay(el) {
+  document.querySelectorAll('.pay-method').forEach(m => m.classList.remove('active-pay'));
+  el.classList.add('active-pay');
+}
+
+// ── Timer S5 ──
+let s5Seconds = 227;
+function tickTimer() {
+  s5Seconds++;
+  const m = String(Math.floor(s5Seconds/60)).padStart(2,'0');
+  const s = String(s5Seconds%60).padStart(2,'0');
+  const el = document.getElementById('s5-timer');
+  if(el) el.textContent = m+':'+s;
+}
+setInterval(tickTimer, 1000);
+
+// ── Animación de progreso S5 ──
+let s5Pct = 67;
+const s5Steps = [
+  'Configurando portal HTML5 TSplus...',
+  'Configurando red mesh Zero Trust...',
+  'Creando organización Zitadel...',
+  'Configurando DNS Cloudflare...',
+  'Enviando credenciales por email...',
+  '🎉 ¡VM lista y accesible!'
+];
+let s5StepIdx = 0;
+function animateS5() {
+  if(s5Pct >= 100) return;
+  s5Pct = Math.min(100, s5Pct + Math.random()*4+1);
+  const pbar = document.getElementById('s5-pbar');
+  const pct  = document.getElementById('s5-pct');
+  const curr = document.getElementById('s5-current-step');
+  if(pbar) pbar.style.width = s5Pct.toFixed(0) + '%';
+  if(pct)  pct.textContent  = s5Pct.toFixed(0) + '%';
+
+  const newStep = Math.min(s5StepIdx, s5Steps.length-1);
+  if(curr && s5Pct > 67 + newStep*5.5) {
+    curr.textContent = s5Steps[s5StepIdx] || s5Steps[s5Steps.length-1];
+    s5StepIdx = Math.min(s5StepIdx+1, s5Steps.length-1);
+  }
+}
+setInterval(animateS5, 1800);
+
+// ── Init sliders ──
+document.querySelectorAll('input[type=range]').forEach(r => {
+  const pct = ((r.value - r.min) / (r.max - r.min) * 100) + '%';
+  r.style.setProperty('--val', pct);
+});
+</script>
+</body>
+</html>

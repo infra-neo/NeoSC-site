@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeoSC Portal - Zero Trust Access Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .glassmorphism {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .gradient-border {
+            position: relative;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(6, 182, 212, 0.1));
+        }
+        
+        .gradient-border::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 2px;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+        }
+        
+        .stat-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2);
+        }
+        
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .slide-in {
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .tab-indicator {
+            position: absolute;
+            bottom: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen text-white">
+    
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed left-0 top-0 h-screen w-64 glassmorphism border-r border-slate-700 z-50">
+        <div class="p-6">
+            <!-- Logo -->
+            <div class="flex items-center gap-3 mb-8">
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold">NeoSC</h1>
+                    <p class="text-xs text-slate-400">Zero Trust Platform</p>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="space-y-1">
+                <a href="#" onclick="showView('dashboard')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                    </svg>
+                    <span>Dashboard</span>
+                </a>
+
+                <a href="#" onclick="showView('users')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                    </svg>
+                    <span>Users</span>
+                </a>
+
+                <a href="#" onclick="showView('devices')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                    </svg>
+                    <span>Devices</span>
+                </a>
+
+                <a href="#" onclick="showView('access')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                    </svg>
+                    <span>Access Control</span>
+                </a>
+
+                <a href="#" onclick="showView('provision')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                    <span>Provision Tenant</span>
+                    <span class="ml-auto px-2 py-1 text-xs bg-blue-500/20 text-blue-400 rounded-full">Admin</span>
+                </a>
+
+                <a href="#" onclick="showView('analytics')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <span>Analytics</span>
+                </a>
+
+                <a href="#" onclick="showView('settings')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-all">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    <span>Settings</span>
+                </a>
+            </nav>
+        </div>
+
+        <!-- User Profile -->
+        <div class="absolute bottom-0 left-0 right-0 p-6 border-t border-slate-700">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center font-bold">
+                    JD
+                </div>
+                <div class="flex-1">
+                    <p class="text-sm font-medium">John Doe</p>
+                    <p class="text-xs text-slate-400">admin@acme.com</p>
+                </div>
+                <button class="p-2 hover:bg-slate-700 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="ml-64 p-8">
+        
+        <!-- Dashboard View -->
+        <div id="dashboard-view" class="view-content">
+            <!-- Header -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h1 class="text-3xl font-bold mb-2">Dashboard</h1>
+                        <p class="text-slate-400">Welcome back! Here's what's happening with your network.</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button class="px-4 py-2 glassmorphism rounded-xl hover:bg-slate-700/50 transition-all">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                        </button>
+                        <button class="px-6 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl hover:from-blue-600 hover:to-cyan-600 transition-all font-medium">
+                            Generate Report
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Status Banner -->
+                <div class="glassmorphism rounded-xl p-4 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="relative flex h-3 w-3">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                        <span class="text-sm font-medium">All systems operational</span>
+                    </div>
+                    <div class="flex items-center gap-6 text-sm">
+                        <span class="text-slate-400">Uptime: <span class="text-green-400 font-mono">99.98%</span></span>
+                        <span class="text-slate-400">Latency: <span class="text-blue-400 font-mono">24ms</span></span>
+                        <span class="text-slate-400">Last updated: <span class="text-white font-mono">2s ago</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Active Users -->
+                <div class="stat-card glassmorphism rounded-2xl p-6 gradient-border">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-blue-500/20 rounded-xl">
+                            <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex items-center gap-1 text-sm text-green-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                            <span>5.2%</span>
+                        </div>
+                    </div>
+                    <p class="text-slate-400 text-sm mb-1">Active Users</p>
+                    <p class="text-3xl font-bold">45</p>
+                </div>
+
+                <!-- Active Devices -->
+                <div class="stat-card glassmorphism rounded-2xl p-6 gradient-border">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-green-500/20 rounded-xl">
+                            <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex items-center gap-1 text-sm text-red-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"></path>
+                            </svg>
+                            <span>2.1%</span>
+                        </div>
+                    </div>
+                    <p class="text-slate-400 text-sm mb-1">Active Devices</p>
+                    <p class="text-3xl font-bold">52</p>
+                </div>
+
+                <!-- Total Sessions -->
+                <div class="stat-card glassmorphism rounded-2xl p-6 gradient-border">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-purple-500/20 rounded-xl">
+                            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex items-center gap-1 text-sm text-green-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                            <span>8.3%</span>
+                        </div>
+                    </div>
+                    <p class="text-slate-400 text-sm mb-1">Total Sessions</p>
+                    <p class="text-3xl font-bold">1,247</p>
+                </div>
+
+                <!-- Alerts -->
+                <div class="stat-card glassmorphism rounded-2xl p-6 gradient-border">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-red-500/20 rounded-xl">
+                            <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <p class="text-slate-400 text-sm mb-1">Alerts (24h)</p>
+                    <p class="text-3xl font-bold">3</p>
+                </div>
+            </div>
+
+            <!-- Charts Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Users Chart -->
+                <div class="glassmorphism rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">User Activity</h3>
+                    <canvas id="usersChart" height="300"></canvas>
+                </div>
+
+                <!-- Devices Chart -->
+                <div class="glassmorphism rounded-2xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Device Connections</h3>
+                    <canvas id="devicesChart" height="300"></canvas>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="glassmorphism rounded-2xl p-6">
+                <h3 class="text-lg font-semibold mb-4">Recent Activity</h3>
+                <div class="space-y-3" id="activity-feed">
+                    <!-- Activity items will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Provision View -->
+        <div id="provision-view" class="view-content hidden">
+            <div class="max-w-4xl mx-auto">
+                <!-- Header -->
+                <div class="text-center mb-12">
+                    <h1 class="text-4xl font-bold mb-4">Provision New Tenant</h1>
+                    <p class="text-slate-400 text-lg">Automated provisioning with LangGraph orchestrator</p>
+                </div>
+
+                <!-- Progress Steps -->
+                <div class="mb-12">
+                    <div class="flex items-center justify-between">
+                        <div class="flex flex-col items-center flex-1">
+                            <div class="w-12 h-12 bg-blue-500 border-2 border-blue-500 rounded-full flex items-center justify-center text-white">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                                </svg>
+                            </div>
+                            <span class="mt-2 text-sm font-medium text-white">Organization</span>
+                        </div>
+                        <div class="flex-1 h-1 bg-blue-500 mx-4 rounded"></div>
+                        <div class="flex flex-col items-center flex-1">
+                            <div class="w-12 h-12 bg-slate-800 border-2 border-slate-600 rounded-full flex items-center justify-center text-slate-400">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                </svg>
+                            </div>
+                            <span class="mt-2 text-sm font-medium text-slate-500">Administrator</span>
+                        </div>
+                        <div class="flex-1 h-1 bg-slate-700 mx-4 rounded"></div>
+                        <div class="flex flex-col items-center flex-1">
+                            <div class="w-12 h-12 bg-slate-800 border-2 border-slate-600 rounded-full flex items-center justify-center text-slate-400">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                </svg>
+                            </div>
+                            <span class="mt-2 text-sm font-medium text-slate-500">Plan</span>
+                        </div>
+                        <div class="flex-1 h-1 bg-slate-700 mx-4 rounded"></div>
+                        <div class="flex flex-col items-center flex-1">
+                            <div class="w-12 h-12 bg-slate-800 border-2 border-slate-600 rounded-full flex items-center justify-center text-slate-400">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </div>
+                            <span class="mt-2 text-sm font-medium text-slate-500">Review</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Form -->
+                <div class="glassmorphism rounded-2xl p-8 mb-8">
+                    <form id="provision-form">
+                        <div class="space-y-6">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-2">Organization Name *</label>
+                                <input type="text" placeholder="ACME Corporation" class="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-2">Domain (Optional)</label>
+                                <input type="text" placeholder="acme.com" class="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Navigation Buttons -->
+                <div class="flex items-center justify-between">
+                    <button class="px-6 py-3 bg-slate-700 text-white rounded-xl hover:bg-slate-600 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                        Back
+                    </button>
+                    <button class="px-8 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl hover:from-blue-600 hover:to-cyan-600 flex items-center gap-2">
+                        Next
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Other views (Users, Devices, etc.) -->
+        <div id="users-view" class="view-content hidden">
+            <h1 class="text-3xl font-bold mb-8">Users Management</h1>
+            <div class="glassmorphism rounded-2xl p-6">
+                <p class="text-slate-400">Users view coming soon...</p>
+            </div>
+        </div>
+
+        <div id="devices-view" class="view-content hidden">
+            <h1 class="text-3xl font-bold mb-8">Devices Management</h1>
+            <div class="glassmorphism rounded-2xl p-6">
+                <p class="text-slate-400">Devices view coming soon...</p>
+            </div>
+        </div>
+
+        <div id="access-view" class="view-content hidden">
+            <h1 class="text-3xl font-bold mb-8">Access Control</h1>
+            <div class="glassmorphism rounded-2xl p-6">
+                <p class="text-slate-400">Access control view coming soon...</p>
+            </div>
+        </div>
+
+        <div id="analytics-view" class="view-content hidden">
+            <h1 class="text-3xl font-bold mb-8">Analytics</h1>
+            <div class="glassmorphism rounded-2xl p-6">
+                <p class="text-slate-400">Analytics view coming soon...</p>
+            </div>
+        </div>
+
+        <div id="settings-view" class="view-content hidden">
+            <h1 class="text-3xl font-bold mb-8">Settings</h1>
+            <div class="glassmorphism rounded-2xl p-6">
+                <p class="text-slate-400">Settings view coming soon...</p>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // View switching
+        function showView(viewName) {
+            document.querySelectorAll('.view-content').forEach(view => {
+                view.classList.add('hidden');
+            });
+            document.getElementById(`${viewName}-view`).classList.remove('hidden');
+            
+            // Update active nav item
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('bg-slate-700/50');
+            });
+            event.target.closest('.nav-item').classList.add('bg-slate-700/50');
+        }
+
+        // Initialize Charts
+        const usersCtx = document.getElementById('usersChart').getContext('2d');
+        const usersChart = new Chart(usersCtx, {
+            type: 'line',
+            data: {
+                labels: ['Jan 1', 'Jan 5', 'Jan 10', 'Jan 15', 'Jan 20', 'Jan 25', 'Jan 30'],
+                datasets: [{
+                    label: 'Active Users',
+                    data: [35, 38, 42, 39, 45, 43, 45],
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { color: '#94a3b8' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { color: '#94a3b8' }
+                    }
+                }
+            }
+        });
+
+        const devicesCtx = document.getElementById('devicesChart').getContext('2d');
+        const devicesChart = new Chart(devicesCtx, {
+            type: 'line',
+            data: {
+                labels: ['Jan 1', 'Jan 5', 'Jan 10', 'Jan 15', 'Jan 20', 'Jan 25', 'Jan 30'],
+                datasets: [{
+                    label: 'Active Devices',
+                    data: [48, 50, 52, 51, 53, 52, 52],
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { color: '#94a3b8' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { color: '#94a3b8' }
+                    }
+                }
+            }
+        });
+
+        // Activity Feed
+        const activities = [
+            { type: 'user.created', user: 'john.doe@acme.com', time: '2 minutes ago', severity: 'info' },
+            { type: 'device.enrolled', device: 'MacBook Pro', time: '15 minutes ago', severity: 'info' },
+            { type: 'session.started', user: 'jane.smith@acme.com', time: '1 hour ago', severity: 'info' },
+            { type: 'policy.updated', policy: 'Zero Trust Policy', time: '2 hours ago', severity: 'warning' },
+            { type: 'user.mfa_enabled', user: 'mike.johnson@acme.com', time: '3 hours ago', severity: 'info' },
+        ];
+
+        const activityFeed = document.getElementById('activity-feed');
+        activities.forEach(activity => {
+            const severityColors = {
+                info: 'text-blue-400',
+                warning: 'text-yellow-400',
+                error: 'text-red-400'
+            };
+            
+            activityFeed.innerHTML += `
+                <div class="flex items-start gap-4 p-4 bg-slate-900/50 rounded-xl border border-slate-700 hover:border-slate-600 transition-colors">
+                    <div class="${severityColors[activity.severity]} mt-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-white font-medium">${activity.type}</p>
+                        <p class="text-slate-400 text-sm mt-1">${activity.user || activity.device || activity.policy}</p>
+                        <p class="text-slate-500 text-xs mt-2">${activity.time}</p>
+                    </div>
+                </div>
+            `;
+        });
+    </script>
+</body>
+</html>

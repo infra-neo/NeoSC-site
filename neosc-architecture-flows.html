@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeoSC — Arquitectura & Flujos WinDesk Market</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#020617;--s1:#0f172a;--s2:#1e293b;--s3:#334155;
+  --cyan:#06b6d4;--orange:#f97316;--green:#10b981;--red:#ef4444;
+  --amber:#f59e0b;--purple:#a855f7;--blue:#3b82f6;--pink:#ec4899;
+  --text:#f8fafc;--muted:#94a3b8;--border:#1e293b;
+  --fh:'Outfit',sans-serif;--fb:'Inter',sans-serif;--fm:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--fb);font-size:12px;overflow-x:hidden}
+
+nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.97);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1.5rem;height:50px;gap:0;overflow-x:auto}
+.nav-brand{font-family:var(--fh);font-size:14px;font-weight:900;color:var(--cyan);margin-right:1.5rem;white-space:nowrap;letter-spacing:-.03em}
+.nav-brand em{color:var(--orange);font-style:normal}
+nav a{color:var(--muted);text-decoration:none;font-size:10px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;padding:0 .75rem;height:50px;display:flex;align-items:center;
+  border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s;cursor:pointer}
+nav a:hover,nav a.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+
+section{display:none;animation:fi .2s ease}
+section.active{display:block}
+@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.container{max-width:1280px;margin:0 auto;padding:1.5rem}
+
+/* ── ARCH NODES ── */
+.arch-layer{border:1px solid var(--border);border-radius:14px;padding:1rem;position:relative}
+.arch-label{position:absolute;top:-10px;left:1rem;background:var(--bg);padding:0 .4rem;
+  font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.node{display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:.65rem .85rem;
+  border-radius:10px;border:1px solid;text-align:center;position:relative;cursor:default;
+  transition:transform .15s,box-shadow .15s}
+.node:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.node .n-icon{font-size:1.4rem;line-height:1}
+.node .n-label{font-size:10px;font-weight:700;font-family:var(--fh);letter-spacing:.01em}
+.node .n-sub{font-size:8.5px;color:var(--muted);font-family:var(--fm);line-height:1.3;margin-top:.1rem}
+
+.n-cyan{background:rgba(6,182,212,.08);border-color:rgba(6,182,212,.35);color:var(--cyan)}
+.n-orange{background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.35);color:var(--orange)}
+.n-green{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.35);color:var(--green)}
+.n-purple{background:rgba(168,85,247,.08);border-color:rgba(168,85,247,.35);color:var(--purple)}
+.n-blue{background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.35);color:var(--blue)}
+.n-amber{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.35);color:var(--amber)}
+.n-red{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.35);color:var(--red)}
+.n-pink{background:rgba(236,72,153,.08);border-color:rgba(236,72,153,.35);color:var(--pink)}
+.n-gray{background:var(--s2);border-color:var(--border);color:var(--muted)}
+
+/* ── FLOW SEQUENCE ── */
+.flow-seq{display:flex;flex-direction:column;gap:0}
+.flow-step{display:grid;grid-template-columns:28px 1fr;gap:.75rem;align-items:flex-start;padding:.6rem 0;
+  border-left:2px solid var(--border);margin-left:14px;padding-left:1rem;position:relative}
+.flow-step::before{content:attr(data-n);position:absolute;left:-15px;top:.5rem;
+  width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:800;background:var(--s1);border:1.5px solid var(--border);color:var(--muted)}
+.flow-step.active::before{background:var(--cyan);border-color:var(--cyan);color:#000}
+.flow-step.active{border-left-color:rgba(6,182,212,.4)}
+.flow-step-title{font-weight:700;font-size:11px;margin-bottom:.2rem}
+.flow-step-body{font-size:10px;color:var(--muted);line-height:1.7}
+.flow-step-body code{font-family:var(--fm);background:var(--s2);padding:.05rem .3rem;border-radius:3px;
+  color:var(--cyan);font-size:9px}
+.flow-step-tag{display:inline-block;font-size:8px;font-weight:800;letter-spacing:.06em;
+  padding:.1rem .35rem;border-radius:3px;margin-left:.3rem;text-transform:uppercase}
+.ft-post{background:rgba(16,185,129,.15);color:var(--green)}
+.ft-get{background:rgba(59,130,246,.15);color:var(--blue)}
+.ft-sse{background:rgba(168,85,247,.15);color:var(--purple)}
+.ft-ws{background:rgba(245,158,11,.15);color:var(--amber)}
+.ft-event{background:rgba(249,115,22,.15);color:var(--orange)}
+
+/* ── GRID HELPERS ── */
+.row{display:flex;gap:.5rem;align-items:center}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.65rem}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem}
+@media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* ── CARDS ── */
+.card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:1.1rem}
+h2{font-family:var(--fh);font-size:1.1rem;font-weight:800;margin-bottom:.5rem;letter-spacing:-.02em}
+h3{font-family:var(--fh);font-size:.9rem;font-weight:700;margin-bottom:.35rem}
+
+/* ── ARROW ── */
+.arr-v{display:flex;flex-direction:column;align-items:center;color:var(--border);padding:.1rem 0}
+.arr-v::before{content:'';width:1px;height:12px;background:currentColor}
+.arr-v::after{content:'▼';font-size:7px}
+.arr-label{font-size:8.5px;font-family:var(--fm);padding:.1rem .35rem;border-radius:3px;white-space:nowrap}
+
+/* ── LEGEND ── */
+.legend{display:flex;flex-wrap:wrap;gap:.4rem .85rem;font-size:9px}
+.legend-item{display:flex;align-items:center;gap:.3rem;color:var(--muted)}
+.legend-dot{width:8px;height:8px;border-radius:50%}
+
+/* ── STEP TABLE ── */
+.steps-table{width:100%;border-collapse:collapse;font-size:10px}
+.steps-table th{background:var(--s2);color:var(--muted);text-transform:uppercase;font-size:8px;
+  letter-spacing:.07em;padding:.4rem .6rem;text-align:left;border-bottom:1px solid var(--border)}
+.steps-table td{padding:.5rem .6rem;border-bottom:1px solid rgba(30,41,59,.5);vertical-align:top}
+.steps-table tr:last-child td{border-bottom:none}
+.steps-table tr:hover td{background:rgba(30,41,59,.3)}
+
+/* ── PILL ── */
+.pill{display:inline-flex;align-items:center;gap:.2rem;font-size:8px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase;padding:.15rem .4rem;border-radius:20px}
+
+hr{border:none;border-top:1px solid var(--border);margin:.75rem 0}
+.mono{font-family:var(--fm);font-size:10px}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">Neo<em>SC</em> · WinDesk Arquitectura</div>
+  <a onclick="show('a1',this)" class="active">🗺 Vista General</a>
+  <a onclick="show('a2',this)">🔄 Flujo de Compra</a>
+  <a onclick="show('a3',this)">⚙️ Orquestador 12 Pasos</a>
+  <a onclick="show('a4',this)">🔐 Auth & Zero Trust</a>
+  <a onclick="show('a5',this)">📦 Microservicios</a>
+  <a onclick="show('a6',this)">📊 Base de Datos</a>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     A1 — VISTA GENERAL: stack completo en capas
+══════════════════════════════════════════════════════════════════ -->
+<section id="a1" class="active">
+<div class="container">
+
+  <!-- Title -->
+  <div style="margin-bottom:1.25rem">
+    <div style="font-size:9px;font-weight:800;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:.3rem">Arquitectura de referencia</div>
+    <h2 style="font-size:1.5rem">WinDesk Cloud — Stack Completo</h2>
+    <p style="color:var(--muted);font-size:11px">Auto-servicio Zero Trust: desde el click de compra hasta la VM Windows con TSplus activa</p>
+  </div>
+
+  <!-- CAPA 1: USUARIO -->
+  <div class="arch-layer" style="border-color:rgba(6,182,212,.2);margin-bottom:.6rem">
+    <div class="arch-label" style="color:var(--cyan)">Capa 1 — Usuario</div>
+    <div class="g4" style="gap:.4rem;padding:.25rem 0">
+      <div class="node n-cyan">
+        <div class="n-icon">🌐</div>
+        <div class="n-label">Browser</div>
+        <div class="n-sub">React 19 + CRA<br>Tailwind + shadcn/ui</div>
+      </div>
+      <div class="node n-gray">
+        <div class="n-icon">📧</div>
+        <div class="n-label">Email Bienvenida</div>
+        <div class="n-sub">Credenciales + URL<br>SendGrid / SES</div>
+      </div>
+      <div class="node n-green">
+        <div class="n-icon">🔒</div>
+        <div class="n-label">Netbird Client</div>
+        <div class="n-sub">WireGuard P2P<br>Opcional / admin</div>
+      </div>
+      <div class="node n-orange">
+        <div class="n-icon">🪟</div>
+        <div class="n-label">TSplus HTML5</div>
+        <div class="n-sub">RDP sobre navegador<br>sin cliente</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:center;gap:3rem;margin:.15rem 0;font-size:9px;color:var(--muted)">
+    <span>HTTPS / TLS</span><span>SSE stream</span><span>WireGuard tunnel</span>
+  </div>
+  <div style="display:flex;justify-content:center;gap:4.5rem;margin:.1rem 0">
+    <span style="color:var(--cyan)">↓</span><span style="color:var(--purple)">↓</span><span style="color:var(--green)">↓</span>
+  </div>
+
+  <!-- CAPA 2: FRONTEND -->
+  <div class="arch-layer" style="border-color:rgba(6,182,212,.15);margin-bottom:.6rem">
+    <div class="arch-label" style="color:var(--cyan)">Capa 2 — Frontend React (CRA)</div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;padding:.25rem 0">
+      <div class="node n-gray" style="flex:1;min-width:140px">
+        <div class="n-icon">🏠</div><div class="n-label">LandingPage</div>
+        <div class="n-sub">/ · CTA → /market</div>
+      </div>
+      <div class="node n-cyan" style="flex:1;min-width:140px">
+        <div class="n-icon">🛒</div><div class="n-label">MarketPage</div>
+        <div class="n-sub">/market · planes + config</div>
+      </div>
+      <div class="node n-cyan" style="flex:1;min-width:140px">
+        <div class="n-icon">💳</div><div class="n-label">CheckoutPage</div>
+        <div class="n-sub">/market/checkout</div>
+      </div>
+      <div class="node n-cyan" style="flex:1;min-width:140px">
+        <div class="n-icon">⚡</div><div class="n-label">ProgressPage</div>
+        <div class="n-sub">/market/progress · SSE</div>
+      </div>
+      <div class="node n-gray" style="flex:1;min-width:140px">
+        <div class="n-icon">🖥️</div><div class="n-label">WorkspacesPage</div>
+        <div class="n-sub">/workspaces · VMs</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;font-size:9px;color:var(--muted);margin:.1rem 0">
+    <span style="color:var(--cyan)">↓</span> HTTP/REST + SSE &nbsp;|&nbsp; Bearer Token (Zitadel JWT)
+  </div>
+
+  <!-- CAPA 3: API GATEWAY -->
+  <div class="arch-layer" style="border-color:rgba(249,115,22,.2);margin-bottom:.6rem">
+    <div class="arch-label" style="color:var(--orange)">Capa 3 — API Gateway (FastAPI · Python 3.11)</div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;padding:.25rem 0">
+      <div class="node n-orange" style="flex:1;min-width:120px">
+        <div class="n-icon">🔐</div><div class="n-label">Auth Router</div>
+        <div class="n-sub">/api/auth/*<br>Zitadel PKCE + local</div>
+      </div>
+      <div class="node n-orange" style="flex:1;min-width:120px">
+        <div class="n-icon">🛒</div><div class="n-label">Market Router</div>
+        <div class="n-sub">/api/market/*<br>orders, price, SSE</div>
+      </div>
+      <div class="node n-orange" style="flex:1;min-width:120px">
+        <div class="n-icon">🖥️</div><div class="n-label">VMs Router</div>
+        <div class="n-sub">/api/workspaces/*<br>CRUD + launch</div>
+      </div>
+      <div class="node n-orange" style="flex:1;min-width:120px">
+        <div class="n-icon">📋</div><div class="n-label">Admin Router</div>
+        <div class="n-sub">/api/admin/*<br>tenants, workers</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;font-size:9px;color:var(--muted);margin:.1rem 0">
+    <span style="color:var(--amber)">↓</span> Task queue (Celery) + asyncio.create_task &nbsp;|&nbsp; Direct API calls
+  </div>
+
+  <!-- CAPA 4: WORKERS + SERVICIOS -->
+  <div class="arch-layer" style="border-color:rgba(168,85,247,.2);margin-bottom:.6rem">
+    <div class="arch-label" style="color:var(--purple)">Capa 4 — Workers & Orquestador (Celery + asyncio)</div>
+    <div class="g3" style="gap:.4rem;padding:.25rem 0">
+      <div class="node n-purple">
+        <div class="n-icon">⚙️</div><div class="n-label">Provision Worker</div>
+        <div class="n-sub">12 pasos secuenciales<br>apache-libcloud + pylxd<br>Queue: provision</div>
+      </div>
+      <div class="node n-purple">
+        <div class="n-icon">🔧</div><div class="n-label">WinRM Worker</div>
+        <div class="n-sub">Ansible playbooks<br>Windows bootstrap<br>Queue: winrm</div>
+      </div>
+      <div class="node n-purple">
+        <div class="n-icon">📧</div><div class="n-label">Notify Worker</div>
+        <div class="n-sub">Emails bienvenida<br>SendGrid / SES<br>Queue: notify</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;font-size:9px;color:var(--muted);margin:.1rem 0">
+    <span style="color:var(--green)">↓</span> API calls externas — Netbird API · Zitadel API · Cloudflare · TSplus API
+  </div>
+
+  <!-- CAPA 5: INFRAESTRUCTURA -->
+  <div class="arch-layer" style="border-color:rgba(16,185,129,.2);margin-bottom:.6rem">
+    <div class="arch-label" style="color:var(--green)">Capa 5 — Infraestructura & APIs Externas</div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;padding:.25rem 0">
+      <div class="node n-green" style="flex:1;min-width:110px">
+        <div class="n-icon">🖥️</div><div class="n-label">LXD Bare Metal</div>
+        <div class="n-sub">VMs Windows<br>apache-libcloud<br>manager.kappa4.com</div>
+      </div>
+      <div class="node n-green" style="flex:1;min-width:110px">
+        <div class="n-icon">🔒</div><div class="n-label">Netbird</div>
+        <div class="n-sub">Mesh WireGuard<br>Setup keys · ACL<br>DNS interno</div>
+      </div>
+      <div class="node n-green" style="flex:1;min-width:110px">
+        <div class="n-icon">👤</div><div class="n-label">Zitadel</div>
+        <div class="n-sub">SSO OIDC PKCE<br>Org + roles + apps<br>manager.kappa4.com</div>
+      </div>
+      <div class="node n-green" style="flex:1;min-width:110px">
+        <div class="n-icon">📦</div><div class="n-label">TSplus</div>
+        <div class="n-sub">RDP HTML5<br>Licencia perpetua<br>Silent install</div>
+      </div>
+      <div class="node n-green" style="flex:1;min-width:110px">
+        <div class="n-icon">🌐</div><div class="n-label">Cloudflare</div>
+        <div class="n-sub">DNS automático<br>*.desk.kappa4.com<br>CF API</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CAPA 6: DATOS -->
+  <div class="arch-layer" style="border-color:rgba(59,130,246,.2)">
+    <div class="arch-label" style="color:var(--blue)">Capa 6 — Persistencia</div>
+    <div class="g4" style="gap:.4rem;padding:.25rem 0">
+      <div class="node n-blue">
+        <div class="n-icon">🍃</div><div class="n-label">MongoDB</div>
+        <div class="n-sub">users, workspaces<br>sessions, audit_logs<br>market_orders, vms</div>
+      </div>
+      <div class="node n-blue">
+        <div class="n-icon">⚡</div><div class="n-label">Redis</div>
+        <div class="n-sub">Celery broker<br>SSE events cache<br>Token store</div>
+      </div>
+      <div class="node n-blue">
+        <div class="n-icon">📊</div><div class="n-label">provision_steps</div>
+        <div class="n-sub">MongoDB collection<br>12 pasos por orden<br>SSE polling source</div>
+      </div>
+      <div class="node n-blue">
+        <div class="n-icon">📈</div><div class="n-label">Prometheus<br>+ Grafana</div>
+        <div class="n-sub">Métricas workers<br>VMs resource usage<br>:3001 dashboard</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leyenda -->
+  <div style="margin-top:1rem" class="card">
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> Frontend React</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> FastAPI Gateway</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div> Celery Workers</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> APIs Externas / Infra</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div> Persistencia</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     A2 — FLUJO DE COMPRA: user → payment → provision
+══════════════════════════════════════════════════════════════════ -->
+<section id="a2">
+<div class="container">
+  <div style="margin-bottom:1.1rem">
+    <h2>Flujo de Compra End-to-End</h2>
+    <p style="color:var(--muted);font-size:11px">Desde que el usuario elige el plan hasta que recibe el email con acceso</p>
+  </div>
+
+  <div class="g2" style="gap:.75rem">
+
+    <!-- Columna izquierda: flujo principal -->
+    <div>
+      <div class="card" style="border-color:rgba(6,182,212,.15)">
+        <h3 style="color:var(--cyan)">🛍️ Fase 1 — Selección y configuración</h3>
+        <hr>
+        <div class="flow-seq">
+          <div class="flow-step active" data-n="1" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">Usuario visita /market</div>
+              <div class="flow-step-body">Elige plan (Starter/Business/Enterprise), ajusta vCPU/RAM/disco con sliders, selecciona TSplus 5/10/25 licencias, activa addons, elige región.<br>
+              <code>POST /api/market/price</code> → precio reactivo en tiempo real (público, sin auth)</div>
+            </div>
+          </div>
+          <div class="flow-step active" data-n="2" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">Click "Continuar al pago"</div>
+              <div class="flow-step-body">Si no está autenticado → redirect a <code>/login?from=/market</code> → Zitadel OIDC PKCE → callback → token JWT → regresa a /market/checkout con la config guardada en sessionStorage.</div>
+            </div>
+          </div>
+          <div class="flow-step active" data-n="3" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">Crear orden en backend<span class="flow-step-tag ft-post">POST</span></div>
+              <div class="flow-step-body"><code>POST /api/market/orders</code> — backend recalcula el precio (nunca confía en el frontend), crea documento en <code>market_orders</code>, genera los 12 <code>provision_steps</code> en estado <code>pending</code>. Devuelve <code>order_id</code>.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:.65rem;border-color:rgba(245,158,11,.15)">
+        <h3 style="color:var(--amber)">💳 Fase 2 — Pago</h3>
+        <hr>
+        <div class="flow-seq">
+          <div class="flow-step active" data-n="4" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">Checkout — elige método de pago</div>
+              <div class="flow-step-body">
+                <b>Modo Demo:</b> <code>POST /api/market/orders/{id}/simulate-payment</code> → marca orden <code>paid</code> → <code>asyncio.create_task(_simulate_provisioning)</code><br>
+                <b>Stripe:</b> PaymentIntent → webhook <code>payment_intent.succeeded</code> → marca <code>paid</code> → dispara Celery task<br>
+                <b>PayPal:</b> redirect → capture → marca <code>paid</code> → dispara Celery task
+              </div>
+            </div>
+          </div>
+          <div class="flow-step active" data-n="5" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">Redirect a pantalla de progreso</div>
+              <div class="flow-step-body">Frontend navega a <code>/market/progress?order_id=xxx</code> y abre <code>EventSource</code> SSE al endpoint <code>GET /api/market/orders/{id}/stream</code></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:.65rem;border-color:rgba(16,185,129,.15)">
+        <h3 style="color:var(--green)">✅ Fase 3 — Post-pago</h3>
+        <hr>
+        <div class="flow-seq">
+          <div class="flow-step active" data-n="6" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">Orquestador ejecuta 12 pasos</div>
+              <div class="flow-step-body">Cada paso actualiza <code>provision_steps</code> en MongoDB. El SSE stream (polling cada 2s) detecta cambios y emite <code>data: {step, status, log}</code> al frontend. Frontend anima los step cards en tiempo real.</div>
+            </div>
+          </div>
+          <div class="flow-step active" data-n="7" style="margin-left:14px">
+            <div>
+              <div class="flow-step-title">VM lista → email + redirect</div>
+              <div class="flow-step-body">Step <code>complete</code> → frontend muestra panel de éxito con URL de acceso → redirect automático a <code>/workspaces</code> donde la nueva VM aparece en la lista junto con las de Emergent.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Columna derecha: detalles técnicos de cada endpoint -->
+    <div>
+      <div class="card">
+        <h3>Endpoints del flujo</h3>
+        <hr>
+        <table class="steps-table">
+          <thead><tr>
+            <th>Método</th><th>Endpoint</th><th>Quién llama</th><th>Auth</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="pill" style="background:rgba(59,130,246,.15);color:var(--blue)">GET</span></td>
+              <td class="mono">/api/market/addons</td>
+              <td>Frontend</td>
+              <td style="color:var(--green);font-size:9px">Público</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">POST</span></td>
+              <td class="mono">/api/market/price</td>
+              <td>Frontend (live)</td>
+              <td style="color:var(--green);font-size:9px">Público</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">POST</span></td>
+              <td class="mono">/api/market/orders</td>
+              <td>Checkout</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(59,130,246,.15);color:var(--blue)">GET</span></td>
+              <td class="mono">/api/market/orders/{id}</td>
+              <td>Checkout</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">POST</span></td>
+              <td class="mono">/api/market/orders/{id}/simulate-payment</td>
+              <td>Demo checkout</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">POST</span></td>
+              <td class="mono">/api/market/orders/{id}/pay</td>
+              <td>Stripe/PayPal</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(59,130,246,.15);color:var(--blue)">GET</span></td>
+              <td class="mono">/api/market/orders/{id}/status</td>
+              <td>Polling fallback</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(168,85,247,.15);color:var(--purple)">SSE</span></td>
+              <td class="mono">/api/market/orders/{id}/stream</td>
+              <td>EventSource</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+            <tr>
+              <td><span class="pill" style="background:rgba(59,130,246,.15);color:var(--blue)">GET</span></td>
+              <td class="mono">/api/market/my-vms</td>
+              <td>Portal cliente</td>
+              <td style="color:var(--cyan);font-size:9px">Bearer JWT</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:.65rem">
+        <h3>Webhook Stripe (pago real)</h3>
+        <hr>
+        <div class="flow-seq">
+          <div class="flow-step active" data-n="1" style="margin-left:14px">
+            <div><div class="flow-step-title">Stripe emite event<span class="flow-step-tag ft-event">EVENT</span></div>
+            <div class="flow-step-body"><code>payment_intent.succeeded</code> → FastAPI <code>POST /api/billing/webhook</code> → valida firma → extrae <code>order_id</code> del metadata</div></div>
+          </div>
+          <div class="flow-step active" data-n="2" style="margin-left:14px">
+            <div><div class="flow-step-title">Backend dispara provisioning</div>
+            <div class="flow-step-body">Marca orden <code>status=paid</code> → <code>asyncio.create_task(_simulate_provisioning(order_id))</code> — en producción reemplazar por <code>celery_app.send_task("provision.provision_vm")</code></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     A3 — ORQUESTADOR: 12 pasos detallados
+══════════════════════════════════════════════════════════════════ -->
+<section id="a3">
+<div class="container">
+  <div style="margin-bottom:1.1rem">
+    <h2>Orquestador — 12 Pasos de Provisioning</h2>
+    <p style="color:var(--muted);font-size:11px">Cada paso actualiza MongoDB + emite evento SSE al frontend en tiempo real</p>
+  </div>
+
+  <table class="steps-table" style="background:var(--s1);border-radius:12px;overflow:hidden;border:1px solid var(--border)">
+    <thead><tr>
+      <th style="width:32px">#</th>
+      <th>Step</th>
+      <th>Duración demo</th>
+      <th>Servicio invocado</th>
+      <th>Qué hace</th>
+      <th>Fallo = ?</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">0</td>
+        <td><span class="pill" style="background:rgba(16,185,129,.15);color:var(--green)">payment_confirmed</span></td>
+        <td style="color:var(--muted)">0.5s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--muted)">MongoDB</td>
+        <td style="font-size:10px">Marca pago verificado. No hace nada más — ya está validado antes de llegar aquí.</td>
+        <td style="font-size:9px;color:var(--red)">—</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">1</td>
+        <td><span class="pill" style="background:rgba(6,182,212,.15);color:var(--cyan)">generate_credentials</span></td>
+        <td style="color:var(--muted)">2s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--cyan)">TSplus API + Netbird API</td>
+        <td style="font-size:10px">Genera licencia TSplus perpetua (<code>TSPLUS-XXXX</code>). Crea setup key Netbird para el peer. Guarda ambas en <code>market_orders</code>.</td>
+        <td style="font-size:9px;color:var(--red)">Orden queda en failed. No se creó nada en infra.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">2</td>
+        <td><span class="pill" style="background:rgba(6,182,212,.15);color:var(--cyan)">create_lxd_vm</span></td>
+        <td style="color:var(--muted)">8s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--cyan)">apache-libcloud → LXD</td>
+        <td style="font-size:10px">Crea instancia Windows en bare-metal via <code>apache-libcloud</code> (driver intercambiable: LXD / GCP / AWS). Espera hasta que arranca. Registra <code>market_vms</code> con IP interna.</td>
+        <td style="font-size:9px;color:var(--red)">VM no existe. Reintento limpio posible.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">3</td>
+        <td><span class="pill" style="background:rgba(168,85,247,.15);color:var(--purple)">windows_bootstrap</span></td>
+        <td style="color:var(--muted)">15s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--purple)">Ansible (WinRM)</td>
+        <td style="font-size:10px">Playbook <code>windows_base.yml</code>: WinRM HTTPS, OpenSSH + llave SSH soporte, RDP solo desde CGNAT Netbird (100.64.0.0/10), High Perf power plan, múltiples sesiones RDP, NLA desactivado para TSplus.</td>
+        <td style="font-size:9px;color:var(--red)">VM existe pero no configurable. Retry WinRM.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">4</td>
+        <td><span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">tsplus_install</span></td>
+        <td style="color:var(--muted)">20s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--orange)">Ansible (WinRM)</td>
+        <td style="font-size:10px">Playbook <code>tsplus_install.yml</code>: descarga instalador, instala silent, activa licencia perpetua con <code>key</code> del paso 1, activa support license, habilita HTML5 portal en puerto 80.</td>
+        <td style="font-size:9px;color:var(--red)">TSplus no activo. Retry install.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">5</td>
+        <td><span class="pill" style="background:rgba(16,185,129,.15);color:var(--green)">netbird_install</span></td>
+        <td style="color:var(--muted)">8s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--green)">Ansible (WinRM)</td>
+        <td style="font-size:10px">Playbook <code>netbird_install.yml</code>: instala Netbird silent con <code>setup_key</code> del paso 1, conecta al management (<code>manager.kappa4.com</code>), configura autostart + watchdog cada 5 min. Registra IP Netbird (100.x).</td>
+        <td style="font-size:9px;color:var(--red)">VM no en mesh. Acceso fallback por IP interna.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">6</td>
+        <td><span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">tsplus_configure</span></td>
+        <td style="color:var(--muted)">5s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--orange)">WinRM directo</td>
+        <td style="font-size:10px">Vía AdminTool CLI: max sesiones = licencias contratadas, habilita HTML5 gateway, configura nombre de empresa, publica escritorio remoto como app, reinicia Apache TSplus.</td>
+        <td style="font-size:9px;color:var(--red)">HTML5 no disponible. Retry AdminTool.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">7</td>
+        <td><span class="pill" style="background:rgba(16,185,129,.15);color:var(--green)">netbird_configure</span></td>
+        <td style="color:var(--muted)">5s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--green)">Netbird API</td>
+        <td style="font-size:10px">Crea grupo <code>tenant-{id[:8]}</code>, agrega peer al grupo, crea policy ACL (solo peers del mismo grupo se comunican), crea DNS interno <code>{vm_name}.nb.kappa4.com</code>.</td>
+        <td style="font-size:9px;color:var(--red)">Acceso no restringido. Warning, no crítico.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">8</td>
+        <td><span class="pill" style="background:rgba(59,130,246,.15);color:var(--blue)">zitadel_provision</span></td>
+        <td style="color:var(--muted)">6s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--blue)">Zitadel API</td>
+        <td style="font-size:10px">Crea organización Zitadel para el tenant, proyecto WinDesk, roles admin/user, usuario admin con contraseña temporal (force change), apps OIDC para Netbird y para el portal web, Action policy max 2 dispositivos/usuario.</td>
+        <td style="font-size:9px;color:var(--red)">Sin SSO propio. Usa SSO global.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">9</td>
+        <td><span class="pill" style="background:rgba(245,158,11,.15);color:var(--amber)">dns_create</span></td>
+        <td style="color:var(--muted)">2s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--amber)">Cloudflare API</td>
+        <td style="font-size:10px">Crea registro A en zona <code>kappa4.com</code>: <code>{hostname}.desk.kappa4.com → IP Netbird</code>. TTL 120s. Cloudflare proxy desactivado (WireGuard necesita IP directa).</td>
+        <td style="font-size:9px;color:var(--red)">Acceso solo por IP. DNS puede retry.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">10</td>
+        <td><span class="pill" style="background:rgba(236,72,153,.15);color:var(--pink)">email_welcome</span></td>
+        <td style="color:var(--muted)">1s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--pink)">SendGrid / SES</td>
+        <td style="font-size:10px">Envía email al tenant con: URL de acceso HTML5, IP Netbird, contraseña temporal Zitadel (force change), instrucciones MFA, link a documentación. No bloquea si falla.</td>
+        <td style="font-size:9px;color:var(--amber)">No bloquea. Warning en log.</td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--fm);color:var(--muted)">11</td>
+        <td><span class="pill" style="background:rgba(16,185,129,.2);color:var(--green);font-size:9px">complete ✓</span></td>
+        <td style="color:var(--muted)">0.5s</td>
+        <td style="font-family:var(--fm);font-size:9px;color:var(--muted)">MongoDB</td>
+        <td style="font-size:10px">Marca orden <code>status=active</code>, VM <code>status=running</code>, <code>provisioned_at</code>. SSE emite evento con datos de VM. Frontend muestra panel de éxito y redirige a /workspaces en 4s.</td>
+        <td style="font-size:9px;color:var(--red)">—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="card" style="margin-top:.75rem;border-color:rgba(168,85,247,.2)">
+    <h3>Flujo de eventos SSE durante el provisioning</h3>
+    <hr>
+    <div style="display:flex;gap:.5rem;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:.4rem">Frontend abre EventSource:</div>
+        <div style="background:#000;border-radius:8px;padding:.65rem;font-family:var(--fm);font-size:9px;line-height:1.8">
+          <span style="color:var(--blue)">const</span> <span style="color:var(--text)">es</span> = <span style="color:var(--cyan)">new</span> <span style="color:var(--text)">EventSource</span>(<br>
+          &nbsp;&nbsp;<span style="color:var(--green)">'/api/market/orders/{id}/stream'</span><br>
+          );<br>
+          es.<span style="color:var(--amber)">onmessage</span> = (e) => {<br>
+          &nbsp;&nbsp;<span style="color:var(--blue)">const</span> d = <span style="color:var(--text)">JSON.parse</span>(e.data);<br>
+          &nbsp;&nbsp;<span style="color:var(--muted)">// d = {step, status, log, ...}</span><br>
+          &nbsp;&nbsp;<span style="color:var(--text)">updateStepCard</span>(d.step, d.status);<br>
+          };
+        </div>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:.4rem">Backend emite cada 2s (polling MongoDB):</div>
+        <div style="background:#000;border-radius:8px;padding:.65rem;font-family:var(--fm);font-size:9px;line-height:1.8;color:var(--cyan)">
+          data: {"step":"create_lxd_vm",<br>
+          &nbsp;&nbsp;"status":"running",<br>
+          &nbsp;&nbsp;"log":"Creando VM en LXD...",<br>
+          &nbsp;&nbsp;"timestamp":"2026-04-05T15:30:00Z"}<br><br>
+          data: {"step":"create_lxd_vm",<br>
+          &nbsp;&nbsp;"status":"success",<br>
+          &nbsp;&nbsp;"log":"✓ VM windesk-3f8a creada"}<br>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     A4 — AUTH & ZERO TRUST
+══════════════════════════════════════════════════════════════════ -->
+<section id="a4">
+<div class="container">
+  <div style="margin-bottom:1.1rem">
+    <h2>Auth & Zero Trust — Capas de seguridad</h2>
+    <p style="color:var(--muted);font-size:11px">Múltiples capas: Zitadel OIDC PKCE → Bearer JWT → Netbird ACL → TSplus max_sessions</p>
+  </div>
+
+  <div class="g2" style="gap:.75rem">
+    <div class="col" style="gap:.65rem">
+
+      <!-- Zitadel PKCE -->
+      <div class="card" style="border-color:rgba(59,130,246,.2)">
+        <h3 style="color:var(--blue)">👤 Zitadel OIDC PKCE — flujo completo</h3>
+        <hr>
+        <div class="flow-seq">
+          <div class="flow-step active" data-n="1" style="margin-left:14px"><div>
+            <div class="flow-step-title">Usuario click "Sign in"</div>
+            <div class="flow-step-body">Frontend genera <code>code_verifier</code> + <code>code_challenge</code> (SHA256 base64url). Redirect a <code>beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/authorize</code> con PKCE params.</div>
+          </div></div>
+          <div class="flow-step active" data-n="2" style="margin-left:14px"><div>
+            <div class="flow-step-title">Zitadel autentica</div>
+            <div class="flow-step-body">Usuario ingresa credenciales → TOTP/WebAuthn MFA → Zitadel verifica → redirect a <code>/auth/callback?code=xxx</code></div>
+          </div></div>
+          <div class="flow-step active" data-n="3" style="margin-left:14px"><div>
+            <div class="flow-step-title">Token exchange<span class="flow-step-tag ft-post">POST</span></div>
+            <div class="flow-step-body"><code>POST /api/auth/sso</code> → backend intercambia code + code_verifier por <code>access_token</code> + <code>id_token</code>. Extrae claims: <code>sub</code> (user ID), <code>roles</code>, <code>groups</code>, <code>org_id</code>. Crea/actualiza user en MongoDB. Devuelve token al frontend.</div>
+          </div></div>
+          <div class="flow-step active" data-n="4" style="margin-left:14px"><div>
+            <div class="flow-step-title">Todas las requests autenticadas</div>
+            <div class="flow-step-body">Frontend envía <code>Authorization: Bearer {token}</code>. FastAPI valida con <code>active_tokens</code> dict (prod: Redis + JWKS). Grupos determinan permisos: <code>admin</code> → /admin, <code>user</code> → /workspaces, /market.</div>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- Zitadel por tenant -->
+      <div class="card" style="border-color:rgba(59,130,246,.2)">
+        <h3 style="color:var(--blue)">🏢 Zitadel por tenant (post-compra)</h3>
+        <hr>
+        <div style="font-size:10px;color:var(--muted);line-height:2">
+          El orquestador crea vía API (paso 8):<br>
+          <div style="background:var(--s2);border-radius:8px;padding:.6rem;margin:.3rem 0;font-family:var(--fm);font-size:9px;color:var(--muted);line-height:1.9">
+            <span style="color:var(--green)">Organización:</span> NombreEmpresa<br>
+            <span style="color:var(--green)">Proyecto:</span> WinDesk Cloud<br>
+            <span style="color:var(--green)">Roles:</span> admin, user<br>
+            <span style="color:var(--green)">App OIDC 1:</span> Netbird (PKCE)<br>
+            <span style="color:var(--green)">App OIDC 2:</span> Portal Web (PKCE + secret)<br>
+            <span style="color:var(--green)">Action:</span> max 2 dispositivos/usuario<br>
+            <span style="color:var(--green)">Usuario admin:</span> {email} + temp password<br>
+          </div>
+          El cliente hace login → Zitadel fuerza cambio de contraseña → puede registrar MFA → access a su portal dedicado.
+        </div>
+      </div>
+    </div>
+
+    <div class="col" style="gap:.65rem">
+      <!-- Netbird Zero Trust -->
+      <div class="card" style="border-color:rgba(16,185,129,.2)">
+        <h3 style="color:var(--green)">🔒 Netbird — Zero Trust Network</h3>
+        <hr>
+        <div style="font-size:10px;color:var(--muted);line-height:1.8;margin-bottom:.65rem">
+          Arquitectura de red por tenant:
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.4rem">
+          <div class="node n-green" style="flex-direction:row;justify-content:flex-start;gap:.75rem;padding:.5rem .75rem">
+            <div class="n-icon" style="font-size:1rem">🌐</div>
+            <div style="text-align:left"><div class="n-label" style="font-size:10px">Browser del usuario</div><div class="n-sub">No necesita cliente Netbird para TSplus HTML5<br>Solo si quiere acceso RDP nativo (admin)</div></div>
+          </div>
+          <div style="text-align:center;font-size:9px;color:var(--muted)">↓ HTTPS a TSplus HTML5 (sobre Netbird relay)</div>
+          <div class="node n-green" style="flex-direction:row;justify-content:flex-start;gap:.75rem;padding:.5rem .75rem">
+            <div class="n-icon" style="font-size:1rem">🖥️</div>
+            <div style="text-align:left"><div class="n-label" style="font-size:10px">VM Windows (peer Netbird)</div><div class="n-sub">IP 100.x.x.x · TSplus escucha en :80<br>RDP en :3389 — solo desde CGNAT Netbird</div></div>
+          </div>
+          <div style="text-align:center;font-size:9px;color:var(--muted)">↕ WireGuard P2P / relay</div>
+          <div class="node n-green" style="flex-direction:row;justify-content:flex-start;gap:.75rem;padding:.5rem .75rem">
+            <div class="n-icon" style="font-size:1rem">🔑</div>
+            <div style="text-align:left"><div class="n-label" style="font-size:10px">Netbird Management</div><div class="n-sub">manager.kappa4.com · Grupos por tenant<br>ACL: solo peers del mismo grupo<br>DNS: {vm}.nb.kappa4.com</div></div>
+          </div>
+        </div>
+        <hr>
+        <div style="font-size:10px;color:var(--muted)">
+          Reglas de acceso configuradas via API en paso 7:<br>
+          <code style="font-size:9px;color:var(--green);font-family:var(--fm)">Policy: grupo-tenant-xxx ↔ grupo-tenant-xxx ONLY</code><br>
+          Max 2 dispositivos por usuario (Zitadel Action).<br>
+          Max N sesiones TSplus = N licencias contratadas.
+        </div>
+      </div>
+
+      <!-- Seguridad de la VM -->
+      <div class="card" style="border-color:rgba(249,115,22,.2)">
+        <h3 style="color:var(--orange)">🛡️ Hardening de la VM Windows</h3>
+        <hr>
+        <div style="font-size:10px;color:var(--muted);line-height:2">
+          Configurado por Ansible en paso 3:<br>
+          <div style="font-family:var(--fm);font-size:9px;line-height:1.9;color:var(--muted)">
+            <div>✓ WinRM HTTPS (cert self-signed)</div>
+            <div>✓ OpenSSH con llave pública soporte NeoSC</div>
+            <div>✓ RDP bloqueado desde internet (firewall)</div>
+            <div>✓ RDP permitido solo 100.64.0.0/10 (Netbird)</div>
+            <div>✓ Netbird watchdog autostart cada 5 min</div>
+            <div>✓ NLA desactivado (TSplus HTML5 requiere)</div>
+            <div>✓ Múltiples sesiones RDP simultáneas</div>
+            <div>✓ High Performance power plan</div>
+            <div>✓ Efectos visuales desactivados (VDI)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     A5 — MICROSERVICIOS
+══════════════════════════════════════════════════════════════════ -->
+<section id="a5">
+<div class="container">
+  <div style="margin-bottom:1.1rem">
+    <h2>Microservicios & Componentes</h2>
+    <p style="color:var(--muted);font-size:11px">Cada servicio tiene responsabilidad única. Se comunican vía Celery queue o API directa.</p>
+  </div>
+
+  <div class="g3" style="gap:.65rem">
+
+    <div class="card" style="border-color:rgba(6,182,212,.2)">
+      <h3 style="color:var(--cyan)">🖥️ Frontend (React CRA)</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">Stack:</b> React 19 · react-router-dom v7 · Tailwind · shadcn/ui · axios<br>
+        <b style="color:var(--text)">Estado:</b> useState local + sessionStorage para config market<br>
+        <b style="color:var(--text)">Auth:</b> AuthContext → Zitadel PKCE · localStorage tokens<br>
+        <b style="color:var(--text)">SSE:</b> EventSource nativo · polling fallback cada 3s<br>
+        <b style="color:var(--text)">Precios:</b> cálculo reactivo local + validación POST /price
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(249,115,22,.2)">
+      <h3 style="color:var(--orange)">⚡ API Gateway (FastAPI)</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">Stack:</b> FastAPI 0.110 · Python 3.11 · Motor (MongoDB async)<br>
+        <b style="color:var(--text)">Auth:</b> Bearer token → <code>active_tokens</code> dict (→ Redis prod)<br>
+        <b style="color:var(--text)">Routers:</b> auth, market, workspaces, sessions, admin, audit<br>
+        <b style="color:var(--text)">SSE:</b> StreamingResponse con <code>asyncio.sleep(2)</code> polling loop<br>
+        <b style="color:var(--text)">CORS:</b> configurado via env CORS_ORIGINS
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(168,85,247,.2)">
+      <h3 style="color:var(--purple)">⚙️ Provision Worker (Celery)</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">Queue:</b> provision (concurrency=3)<br>
+        <b style="color:var(--text)">Infra:</b> apache-libcloud (LXD/GCP/AWS) · pylxd fallback<br>
+        <b style="color:var(--text)">Actual:</b> asyncio.create_task (demo) · Celery en producción<br>
+        <b style="color:var(--text)">Retry:</b> max_retries=1, ack_late=True<br>
+        <b style="color:var(--text)">Log:</b> cada step → MongoDB provision_steps
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(168,85,247,.2)">
+      <h3 style="color:var(--purple)">🔧 WinRM Worker (Celery)</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">Queue:</b> winrm (concurrency=2, serialized por VM)<br>
+        <b style="color:var(--text)">Stack:</b> ansible_runner · pywinrm<br>
+        <b style="color:var(--text)">Playbooks:</b> windows_base.yml · tsplus_install.yml · netbird_install.yml<br>
+        <b style="color:var(--text)">Inventory:</b> dinámico por VM (IP + creds WinRM)
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(16,185,129,.2)">
+      <h3 style="color:var(--green)">🌐 Netbird Service</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">API:</b> manager.kappa4.com/api · Token auth<br>
+        <b style="color:var(--text)">Operaciones:</b> create setup_key · create group · add peer · create policy · create DNS nameserver<br>
+        <b style="color:var(--text)">Por tenant:</b> 1 setup_key · 1 group · 1 ACL policy · DNS interno
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(59,130,246,.2)">
+      <h3 style="color:var(--blue)">👤 Zitadel Service</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">API:</b> beyondcloud-nxm7ab.us1.zitadel.cloud<br>
+        <b style="color:var(--text)">PAT:</b> service account token para crear orgs<br>
+        <b style="color:var(--text)">Por tenant:</b> 1 org · 1 proyecto · 2 roles · 2 apps OIDC · 1 admin user · 1 Action<br>
+        <b style="color:var(--text)">Action:</b> max 2 dispositivos por usuario (post-session)
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(245,158,11,.2)">
+      <h3 style="color:var(--amber)">🌐 Cloudflare Service</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">API:</b> api.cloudflare.com · Zone API token<br>
+        <b style="color:var(--text)">Operación:</b> POST /dns_records · Tipo A<br>
+        <b style="color:var(--text)">Resultado:</b> <code>{hostname}.desk.kappa4.com → IP Netbird</code><br>
+        <b style="color:var(--text)">TTL:</b> 120s · Proxy: false (WireGuard necesita IP directa)
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(249,115,22,.2)">
+      <h3 style="color:var(--orange)">📦 TSplus Service</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">Install:</b> silent /SILENT /SUPPRESSMSGBOXES<br>
+        <b style="color:var(--text)">Activación:</b> AdminTool.exe /activate {key} /silent<br>
+        <b style="color:var(--text)">Config:</b> setmaxsessions · enablehtml5 · enablewebaccess<br>
+        <b style="color:var(--text)">DEMO:</b> simulado en _simulate_provisioning()<br>
+        <b style="color:var(--text)">PROD:</b> requiere cuenta reseller TSplus API
+      </div>
+    </div>
+
+    <div class="card" style="border-color:rgba(236,72,153,.2)">
+      <h3 style="color:var(--pink)">📧 Notify Service</h3>
+      <hr>
+      <div style="font-size:10px;color:var(--muted);line-height:2">
+        <b style="color:var(--text)">Provider:</b> SendGrid / AWS SES (configurable)<br>
+        <b style="color:var(--text)">Email bienvenida:</b> URL acceso HTML5 · IP Netbird · contraseña temporal Zitadel · instrucciones MFA<br>
+        <b style="color:var(--text)">No bloquea:</b> fallo de email no detiene el provisioning
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     A6 — BASE DE DATOS
+══════════════════════════════════════════════════════════════════ -->
+<section id="a6">
+<div class="container">
+  <div style="margin-bottom:1.1rem">
+    <h2>Base de Datos — Colecciones MongoDB</h2>
+    <p style="color:var(--muted);font-size:11px">Motor async (motor + asyncio). Colecciones nuevas del branch feature/windeskcloud-market marcadas en cyan.</p>
+  </div>
+
+  <div class="g2" style="gap:.65rem">
+    <div class="col" style="gap:.65rem">
+
+      <!-- market_orders -->
+      <div class="card" style="border-color:rgba(6,182,212,.3)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+          <h3 style="color:var(--cyan)">market_orders <span style="font-size:8px;font-weight:400;color:var(--muted)">— NEW</span></h3>
+          <span class="pill" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:8px">1 doc / compra</span>
+        </div>
+        <div style="font-family:var(--fm);font-size:9px;color:var(--muted);line-height:2;background:var(--s2);border-radius:8px;padding:.65rem">
+          <span style="color:var(--text)">id</span>: uuid<br>
+          <span style="color:var(--text)">user_id, user_email</span>: str<br>
+          <span style="color:var(--text)">status</span>: pending | paid | provisioning | active | failed<br>
+          <span style="color:var(--text)">neosc_plan, billing_period</span>: str<br>
+          <span style="color:var(--text)">vcpu, ram_gb, disk_gb, region</span>: int/str<br>
+          <span style="color:var(--text)">tsplus_licenses, tsplus_company_name</span><br>
+          <span style="color:var(--text)">tsplus_license_key</span>: generada paso 1<br>
+          <span style="color:var(--text)">addons</span>: list[str]<br>
+          <span style="color:var(--text)">custom_hostname, tunnel_hostname</span>: str<br>
+          <span style="color:var(--text)">total_cents, currency, billing_period</span><br>
+          <span style="color:var(--text)">vm_id</span>: ref → market_vms<br>
+          <span style="color:var(--text)">created_at, updated_at, paid_at</span>: datetime
+        </div>
+      </div>
+
+      <!-- provision_steps -->
+      <div class="card" style="border-color:rgba(6,182,212,.3)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+          <h3 style="color:var(--cyan)">provision_steps <span style="font-size:8px;font-weight:400;color:var(--muted)">— NEW</span></h3>
+          <span class="pill" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:8px">12 docs / orden</span>
+        </div>
+        <div style="font-family:var(--fm);font-size:9px;color:var(--muted);line-height:2;background:var(--s2);border-radius:8px;padding:.65rem">
+          <span style="color:var(--text)">order_id</span>: ref → market_orders<br>
+          <span style="color:var(--text)">step_name</span>: payment_confirmed | create_lxd_vm | ...<br>
+          <span style="color:var(--text)">step_index</span>: 0..11<br>
+          <span style="color:var(--text)">status</span>: pending | running | success | failed<br>
+          <span style="color:var(--text)">started_at, completed_at</span>: datetime<br>
+          <span style="color:var(--text)">log_output</span>: str (acumulado)<br>
+          <span style="color:var(--text)">error_msg</span>: str<br>
+          <div style="color:var(--cyan);margin-top:.2rem">↑ SSE stream polling esta colección cada 2s</div>
+        </div>
+      </div>
+
+      <!-- market_vms -->
+      <div class="card" style="border-color:rgba(6,182,212,.3)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+          <h3 style="color:var(--cyan)">market_vms <span style="font-size:8px;font-weight:400;color:var(--muted)">— NEW</span></h3>
+          <span class="pill" style="background:rgba(6,182,212,.15);color:var(--cyan);font-size:8px">1 doc / VM</span>
+        </div>
+        <div style="font-family:var(--fm);font-size:9px;color:var(--muted);line-height:2;background:var(--s2);border-radius:8px;padding:.65rem">
+          <span style="color:var(--text)">id</span>: uuid<br>
+          <span style="color:var(--text)">order_id</span>: ref<br>
+          <span style="color:var(--text)">lxd_instance_name</span>: windesk-{tenant}-{seq}<br>
+          <span style="color:var(--text)">status</span>: provisioning | running | stopped | error<br>
+          <span style="color:var(--text)">internal_ip</span>: 10.x.x.x<br>
+          <span style="color:var(--text)">netbird_ip</span>: 100.x.x.x<br>
+          <span style="color:var(--text)">tunnel_hostname</span>: x.desk.kappa4.com<br>
+          <span style="color:var(--text)">has_tsplus</span>: bool<br>
+          <span style="color:var(--text)">tsplus_licenses</span>: int<br>
+          <span style="color:var(--text)">vcpu, ram_gb, disk_gb</span>: int<br>
+          <span style="color:var(--text)">provisioned_at</span>: datetime
+        </div>
+      </div>
+    </div>
+
+    <div class="col" style="gap:.65rem">
+
+      <!-- Colecciones existentes de Emergent -->
+      <div class="card">
+        <h3>Colecciones existentes (Emergent)</h3>
+        <hr>
+        <div style="font-size:10px;color:var(--muted);line-height:1.9">
+          <div style="margin-bottom:.4rem"><b style="color:var(--text)">users</b> — id, email, name, role, password_hash, organization, created_at</div>
+          <div style="margin-bottom:.4rem"><b style="color:var(--text)">workspaces</b> — id, name, type, url, connection_type, status, requires_netbird, clientless, launch_mode, cpu, memory, storage</div>
+          <div style="margin-bottom:.4rem"><b style="color:var(--text)">sessions</b> — id, user_id, workspace_id, status, started_at, ended_at, url</div>
+          <div style="margin-bottom:.4rem"><b style="color:var(--text)">audit_logs</b> — id, user_id, user_email, action, resource, details, success, timestamp</div>
+          <div style="margin-bottom:.4rem"><b style="color:var(--text)">organizations</b> — id, name, domain, users_count, workspaces_count, created_at</div>
+          <div><b style="color:var(--text)">policies</b> — id, name, description, type, rules, enabled, created_at</div>
+        </div>
+      </div>
+
+      <!-- Flujo de datos -->
+      <div class="card">
+        <h3>Flujo de datos durante provisioning</h3>
+        <hr>
+        <div style="font-size:10px;line-height:1.9">
+          <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+            <span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">POST /orders</span>
+            <span style="color:var(--muted)">→ INSERT market_orders(pending) + INSERT 12 provision_steps(pending)</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+            <span class="pill" style="background:rgba(249,115,22,.15);color:var(--orange)">simulate-payment</span>
+            <span style="color:var(--muted)">→ UPDATE market_orders(paid) → asyncio.create_task()</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+            <span class="pill" style="background:rgba(168,85,247,.15);color:var(--purple)">cada step</span>
+            <span style="color:var(--muted)">→ UPDATE provision_steps(running) → delay → UPDATE(success)</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+            <span class="pill" style="background:rgba(168,85,247,.15);color:var(--purple)">SSE stream</span>
+            <span style="color:var(--muted)">→ SELECT provision_steps cada 2s → emite eventos al frontend</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+            <span class="pill" style="background:rgba(16,185,129,.15);color:var(--green)">step complete</span>
+            <span style="color:var(--muted)">→ INSERT market_vms → UPDATE market_orders(active)</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem">
+            <span class="pill" style="background:rgba(59,130,246,.15);color:var(--blue)">GET my-vms</span>
+            <span style="color:var(--muted)">→ JOIN market_orders(active) + market_vms → response cliente</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Redis -->
+      <div class="card" style="border-color:rgba(239,68,68,.2)">
+        <h3 style="color:var(--red)">⚡ Redis — uso actual</h3>
+        <hr>
+        <div style="font-size:10px;color:var(--muted);line-height:2">
+          <b style="color:var(--text)">Celery broker:</b> REDIS_URL queue de tasks<br>
+          <b style="color:var(--text)">Token store (prod):</b> reemplazar active_tokens dict por Redis + TTL<br>
+          <b style="color:var(--text)">SSE (actual):</b> polling MongoDB (sin Redis Pub/Sub aún)<br>
+          <b style="color:var(--text)">SSE (prod):</b> Redis Pub/Sub → asyncio subscriber para < 100ms latency<br>
+          <b style="color:var(--text)">Cache precio:</b> calcular 1 vez por config hash, TTL 5min
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<script>
+function show(id, el) {
+  document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (el) el.classList.add('active');
+}
+</script>
+</body>
+</html>
