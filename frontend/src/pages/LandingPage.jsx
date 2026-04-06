@@ -170,29 +170,7 @@ export default function LandingPage() {
 
   // Redirect to Zitadel SSO directly
   const handleSignIn = () => {
-    const state = generateRandomString();
-    const codeVerifier = generateRandomString();
-    
-    sessionStorage.setItem('oauth_state', state);
-    sessionStorage.setItem('pkce_code_verifier', codeVerifier);
-    sessionStorage.setItem('sso_provider', ZITADEL_CONFIG.provider_key);
-    sessionStorage.setItem('sso_authority', ZITADEL_CONFIG.authority);
-    sessionStorage.setItem('sso_client_id', ZITADEL_CONFIG.client_id);
-    
-    generateCodeChallenge(codeVerifier).then(codeChallenge => {
-      const params = new URLSearchParams({
-        client_id: ZITADEL_CONFIG.client_id,
-        redirect_uri: ZITADEL_CONFIG.redirect_uri,
-        scope: ZITADEL_CONFIG.scope,
-        response_type: 'code',
-        state: state,
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-      });
-      
-      const authUrl = `${ZITADEL_CONFIG.authorization_endpoint}?${params.toString()}`;
-      window.location.href = authUrl;
-    });
+    navigate('/login');
   };
 
   const loadDemo = (type) => {
