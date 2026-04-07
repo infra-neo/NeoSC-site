@@ -1,56 +1,78 @@
 # WinDesk Market (NeoSC) - PRD
 
 ## Original Problem Statement
-Transform a WinDesk Cloud MVP into the "WinDesk Market" (NeoSC) platform — a full SaaS application for self-service provisioning of cloud Windows VMs with TSplus HTML5, Netbird Zero Trust networking, and Zitadel SSO.
+Transform a WinDesk Cloud MVP into the "NeoSC" platform — a full SaaS application for self-service provisioning of cloud Windows VMs with NeoDesk (Guacamole/TSplus HTML5), NeoMesh (NetBird Zero Trust), and NeoGuard (Zitadel SSO).
 
 ## Tech Stack
 React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OIDC PKCE.
+
+## NeoSC Branding
+- **NeoGuard** = Zitadel SSO/MFA
+- **NeoMesh** = NetBird Zero Trust VPN
+- **NeoDesk** = Guacamole HTML5 Desktop (Starter)
+- **NeoDesk+** = TSplus HTML5 Desktop (Plus/Enterprise)
+- **NeoProxy** = Pomerium IAP
+- **NeoVault** = JumpServer PAM
+
+## Market Tiers
+- **Starter**: $29/mes — VM + NeoDesk HTML5, 5 users
+- **Plus**: $79/mes — TSplus existente + NeoProxy + NeoMesh, 25 users
+- **Enterprise**: Custom — B2B delegado + NeoVault + On-prem
 
 ## What's Been Implemented
 
 ### Phase 1 - MVP (DONE)
 - Basic WinDesk Cloud, RBAC, Onboarding, Zitadel OIDC SSO (Manual PKCE)
 
-### Phase 2 - WinDesk Market (DONE - Feb 2026)
-- Complete Market flow (7 screens: Landing, Market/Plans, Configurator, Checkout, Provisioning, Portal, Admin)
-- 15+ frontend pages, AuthContext, LanguageContext, Sidebar with role-based nav
+### Phase 2 - WinDesk Market (DONE)
+- Complete Market flow (7 screens), 15+ frontend pages, AuthContext, LanguageContext, Sidebar
 
-### Phase 3 - Admin Global S7 (DONE - Feb 2026)
-- Admin panel with KPIs, tenants table (lockdown/activate), orchestrator live, system logs
-- 6 admin endpoints with role enforcement
+### Phase 3 - Admin Global S7 (DONE)
+- Admin panel with KPIs, tenants table, orchestrator live, system logs
 
-### Phase 4 - Zitadel + NetBird Integration (DONE - Feb 2026)
-- **NeoSC SSO (Zitadel) Admin** (`/admin/zitadel`): CRUD users, list orgs, roles, grants via Zitadel Management API v2
-- **NetBird Admin** (`/admin/netbird`): List/manage peers, groups, setup-keys, routes, users via NetBird REST API
-- **Login page**: NeoSC SSO button (Zitadel PKCE) + bypass local (admin + 3 demo users)
-- Real API integrations (not mocked) — Zitadel PAT + NetBird API token
-- App URLs updated: NeoSC Panel → panel.proxy.kappa4.com, Windows Desktop → web.proxy.kappa4.com, Demo → win11.blueedge.me
+### Phase 4 - Zitadel + NetBird Integration (DONE)
+- NeoGuard SSO Admin (CRUD users, orgs, roles, grants via Zitadel API v2)
+- NeoMesh Admin (peers, groups, setup-keys, routes, users via NetBird REST API)
+- Login page: NeoSC SSO button + bypass local
 
-## Architecture
-```
-Backend endpoints:
-  /api/admin/zitadel/users (GET list, POST create, GET/:id, DELETE/:id)
-  /api/admin/zitadel/orgs (GET list, POST create)
-  /api/admin/zitadel/roles (GET projects)
-  /api/admin/zitadel/grants (GET user grants)
-  /api/admin/netbird/peers (GET list, GET/:id, PUT/:id, DELETE/:id)
-  /api/admin/netbird/groups (GET list, POST create, DELETE/:id)
-  /api/admin/netbird/setup-keys (GET list, POST create)
-  /api/admin/netbird/routes (GET list)
-  /api/admin/netbird/users (GET list)
-```
+### Phase 5 - Tenant Enrollment + Rebranding (DONE - Feb 2026)
+- **Tenant Enrollment Wizard** (`/admin/enroll-tenant`) with 6 real steps:
+  1. NeoGuard Org (Zitadel - manual_pending until IAM permission granted)
+  2. NeoMesh Group (NetBird - REAL API)
+  3. NeoMesh Setup Key (NetBird - REAL API)
+  4. NeoMesh Policy (NetBird - REAL API)
+  5. Register Infra (TSplus host/IP)
+  6. Finalize (activate tenant, set MRR)
+- **Market tiers updated**: Starter $29, Plus $79, Enterprise Custom
+- **NeoSC rebranding** across Landing, Market, Dashboard, Sidebar
+- 100% test pass rate (13/13 backend, all frontend)
 
-## Mocked Features
-- VM Provisioning (SSE simulation), Payments (demo mode), JumpServer (mock URLs)
+## Key API Endpoints (New)
+- POST `/api/admin/tenants/enroll` — Create new tenant
+- POST `/api/admin/tenants/{id}/step/zitadel-org` — Create Zitadel org
+- POST `/api/admin/tenants/{id}/step/netbird-group` — Create NetBird group
+- POST `/api/admin/tenants/{id}/step/netbird-setup-key` — Generate setup key
+- POST `/api/admin/tenants/{id}/step/netbird-policy` — Create access policy
+- POST `/api/admin/tenants/{id}/step/register-infra` — Register client infra
+- POST `/api/admin/tenants/{id}/step/finalize` — Activate tenant
+- GET `/api/admin/tenants/{id}/enrollment-status` — Get enrollment state
+
+## Mocked/Pending
+- Zitadel org creation (needs IAM_OWNER in Zitadel console)
+- VM provisioning (SSE simulation)
+- Payments (demo mode)
 
 ## Prioritized Backlog
+### P0 (Next)
+- Grant IAM_OWNER to service user in Zitadel console
+- IA Agent "Neo" (chat bot for discovery/onboarding)
+
 ### P1
-- Real VM provisioning via LXD/cloud API
-- Real Stripe/PayPal payment integration
-- Grant Zitadel service user IAM membership for full projects/grants access
+- Real VM provisioning via PowerShell/WinRM
+- Stripe checkout with CFDI México
+- NeoProxy (Pomerium) integration
 
 ### P2
-- Session recording and playback
-- Real-time metrics from actual VMs
-- Email notifications
-- Multi-region support
+- NeoVault (JumpServer) PAM integration
+- Session recording
+- Real-time VM metrics
