@@ -6,16 +6,17 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Monitor, Globe, Play, Square, RefreshCw, Camera, Shield, ExternalLink } from 'lucide-react';
+import { Monitor, Globe, Trash2 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function WorkspacesPage() {
-  const { getAuthHeader } = useAuth();
+  const { getAuthHeader, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [marketVms, setMarketVms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(null);
 
   const loadData = async () => {
     try {
@@ -27,6 +28,19 @@ export default function WorkspacesPage() {
 
   useEffect(() => { loadData(); }, []);
 
+  const deleteVm = async (vmId) => {
+    if (!window.confirm('¿Eliminar esta VM? Esta acción no se puede deshacer.')) return;
+    setDeleting(vmId);
+    try {
+      await axios.delete(`${API}/market/vms/${vmId}`, { headers: getAuthHeader() });
+      toast.success('VM eliminada correctamente');
+      setMarketVms(prev => prev.filter(v => v.id !== vmId));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al eliminar VM');
+    }
+    setDeleting(null);
+  };
+
   const statusColor = (s) => {
     if (s === 'running') return 'bg-green-500';
     if (s === 'available') return 'bg-cyan-500';
@@ -37,7 +51,7 @@ export default function WorkspacesPage() {
   if (loading) return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="lg:ml-64 p-6 flex items-center justify-center">
+      <main className="lg:ml-56 p-6 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
       </main>
     </div>
@@ -46,7 +60,7 @@ export default function WorkspacesPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-      <main className="lg:ml-64 p-6">
+      <main className="lg:ml-56 p-6">
         <div className="max-w-6xl mx-auto space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -74,9 +88,9 @@ export default function WorkspacesPage() {
                 <div key={vm.id} className="rounded-xl border border-border bg-card overflow-hidden" data-testid={`market-vm-${vm.id}`}>
                   <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/20">
                     <div className={`w-2.5 h-2.5 rounded-full ${statusColor(vm.status)} shadow-lg`} />
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <span className="font-bold text-sm">{vm.lxd_instance_name}</span>
-                      <span className="text-muted-foreground text-xs ml-2">· {vm.tunnel_hostname}</span>
+                      <span className="text-muted-foreground text-xs ml-2 hidden sm:inline">· {vm.tunnel_hostname}</span>
                     </div>
                     {vm.order && (
                       <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-xs">
@@ -91,6 +105,18 @@ export default function WorkspacesPage() {
                     >
                       <Globe className="w-3 h-3" /> Abrir HTML5
                     </Button>
+                    {isAdmin && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 h-8 w-8 p-0"
+                        data-testid={`delete-vm-${vm.id}`}
+                        onClick={() => deleteVm(vm.id)}
+                        disabled={deleting === vm.id}
+                      >
+                        <Trash2 className={`w-3.5 h-3.5 ${deleting === vm.id ? 'animate-spin' : ''}`} />
+                      </Button>
+                    )}
                   </div>
                   <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div>

@@ -40,7 +40,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-      <main className="lg:ml-64 p-6">
+      <main className="lg:ml-56 p-6">
         <div className="max-w-6xl mx-auto space-y-6">
           {/* Header */}
           <div>

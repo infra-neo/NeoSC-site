@@ -95,7 +95,7 @@ export default function AdminGlobalPage() {
   if (loading) return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="lg:ml-64 p-6 flex items-center justify-center">
+      <main className="lg:ml-56 p-6 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
       </main>
     </div>
@@ -104,7 +104,7 @@ export default function AdminGlobalPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-      <main className="lg:ml-64 p-6">
+      <main className="lg:ml-56 p-6">
         <div className="max-w-7xl mx-auto space-y-5">
           {/* Header */}
           <div className="flex items-center justify-between">

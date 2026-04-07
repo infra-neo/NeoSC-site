@@ -2492,6 +2492,22 @@ async def get_my_market_vms(user: dict = Depends(get_current_user)):
     return {"vms": vms}
 
 
+# ─── DELETE /market/vms/{vm_id} ────────────────────────────────────────────────
+@api_router.delete("/market/vms/{vm_id}")
+async def delete_market_vm(vm_id: str, user: dict = Depends(get_current_user)):
+    """Eliminar una VM del market (solo admin)."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Solo administradores pueden eliminar VMs")
+    vm = await db.market_vms.find_one({"id": vm_id})
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM no encontrada")
+    await db.market_vms.delete_one({"id": vm_id})
+    await db.market_orders.update_many({"vm_id": vm_id}, {"$set": {"status": "deleted"}})
+    await create_audit_log(user['id'], user['email'], "delete_market_vm", f"vm:{vm_id}", "Market VM deleted")
+    return {"ok": True, "message": f"VM {vm_id} eliminada"}
+
+
+
 # ─── GET /market/orders (admin: ver todas las órdenes) ────────────────────────
 @api_router.get("/market/orders")
 async def list_all_market_orders(user: dict = Depends(get_current_user)):

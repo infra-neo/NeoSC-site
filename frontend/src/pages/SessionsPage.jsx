@@ -32,7 +32,7 @@ export default function SessionsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-      <main className="lg:ml-64 p-6">
+      <main className="lg:ml-56 p-6">
         <div className="max-w-5xl mx-auto space-y-6">
           <h1 className="text-2xl font-bold" data-testid="sessions-title">Sesiones Activas</h1>
           {sessions.length === 0 ? (

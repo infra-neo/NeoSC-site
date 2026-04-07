@@ -36,7 +36,7 @@ export default function MultiViewPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-      <main className="lg:ml-64 p-4 h-screen flex flex-col">
+      <main className="lg:ml-56 p-4 h-screen flex flex-col">
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-lg font-bold" data-testid="multiview-title">Multi-View</h1>
