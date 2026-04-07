@@ -14,47 +14,18 @@ const API = `${BACKEND_URL}/api`;
 export default function WorkspacesPage() {
   const { getAuthHeader } = useAuth();
   const navigate = useNavigate();
-  const [workspaces, setWorkspaces] = useState([]);
   const [marketVms, setMarketVms] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     try {
-      const [wsRes, mvRes] = await Promise.all([
-        axios.get(`${API}/workspaces`, { headers: getAuthHeader() }),
-        axios.get(`${API}/market/my-vms`, { headers: getAuthHeader() }).catch(() => ({ data: { vms: [] } })),
-      ]);
-      setWorkspaces(wsRes.data);
+      const mvRes = await axios.get(`${API}/market/my-vms`, { headers: getAuthHeader() }).catch(() => ({ data: { vms: [] } }));
       setMarketVms(mvRes.data.vms || []);
     } catch { /* ignore */ }
     setLoading(false);
   };
 
   useEffect(() => { loadData(); }, []);
-
-  const launchWorkspace = async (wsId) => {
-    try {
-      const res = await axios.post(`${API}/workspaces/${wsId}/launch`, {}, { headers: getAuthHeader() });
-      const { connection_url, launch_mode } = res.data;
-      if (launch_mode === 'new_tab' && connection_url) {
-        window.open(connection_url, '_blank');
-      } else if (connection_url) {
-        navigate(`/viewer/${res.data.session_id}`);
-      }
-      toast.success('Workspace iniciado');
-      loadData();
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Error al iniciar workspace');
-    }
-  };
-
-  const stopWorkspace = async (wsId) => {
-    try {
-      await axios.post(`${API}/workspaces/${wsId}/stop`, {}, { headers: getAuthHeader() });
-      toast.success('Workspace detenido');
-      loadData();
-    } catch { /* ignore */ }
-  };
 
   const statusColor = (s) => {
     if (s === 'running') return 'bg-green-500';
@@ -144,40 +115,18 @@ export default function WorkspacesPage() {
             </div>
           )}
 
-          {/* Default Workspaces */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-              Workspaces disponibles
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {workspaces.map((ws) => (
-                <div key={ws.id} className="rounded-xl border border-border bg-card p-4" data-testid={`workspace-${ws.id}`}>
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-2 h-2 rounded-full ${statusColor(ws.status)}`} />
-                    <h3 className="font-bold text-sm flex-1">{ws.name}</h3>
-                    <Badge variant="outline" className="text-xs">
-                      {ws.connection_type || ws.type}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3">{ws.description}</p>
-                  <div className="text-xs text-muted-foreground mb-3">
-                    {ws.cpu} · {ws.memory} · {ws.storage}
-                  </div>
-                  <div className="flex gap-2">
-                    {ws.status === 'running' ? (
-                      <Button size="sm" variant="outline" onClick={() => stopWorkspace(ws.id)}>
-                        <Square className="w-3 h-3 mr-1" /> Detener
-                      </Button>
-                    ) : (
-                      <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black" onClick={() => launchWorkspace(ws.id)}>
-                        <Play className="w-3 h-3 mr-1" /> Iniciar
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+          {marketVms.length === 0 && (
+            <div className="text-center py-12 border border-dashed border-border rounded-2xl">
+              <Monitor className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-muted-foreground text-sm">No tienes VMs Windows activas</p>
+              <Button
+                onClick={() => navigate('/market')}
+                className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold gap-2 mt-4"
+              >
+                + Comprar VM Windows
+              </Button>
             </div>
-          </div>
+          )}
         </div>
       </main>
     </div>
