@@ -28,7 +28,7 @@ const demoConfigs = {
   windows: {
     title: 'Windows Desktop',
     subtitle: 'Windows environment via TSplus HTML5 Remote Desktop',
-    url: 'http://100.107.254.100:3000/',
+    url: 'https://win11.blueedge.me/',
     icon: '🪟',
     gradient: 'from-blue-500 to-cyan-500',
     plan: 'ALL PLANS'
@@ -42,9 +42,9 @@ const demoConfigs = {
     plan: 'ALL PLANS'
   },
   panel: {
-    title: '1Panel Control',
+    title: 'NeoSC Panel',
     subtitle: 'Modern Linux server management panel',
-    url: 'https://cockpit-project.org/demo.html',
+    url: 'https://panel.proxy.kappa4.com/',
     icon: '🎛️',
     gradient: 'from-purple-500 to-pink-500',
     plan: 'PRO & ENTERPRISE'
