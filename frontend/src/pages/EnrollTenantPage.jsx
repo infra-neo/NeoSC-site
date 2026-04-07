@@ -23,7 +23,7 @@ const TIERS = [
 ];
 
 const STEPS = [
-  { key: 'zitadel_org', label: 'NeoGuard Org', desc: 'Crear organización en Zitadel SSO', icon: Shield, color: 'text-purple-400' },
+  { key: 'zitadel_org', label: 'NeoGuard Tenant', desc: 'Crear proyecto + rol + usuario admin en Zitadel', icon: Shield, color: 'text-purple-400' },
   { key: 'netbird_group', label: 'NeoMesh Grupo', desc: 'Crear grupo aislado en NetBird', icon: Wifi, color: 'text-green-400' },
   { key: 'netbird_setup_key', label: 'NeoMesh Key', desc: 'Generar setup key para nodo', icon: Key, color: 'text-green-400' },
   { key: 'netbird_policy', label: 'NeoMesh Policy', desc: 'Regla de acceso intra-grupo', icon: Lock, color: 'text-green-400' },

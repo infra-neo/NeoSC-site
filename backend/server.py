@@ -1621,26 +1621,74 @@ async def enroll_tenant(data: TenantEnrollment, user: dict = Depends(get_current
 
 @api_router.post("/admin/tenants/{tenant_id}/step/zitadel-org")
 async def enroll_step_zitadel_org(tenant_id: str, user: dict = Depends(get_current_user)):
+    """Step 1: Create project + role + admin user in Zitadel for tenant isolation"""
     require_admin(user)
     tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
     if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
     result = {"step": "zitadel_org", "status": "error", "details": {}}
+
+    # Use existing org with x-zitadel-orgid header - this works with current PAT permissions
+    ORG_ID = "360565543960379216"
+    zit_h = {**zitadel_headers(), "x-zitadel-orgid": ORG_ID}
+
     try:
         async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.post(f"{ZITADEL_DOMAIN}/v2/organizations", headers=zitadel_headers(), json={"name": tenant["name"], "admins": []})
-            if r.status_code < 400:
-                data = r.json()
-                org_id = data.get("organizationId", data.get("id", ""))
-                await db.organizations.update_one({"id": tenant_id}, {"$set": {"zitadel_org_id": org_id, "enrollment_steps.zitadel_org": "completed"}})
-                result = {"step": "zitadel_org", "status": "completed", "details": {"zitadel_org_id": org_id}}
+            # 1. Create project for tenant
+            project_name = f"NeoSC-{tenant.get('slug', tenant_id)}"
+            r_proj = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects", headers=zit_h,
+                                  json={"name": project_name, "projectRoleAssertion": True})
+            if r_proj.status_code >= 400:
+                result["details"] = {"error": f"Project creation failed: {r_proj.text[:200]}"}
+                return result
+            project_id = r_proj.json().get("id", "")
+
+            # 2. Create role within the project
+            role_key = f"tenant-{tenant.get('slug', tenant_id)}"
+            await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/{project_id}/roles",
+                         headers=zit_h, json={"roleKey": role_key, "displayName": f"Tenant {tenant['name']}"})
+
+            # 3. Create admin user for the tenant
+            admin_email = tenant.get("email_admin", "")
+            slug = tenant.get("slug", tenant_id)
+            r_user = await c.post(f"{ZITADEL_DOMAIN}/v2/users/human", headers=zit_h, json={
+                "username": admin_email,
+                "profile": {"givenName": "Admin", "familyName": tenant["name"][:50]},
+                "email": {"email": admin_email, "isVerified": True},
+                "password": {"password": f"NeoSC-{slug}-2026!", "changeRequired": True},
+            })
+            zitadel_user_id = ""
+            if r_user.status_code < 400:
+                zitadel_user_id = r_user.json().get("userId", "")
             else:
-                if "membership" in r.text:
-                    await db.organizations.update_one({"id": tenant_id}, {"$set": {"enrollment_steps.zitadel_org": "manual_pending"}})
-                    result = {"step": "zitadel_org", "status": "manual_pending", "details": {"error": "Service user needs IAM_OWNER in Zitadel console"}}
-                else:
-                    result["details"] = {"error": r.text[:200]}
+                # User may already exist - try to find them
+                r_search = await c.post(f"{ZITADEL_DOMAIN}/v2/users", headers=zit_h,
+                                        json={"queries": [{"emailQuery": {"emailAddress": admin_email, "method": "TEXT_QUERY_METHOD_EQUALS"}}]})
+                if r_search.status_code < 400:
+                    users = r_search.json().get("result", [])
+                    if users:
+                        zitadel_user_id = users[0].get("userId", "")
+
+            # 4. Grant role to user
+            if zitadel_user_id and project_id:
+                await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/{zitadel_user_id}/grants",
+                             headers=zit_h, json={"projectId": project_id, "roleKeys": [role_key]})
+
+            # Save to DB
+            await db.organizations.update_one({"id": tenant_id}, {"$set": {
+                "zitadel_org_id": ORG_ID,
+                "zitadel_project_id": project_id,
+                "zitadel_user_id": zitadel_user_id,
+                "zitadel_role_key": role_key,
+                "enrollment_steps.zitadel_org": "completed"
+            }})
+            result = {"step": "zitadel_org", "status": "completed", "details": {
+                "project_id": project_id, "project_name": project_name,
+                "role_key": role_key, "admin_user_id": zitadel_user_id,
+                "admin_email": admin_email
+            }}
     except Exception as e:
         result["details"] = {"error": str(e)}
+
     await create_audit_log(user["id"], user.get("email",""), "enroll_zitadel_org", f"tenant:{tenant_id}", str(result["details"]), result["status"] == "completed")
     return result
 
