@@ -1381,6 +1381,203 @@ async def admin_system_logs(user: dict = Depends(get_current_user)):
     return logs
 
 
+# ============ ZITADEL MANAGEMENT API PROXY ============
+
+ZITADEL_DOMAIN = os.environ.get("ZITADEL_DOMAIN", "")
+ZITADEL_PAT = os.environ.get("ZITADEL_SERVICE_USER_TOKEN", "")
+
+def zitadel_headers():
+    return {
+        "Authorization": f"Bearer {ZITADEL_PAT}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+@api_router.get("/admin/zitadel/users")
+async def zitadel_list_users(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{ZITADEL_DOMAIN}/v2/users", headers=zitadel_headers(), json={"queries": [], "limit": 100})
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.post("/admin/zitadel/users")
+async def zitadel_create_user(body: dict, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{ZITADEL_DOMAIN}/v2/users/human", headers=zitadel_headers(), json=body)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/zitadel/users/{zitadel_user_id}")
+async def zitadel_get_user(zitadel_user_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{ZITADEL_DOMAIN}/v2/users/{zitadel_user_id}", headers=zitadel_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.delete("/admin/zitadel/users/{zitadel_user_id}")
+async def zitadel_delete_user(zitadel_user_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.delete(f"{ZITADEL_DOMAIN}/v2/users/{zitadel_user_id}", headers=zitadel_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/zitadel/orgs")
+async def zitadel_list_orgs(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{ZITADEL_DOMAIN}/v2/organizations/_search", headers=zitadel_headers(), json={"queries": [], "limit": 100})
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.post("/admin/zitadel/orgs")
+async def zitadel_create_org(body: dict, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{ZITADEL_DOMAIN}/management/v1/orgs", headers=zitadel_headers(), json=body)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/zitadel/roles")
+async def zitadel_list_roles(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/_search", headers=zitadel_headers(), json={})
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/zitadel/grants")
+async def zitadel_list_grants(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/grants/_search", headers=zitadel_headers(), json={"queries": [], "limit": 100})
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+
+# ============ NETBIRD API PROXY ============
+
+NETBIRD_API_URL = os.environ.get("NETBIRD_API_URL", "")
+NETBIRD_TOKEN = os.environ.get("NETBIRD_API_TOKEN", "")
+
+def netbird_headers():
+    return {
+        "Authorization": f"Token {NETBIRD_TOKEN}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+@api_router.get("/admin/netbird/peers")
+async def netbird_list_peers(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{NETBIRD_API_URL}/api/peers", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/netbird/peers/{peer_id}")
+async def netbird_get_peer(peer_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{NETBIRD_API_URL}/api/peers/{peer_id}", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.put("/admin/netbird/peers/{peer_id}")
+async def netbird_update_peer(peer_id: str, body: dict, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.put(f"{NETBIRD_API_URL}/api/peers/{peer_id}", headers=netbird_headers(), json=body)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.delete("/admin/netbird/peers/{peer_id}")
+async def netbird_delete_peer(peer_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.delete(f"{NETBIRD_API_URL}/api/peers/{peer_id}", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return {"message": "Peer deleted"}
+
+@api_router.get("/admin/netbird/groups")
+async def netbird_list_groups(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.post("/admin/netbird/groups")
+async def netbird_create_group(body: dict, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers(), json=body)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.delete("/admin/netbird/groups/{group_id}")
+async def netbird_delete_group(group_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.delete(f"{NETBIRD_API_URL}/api/groups/{group_id}", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return {"message": "Group deleted"}
+
+@api_router.get("/admin/netbird/setup-keys")
+async def netbird_list_setup_keys(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{NETBIRD_API_URL}/api/setup-keys", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.post("/admin/netbird/setup-keys")
+async def netbird_create_setup_key(body: dict, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.post(f"{NETBIRD_API_URL}/api/setup-keys", headers=netbird_headers(), json=body)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/netbird/routes")
+async def netbird_list_routes(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{NETBIRD_API_URL}/api/routes", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+@api_router.get("/admin/netbird/users")
+async def netbird_list_users(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{NETBIRD_API_URL}/api/users", headers=netbird_headers())
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+
 # ============ MARKET — WINDOWS VDI SELF-SERVICE ============
 # Rutas: /api/market/...
 # Branch: feature/windeskcloud-market

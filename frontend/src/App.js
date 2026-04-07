@@ -17,6 +17,8 @@ import WorkspaceViewerPage from "@/pages/WorkspaceViewerPage";
 import MultiViewPage from "@/pages/MultiViewPage";
 import ApplicationsPage from "@/pages/ApplicationsPage";
 import AdminGlobalPage from "@/pages/AdminGlobalPage";
+import ZitadelAdminPage from "@/pages/ZitadelAdminPage";
+import NetbirdAdminPage from "@/pages/NetbirdAdminPage";
 
 // Market — Windows VDI self-service
 import MarketPage from "@/pages/market/MarketPage";
@@ -129,6 +131,16 @@ function App() {
               <Route path="/admin" element={
                 <ProtectedRoute>
                   <AdminGlobalPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/zitadel" element={
+                <ProtectedRoute>
+                  <ZitadelAdminPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/netbird" element={
+                <ProtectedRoute>
+                  <NetbirdAdminPage />
                 </ProtectedRoute>
               } />
             </Routes>

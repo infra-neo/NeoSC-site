@@ -1,9 +1,26 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { ZITADEL_CLOUD_CONFIG } from '@/config/zitadel';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Zap, Crown, Users, ChevronDown } from 'lucide-react';
+import { Zap, Crown, Users, Shield } from 'lucide-react';
+
+function generateRandomString() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function generateCodeChallenge(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
 
 const QUICK_ACCOUNTS = [
   { email: 'admin@windesk.cloud', password: 'Admin123!', label: 'Platform Admin', role: 'admin', icon: Crown, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20' },
@@ -32,6 +49,31 @@ export default function LoginPage() {
     }
   };
 
+  const handleNeoSCSSO = async () => {
+    const cfg = ZITADEL_CLOUD_CONFIG;
+    const state = generateRandomString();
+    const codeVerifier = generateRandomString();
+
+    sessionStorage.setItem('oauth_state', state);
+    sessionStorage.setItem('pkce_code_verifier', codeVerifier);
+    sessionStorage.setItem('sso_provider', cfg.provider_key);
+    sessionStorage.setItem('sso_authority', cfg.authority);
+    sessionStorage.setItem('sso_client_id', cfg.client_id);
+
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    const params = new URLSearchParams({
+      client_id: cfg.client_id,
+      redirect_uri: cfg.redirect_uri,
+      scope: cfg.scope,
+      response_type: 'code',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+    });
+
+    window.location.href = `${cfg.authorization_endpoint}?${params.toString()}`;
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
       <div className="w-full max-w-md space-y-6">
@@ -42,10 +84,30 @@ export default function LoginPage() {
               <span className="text-white font-bold text-xl">N</span>
             </div>
           </Link>
-          <h1 className="text-2xl font-bold mt-4">Acceso Rápido</h1>
+          <h1 className="text-2xl font-bold mt-4">Acceso NeoSC</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Selecciona una cuenta para ingresar
+            Selecciona una cuenta o usa SSO
           </p>
+        </div>
+
+        {/* NeoSC SSO Button */}
+        <Button
+          variant="outline"
+          className="w-full gap-2 border-purple-500/30 hover:border-purple-500/60 hover:bg-purple-500/10 py-5 text-purple-400"
+          onClick={handleNeoSCSSO}
+          data-testid="sso-login-button"
+        >
+          <Shield className="w-4 h-4" />
+          Continuar con NeoSC SSO (Zitadel)
+        </Button>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-background px-3 text-muted-foreground">o acceso rápido local</span>
+          </div>
         </div>
 
         {/* Quick Access Accounts */}
@@ -98,7 +160,7 @@ export default function LoginPage() {
 
         <div className="text-center">
           <p className="text-xs text-muted-foreground">
-            Modo bypass local — sin contraseña requerida
+            Bypass local + NeoSC SSO
           </p>
         </div>
       </div>
