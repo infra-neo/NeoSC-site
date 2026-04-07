@@ -70,6 +70,12 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - Conversation persistence in MongoDB (`neo_conversations` collection)
 - Quick suggestion buttons for discovery/onboarding
 
+### Phase 7 - UX Fixes & Market Flow (DONE - Feb 2026)
+- **Fix "Abrir HTML5" buttons**: Added onClick to open `https://web.proxy.kappa4.com/` in new tab
+- **Fix Viewer page**: Fallback to TSplus proxy URL when no `connection_url` available
+- **TSplus branching question**: New step at `/market` entry — "¿Ya tienes TSplus?" routes to Enrollment or VM purchase
+- **Onboarding slides**: Replaced terminal-style provisioning progress with 6 dynamic onboarding slides (NeoDesk, NeoMesh, NeoGuard, Panel, Próximos pasos)
+
 ## Prioritized Backlog
 ### P0
 - Grant IAM_OWNER to service user in Zitadel console
