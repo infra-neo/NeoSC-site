@@ -70,7 +70,7 @@ export default function EnrollTenantPage() {
     try {
       let res;
       if (stepKey === 'register_infra') {
-        res = await axios.post(`${API}/admin/tenants/${tenant.id}/step/${stepKey}`, infraForm, { headers });
+        res = await axios.post(`${API}/admin/tenants/${tenant.id}/step/register-infra`, infraForm, { headers });
       } else {
         res = await axios.post(`${API}/admin/tenants/${tenant.id}/step/${stepKey.replace(/_/g, '-')}`, {}, { headers });
       }
