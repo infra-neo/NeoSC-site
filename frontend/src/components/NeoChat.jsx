@@ -115,7 +115,7 @@ export default function NeoChat() {
         <button
           onClick={() => setOpen(true)}
           data-testid="neo-chat-toggle"
-          className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-lg shadow-cyan-500/25 flex items-center justify-center hover:scale-110 transition-transform"
+          className="fixed bottom-20 right-5 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-lg shadow-cyan-500/25 flex items-center justify-center hover:scale-110 transition-transform"
         >
           <Sparkles className="w-6 h-6" />
         </button>
@@ -123,7 +123,7 @@ export default function NeoChat() {
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-5 right-5 z-50 w-[380px] h-[540px] rounded-2xl border border-border bg-background shadow-2xl shadow-black/40 flex flex-col overflow-hidden" data-testid="neo-chat-panel">
+        <div className="fixed bottom-20 right-5 z-50 w-[380px] h-[540px] rounded-2xl border border-border bg-background shadow-2xl shadow-black/40 flex flex-col overflow-hidden" data-testid="neo-chat-panel">
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border-b border-border">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center">

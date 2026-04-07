@@ -62,12 +62,20 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - VM provisioning (SSE simulation)
 - Payments (demo mode)
 
+### Phase 6 - AI Agent "Neo" (DONE - Feb 2026)
+- Backend: `POST /api/neo/chat` using Claude Sonnet 4.5 via `emergentintegrations`
+- Backend: `GET /api/neo/history/{session_id}`, `DELETE /api/neo/history/{session_id}`
+- Frontend: `NeoChat.jsx` floating widget mounted globally in `App.js`
+- Spanish-speaking, friendly consultant personality
+- Conversation persistence in MongoDB (`neo_conversations` collection)
+- Quick suggestion buttons for discovery/onboarding
+
 ## Prioritized Backlog
-### P0 (Next)
+### P0
 - Grant IAM_OWNER to service user in Zitadel console
-- IA Agent "Neo" (chat bot for discovery/onboarding)
 
 ### P1
+- Connect orchestrator to real Celery workers
 - Real VM provisioning via PowerShell/WinRM
 - Stripe checkout with CFDI México
 - NeoProxy (Pomerium) integration
@@ -76,3 +84,4 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - NeoVault (JumpServer) PAM integration
 - Session recording
 - Real-time VM metrics
+- Refactor server.py into APIRouters

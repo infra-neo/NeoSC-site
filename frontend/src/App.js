@@ -20,6 +20,7 @@ import AdminGlobalPage from "@/pages/AdminGlobalPage";
 import ZitadelAdminPage from "@/pages/ZitadelAdminPage";
 import NetbirdAdminPage from "@/pages/NetbirdAdminPage";
 import EnrollTenantPage from "@/pages/EnrollTenantPage";
+import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
 import MarketPage from "@/pages/market/MarketPage";
@@ -150,6 +151,7 @@ function App() {
                 </ProtectedRoute>
               } />
             </Routes>
+            <NeoChat />
           </BrowserRouter>
           <Toaster 
             position="bottom-right" 
