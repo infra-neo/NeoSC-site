@@ -1,0 +1,74 @@
+{
+  "summary": "Completed comprehensive testing of Tenant Enrollment Wizard, Market tier updates, and NeoSC rebranding. Backend: 13/13 tests pass (100%). All enrollment endpoints create REAL NetBird resources (groups, setup-keys, policies). Frontend: Enroll Tenant page shows 3 tiers (Starter $29, Plus $79, Enterprise Custom) with org form fields. Market page shows updated prices. Landing page shows NeoGuard, NeoMesh, NeoDesk branding. Sidebar shows admin links for admin users.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/admin/tenants/{id}/step/zitadel-org",
+        "issue": "Returns 'manual_pending' status - Zitadel service user needs IAM_OWNER permission",
+        "priority": "LOW",
+        "note": "This is expected behavior per agent_to_agent_context_note - Zitadel org creation requires IAM permissions"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "POST /api/admin/tenants/enroll creates tenant with status 'provisioning'",
+    "POST /api/admin/tenants/enroll with plus tier works correctly",
+    "POST /api/admin/tenants/{id}/step/netbird-group creates REAL NetBird group (returns completed)",
+    "POST /api/admin/tenants/{id}/step/netbird-setup-key creates REAL NetBird setup key (returns completed)",
+    "POST /api/admin/tenants/{id}/step/netbird-policy creates REAL NetBird policy (returns completed)",
+    "POST /api/admin/tenants/{id}/step/finalize activates tenant with correct MRR ($29 for starter)",
+    "GET /api/admin/tenants/{id}/enrollment-status returns tenant with enrollment_steps",
+    "Non-admin user gets 403 on all enrollment endpoints (enroll, netbird-group, finalize, enrollment-status)",
+    "POST /api/admin/tenants/{id}/step/zitadel-org returns manual_pending or completed (expected)",
+    "GET /api/market/addons returns addon catalog",
+    "Frontend /admin/enroll-tenant shows 3 tiers: Starter $29, Plus $79, Enterprise Custom",
+    "Frontend /admin/enroll-tenant has org form with org_name, email_admin, RFC, Razón Social fields",
+    "Frontend /market shows plans: Starter $29, Plus $79, Enterprise Custom",
+    "Landing page shows NeoGuard SSO, NeoMesh VPN, NeoDesk RDP branding",
+    "Sidebar shows 'Enrolar Tenant', 'NeoGuard SSO', 'NeoMesh' links for admin users"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_enrollment_wizard.py",
+    "/app/test_reports/pytest/enrollment_wizard_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "NetBird API integrations are REAL (not mocked) - creates actual groups, setup-keys, and policies",
+    "Zitadel org creation returns 'manual_pending' due to IAM permission requirements - this is expected",
+    "All enrollment endpoints properly check for admin role using require_admin() helper",
+    "MRR calculation is correct: Starter $29 (2900 cents / 100), Plus $79 (7900 cents / 100)",
+    "Frontend tier buttons have correct data-testid attributes (tier-starter, tier-plus, tier-enterprise)",
+    "Form fields have correct data-testid attributes (enroll-org-name, enroll-email)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_enrollment_wizard.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "100% (all enrollment wizard, market, and branding features working)"
+  },
+  "test_credentials": {
+    "admin": "admin@windesk.cloud / Admin123!",
+    "demo_users": ["usuario1@windesk.cloud / Demo123!"]
+  },
+  "seed_data_creation": "Test tenants created with prefix 'TEST_' during enrollment tests",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Tenant Enrollment Wizard fully tested. NetBird API creates REAL resources (groups, setup-keys, policies). Zitadel org creation returns 'manual_pending' due to IAM permissions - this is expected. Market tiers updated: Starter $29, Plus $79, Enterprise Custom. Rebranding complete: NeoGuard, NeoMesh, NeoDesk, NeoProxy, NeoVault. All admin endpoints enforce role='admin' with 403 for non-admin users. Frontend data-testid attributes: tier-starter, tier-plus, tier-enterprise, enroll-org-name, enroll-email, start-enrollment, run-step-{key}.",
+  "real_api_data": {
+    "netbird_groups_created": "REAL - creates actual NetBird groups",
+    "netbird_setup_keys_created": "REAL - creates actual NetBird setup keys",
+    "netbird_policies_created": "REAL - creates actual NetBird policies",
+    "zitadel_org_creation": "Returns manual_pending (IAM permission needed)"
+  },
+  "mocked_apis": {
+    "zitadel_org_creation": "Returns manual_pending due to IAM permission requirements",
+    "vm_provisioning": "Still simulated (not tested in this iteration)"
+  }
+}

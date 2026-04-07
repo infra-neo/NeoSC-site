@@ -135,14 +135,14 @@ export default function DashboardPage() {
               Windows VDI Cloud — <span className="text-cyan-400">Zero Trust</span>
             </h2>
             <p className="text-muted-foreground text-sm mb-4">
-              VMs Windows con TSplus HTML5, Netbird mesh y Zitadel SSO. Sin VPN, sin cliente.
+              VMs Windows con NeoDesk HTML5, NeoMesh Zero Trust y NeoGuard SSO. Sin VPN, sin cliente.
             </p>
             <Button
               onClick={() => navigate('/market')}
               className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold gap-2"
               data-testid="market-cta-button"
             >
-              🪟 Ver planes desde $49/mes
+              Ver planes desde $29/mes
             </Button>
           </div>
         </div>

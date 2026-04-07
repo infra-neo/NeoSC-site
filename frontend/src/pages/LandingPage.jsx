@@ -67,87 +67,81 @@ const demoConfigs = {
   }
 };
 
-// Pricing plans
+// Pricing plans - NeoSC Masterplan v1
 const pricingPlans = [
   {
     name: 'Starter',
     icon: '🟢',
-    price: '$49',
-    period: '/month',
-    description: 'Perfect for small teams getting started',
+    price: '$29',
+    period: '/mes',
+    description: 'VM + NeoDesk HTML5 para equipos pequeños',
     features: [
-      { text: '5 Users', included: true },
-      { text: '10 Devices', included: true },
-      { text: 'Web Apps Access', included: true },
-      { text: 'VSCode Online', included: true },
-      { text: 'CRM Dashboard', included: true },
-      { text: 'Email Support', included: true },
-      { text: 'Linux Desktops', included: false },
-      { text: 'Windows Desktops', included: false },
-      { text: '1Panel Control', included: false },
-      { text: 'Priority Support', included: false },
+      { text: '5 Usuarios NeoDesk', included: true },
+      { text: '2 vCPU / 4 GB RAM / 80 GB NVMe', included: true },
+      { text: 'NeoDesk (Guacamole HTML5)', included: true },
+      { text: 'NeoMesh Zero Trust VPN', included: true },
+      { text: 'NeoGuard SSO + MFA', included: true },
+      { text: 'Soporte por email', included: true },
+      { text: 'NeoDesk+ (TSplus)', included: false },
+      { text: 'NeoProxy IAP', included: false },
+      { text: 'NeoVault PAM', included: false },
     ],
-    cta: 'Start Trial',
+    cta: 'Empezar',
     featured: false
   },
   {
-    name: 'Professional',
+    name: 'Plus',
     icon: '🔵',
-    price: '$199',
-    period: '/month',
-    description: 'For growing teams with advanced needs',
+    price: '$79',
+    period: '/mes',
+    description: 'TSplus existente + NeoProxy + NeoMesh',
     features: [
-      { text: '25 Users', included: true },
-      { text: '50 Devices', included: true },
-      { text: 'Everything in Starter', included: true },
-      { text: 'Linux Desktops (Ubuntu)', included: true },
-      { text: '1Panel Control', included: true },
-      { text: 'Jupyter Lab', included: true },
-      { text: 'Custom Branding', included: true },
-      { text: 'Priority Support', included: true },
-      { text: 'Windows Desktops', included: false },
-      { text: '24/7 Support', included: false },
+      { text: '25 Usuarios NeoDesk+', included: true },
+      { text: '4 vCPU / 8 GB RAM / 120 GB NVMe', included: true },
+      { text: 'NeoDesk+ (TSplus HTML5)', included: true },
+      { text: 'NeoProxy IAP (Pomerium)', included: true },
+      { text: 'NeoMesh Zero Trust VPN', included: true },
+      { text: 'NeoGuard SSO + MFA + Google/MS', included: true },
+      { text: 'Soporte prioritario 4h', included: true },
+      { text: 'NeoVault PAM', included: false },
     ],
-    cta: 'Get Started',
+    cta: 'Comprar',
     featured: true
   },
   {
     name: 'Enterprise',
     icon: '🟣',
-    price: '$599',
-    period: '/month',
-    description: 'For large organizations at scale',
+    price: 'Custom',
+    period: '',
+    description: 'B2B delegado con NeoVault y on-prem',
     features: [
-      { text: 'Unlimited Users', included: true },
-      { text: 'Unlimited Devices', included: true },
-      { text: 'Everything in Professional', included: true },
-      { text: 'Windows 11 Desktops', included: true },
-      { text: 'White-Label Platform', included: true },
-      { text: 'Advanced SSO (SAML)', included: true },
-      { text: 'Custom Integrations', included: true },
-      { text: 'Dedicated Account Manager', included: true },
-      { text: '24/7 Premium Support', included: true },
-      { text: 'SLA Guarantee', included: true },
+      { text: 'Usuarios ilimitados', included: true },
+      { text: '8+ vCPU / 16+ GB RAM / 200+ GB', included: true },
+      { text: 'NeoVault PAM (JumpServer)', included: true },
+      { text: 'NeoMesh + relay dedicado', included: true },
+      { text: 'NeoGuard + AD/LDAP federado', included: true },
+      { text: 'Grabación sesiones', included: true },
+      { text: 'SLA 99.9% + soporte 24/7', included: true },
+      { text: 'CFDI México / Facturación', included: true },
     ],
-    cta: 'Contact Sales',
+    cta: 'Contactar ventas',
     featured: false
   }
 ];
 
 // Features comparison table
 const featuresComparison = [
-  { feature: 'Users', starter: '5', professional: '25', enterprise: 'Unlimited' },
-  { feature: 'Devices', starter: '10', professional: '50', enterprise: 'Unlimited' },
-  { feature: 'Web Applications', starter: true, professional: true, enterprise: true },
-  { feature: 'VSCode Online', starter: true, professional: true, enterprise: true },
-  { feature: 'Linux Desktops', starter: false, professional: true, enterprise: true },
-  { feature: 'Windows Desktops', starter: false, professional: false, enterprise: true },
-  { feature: '1Panel Server Control', starter: false, professional: true, enterprise: true },
-  { feature: 'Jupyter Lab', starter: false, professional: true, enterprise: true },
-  { feature: 'Custom Branding', starter: false, professional: true, enterprise: true },
-  { feature: 'White-Label', starter: false, professional: false, enterprise: true },
-  { feature: 'Support Level', starter: 'Email', professional: 'Priority', enterprise: '24/7 Premium' },
-  { feature: 'SLA Guarantee', starter: false, professional: false, enterprise: '99.9%' },
+  { feature: 'Usuarios', starter: '5', professional: '25', enterprise: 'Ilimitados' },
+  { feature: 'NeoDesk HTML5', starter: true, professional: true, enterprise: true },
+  { feature: 'NeoDesk+ (TSplus)', starter: false, professional: true, enterprise: true },
+  { feature: 'NeoMesh VPN', starter: true, professional: true, enterprise: true },
+  { feature: 'NeoGuard SSO + MFA', starter: true, professional: true, enterprise: true },
+  { feature: 'NeoProxy IAP', starter: false, professional: true, enterprise: true },
+  { feature: 'NeoVault PAM', starter: false, professional: false, enterprise: true },
+  { feature: 'Relay dedicado', starter: false, professional: false, enterprise: true },
+  { feature: 'AD/LDAP federado', starter: false, professional: false, enterprise: true },
+  { feature: 'Soporte', starter: 'Email', professional: '4h prioritario', enterprise: '24/7 Premium' },
+  { feature: 'SLA', starter: '-', professional: '99.5%', enterprise: '99.9%' },
 ];
 
 export default function LandingPage() {
@@ -260,7 +254,7 @@ export default function LandingPage() {
       <section className="relative pt-32 pb-20 px-6">
         <div className="max-w-5xl mx-auto text-center">
           <Badge className="mb-6 bg-cyan-500/10 text-cyan-400 border-cyan-500/30">
-            Powered by NetBird Zero Trust Network
+            Powered by NeoMesh Zero Trust Network
           </Badge>
           
           <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-foreground via-cyan-400 to-foreground bg-clip-text text-transparent">
@@ -271,7 +265,7 @@ export default function LandingPage() {
           
           <p className="text-xl text-muted-foreground mb-10 max-w-3xl mx-auto leading-relaxed">
             Access Linux desktops, Windows machines, and web applications securely from anywhere.
-            Built on <span className="text-cyan-400">Zitadel SSO</span> + <span className="text-orange-400">Netbird mesh VPN</span> + <span className="text-purple-400">TSplus RDP</span>.
+            Built on <span className="text-cyan-400">NeoGuard SSO</span> + <span className="text-orange-400">NeoMesh VPN</span> + <span className="text-purple-400">NeoDesk RDP</span>.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -509,7 +503,7 @@ export default function LandingPage() {
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-left p-4 font-semibold">Feature</th>
                   <th className="text-center p-4 font-semibold">Starter</th>
-                  <th className="text-center p-4 font-semibold text-cyan-400">Professional</th>
+                  <th className="text-center p-4 font-semibold text-cyan-400">Plus</th>
                   <th className="text-center p-4 font-semibold">Enterprise</th>
                 </tr>
               </thead>

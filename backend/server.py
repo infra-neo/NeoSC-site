@@ -1578,6 +1578,183 @@ async def netbird_list_users(user: dict = Depends(get_current_user)):
         return r.json()
 
 
+# ============ TENANT ENROLLMENT SERVICE ============
+
+class TenantEnrollment(BaseModel):
+    org_name: str
+    slug: str = ""
+    rfc: str = ""
+    razon_social: str = ""
+    email_admin: str
+    tier: str = "starter"
+    tsplus_host: str = ""
+    tsplus_port: int = 443
+    tsplus_license: str = ""
+    has_ldap: bool = False
+    max_users: int = 5
+
+@api_router.post("/admin/tenants/enroll")
+async def enroll_tenant(data: TenantEnrollment, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    import re
+    slug = data.slug or re.sub(r'[^a-z0-9]+', '-', data.org_name.lower()).strip('-')
+    tenant_id = str(uuid.uuid4())[:8]
+    tenant_doc = {
+        "id": f"tenant-{tenant_id}",
+        "name": data.org_name, "slug": slug, "rfc": data.rfc,
+        "razon_social": data.razon_social, "email_admin": data.email_admin,
+        "tier": data.tier, "status": "provisioning",
+        "max_users": data.max_users, "users_current": 0, "vms": 0, "mrr": 0,
+        "sso_provider": "zitadel", "zitadel_org_id": None,
+        "netbird_group_id": None, "netbird_setup_key": None,
+        "domain": slug + ".neosc.cloud", "enrollment_steps": {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if data.tier in ("plus", "enterprise") and data.tsplus_host:
+        tenant_doc["client_infrastructure"] = {
+            "tsplus_host": data.tsplus_host, "tsplus_port": data.tsplus_port,
+            "tsplus_license": data.tsplus_license, "has_ldap": data.has_ldap, "verified": False,
+        }
+    await db.organizations.insert_one(tenant_doc.copy())
+    await create_audit_log(user["id"], user.get("email",""), "tenant_enroll_start", f"tenant:{tenant_doc['id']}", str({"org_name": data.org_name}), True)
+    return {k: v for k, v in tenant_doc.items() if k != '_id'}
+
+@api_router.post("/admin/tenants/{tenant_id}/step/zitadel-org")
+async def enroll_step_zitadel_org(tenant_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    result = {"step": "zitadel_org", "status": "error", "details": {}}
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(f"{ZITADEL_DOMAIN}/v2/organizations", headers=zitadel_headers(), json={"name": tenant["name"], "admins": []})
+            if r.status_code < 400:
+                data = r.json()
+                org_id = data.get("organizationId", data.get("id", ""))
+                await db.organizations.update_one({"id": tenant_id}, {"$set": {"zitadel_org_id": org_id, "enrollment_steps.zitadel_org": "completed"}})
+                result = {"step": "zitadel_org", "status": "completed", "details": {"zitadel_org_id": org_id}}
+            else:
+                if "membership" in r.text:
+                    await db.organizations.update_one({"id": tenant_id}, {"$set": {"enrollment_steps.zitadel_org": "manual_pending"}})
+                    result = {"step": "zitadel_org", "status": "manual_pending", "details": {"error": "Service user needs IAM_OWNER in Zitadel console"}}
+                else:
+                    result["details"] = {"error": r.text[:200]}
+    except Exception as e:
+        result["details"] = {"error": str(e)}
+    await create_audit_log(user["id"], user.get("email",""), "enroll_zitadel_org", f"tenant:{tenant_id}", str(result["details"]), result["status"] == "completed")
+    return result
+
+@api_router.post("/admin/tenants/{tenant_id}/step/netbird-group")
+async def enroll_step_netbird_group(tenant_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    result = {"step": "netbird_group", "status": "error", "details": {}}
+    try:
+        group_name = f"neosc-{tenant.get('slug', tenant_id)}"
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers(), json={"name": group_name})
+            if r.status_code < 400:
+                data = r.json()
+                group_id = data.get("id", "")
+                await db.organizations.update_one({"id": tenant_id}, {"$set": {"netbird_group_id": group_id, "enrollment_steps.netbird_group": "completed"}})
+                result = {"step": "netbird_group", "status": "completed", "details": {"group_id": group_id, "group_name": group_name}}
+            else:
+                result["details"] = {"error": r.text[:200]}
+    except Exception as e:
+        result["details"] = {"error": str(e)}
+    await create_audit_log(user["id"], user.get("email",""), "enroll_netbird_group", f"tenant:{tenant_id}", str(result["details"]), result["status"] == "completed")
+    return result
+
+@api_router.post("/admin/tenants/{tenant_id}/step/netbird-setup-key")
+async def enroll_step_netbird_setup_key(tenant_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    result = {"step": "netbird_setup_key", "status": "error", "details": {}}
+    try:
+        group_id = tenant.get("netbird_group_id")
+        auto_groups = [group_id] if group_id else []
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(f"{NETBIRD_API_URL}/api/setup-keys", headers=netbird_headers(), json={
+                "name": f"neosc-enroll-{tenant.get('slug', tenant_id)}",
+                "type": "reusable", "expires_in": 86400 * 7, "auto_groups": auto_groups, "usage_limit": 5,
+            })
+            if r.status_code < 400:
+                data = r.json()
+                await db.organizations.update_one({"id": tenant_id}, {"$set": {
+                    "netbird_setup_key": data.get("key", ""), "netbird_setup_key_id": data.get("id", ""),
+                    "enrollment_steps.netbird_setup_key": "completed"
+                }})
+                result = {"step": "netbird_setup_key", "status": "completed", "details": {"key_id": data.get("id"), "setup_key": data.get("key")}}
+            else:
+                result["details"] = {"error": r.text[:200]}
+    except Exception as e:
+        result["details"] = {"error": str(e)}
+    await create_audit_log(user["id"], user.get("email",""), "enroll_netbird_setup_key", f"tenant:{tenant_id}", str(result["details"]), result["status"] == "completed")
+    return result
+
+@api_router.post("/admin/tenants/{tenant_id}/step/netbird-policy")
+async def enroll_step_netbird_policy(tenant_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    group_id = tenant.get("netbird_group_id")
+    if not group_id:
+        return {"step": "netbird_policy", "status": "error", "details": {"error": "Run step 2 first"}}
+    result = {"step": "netbird_policy", "status": "error", "details": {}}
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(f"{NETBIRD_API_URL}/api/policies", headers=netbird_headers(), json={
+                "name": f"neosc-allow-{tenant.get('slug', '')}", "enabled": True,
+                "rules": [{"name": f"intra-{tenant.get('slug','')}", "enabled": True, "action": "accept",
+                           "bidirectional": True, "protocol": "all", "sources": [group_id], "destinations": [group_id]}]
+            })
+            if r.status_code < 400:
+                data = r.json()
+                await db.organizations.update_one({"id": tenant_id}, {"$set": {"netbird_policy_id": data.get("id",""), "enrollment_steps.netbird_policy": "completed"}})
+                result = {"step": "netbird_policy", "status": "completed", "details": {"policy_id": data.get("id")}}
+            else:
+                result["details"] = {"error": r.text[:200]}
+    except Exception as e:
+        result["details"] = {"error": str(e)}
+    await create_audit_log(user["id"], user.get("email",""), "enroll_netbird_policy", f"tenant:{tenant_id}", str(result["details"]), result["status"] == "completed")
+    return result
+
+@api_router.post("/admin/tenants/{tenant_id}/step/register-infra")
+async def enroll_step_register_infra(tenant_id: str, body: dict, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    infra = {"tsplus_host": body.get("tsplus_host",""), "tsplus_port": body.get("tsplus_port",443),
+             "tsplus_license": body.get("tsplus_license",""), "connection_type": body.get("connection_type","web"),
+             "has_ldap": body.get("has_ldap",False), "verified": False}
+    await db.organizations.update_one({"id": tenant_id}, {"$set": {"client_infrastructure": infra, "enrollment_steps.register_infra": "completed"}})
+    await create_audit_log(user["id"], user.get("email",""), "enroll_register_infra", f"tenant:{tenant_id}", str({"tsplus_host": infra["tsplus_host"]}), True)
+    return {"step": "register_infra", "status": "completed", "details": infra}
+
+@api_router.post("/admin/tenants/{tenant_id}/step/finalize")
+async def enroll_step_finalize(tenant_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    plan = PLAN_PRICES.get(tenant.get("tier","starter"), PLAN_PRICES["starter"])
+    mrr = plan["mo"] / 100.0
+    await db.organizations.update_one({"id": tenant_id}, {"$set": {
+        "status": "activo", "mrr": mrr, "vms": 1 if tenant.get("tier") == "starter" else 0,
+        "users_current": 1, "enrollment_steps.finalize": "completed",
+    }})
+    await create_audit_log(user["id"], user.get("email",""), "tenant_enrollment_complete", f"tenant:{tenant_id}", str({"tier": tenant.get("tier"), "mrr": mrr}), True)
+    return {"step": "finalize", "status": "completed", "details": {"tenant_status": "activo", "mrr": mrr}}
+
+@api_router.get("/admin/tenants/{tenant_id}/enrollment-status")
+async def get_enrollment_status(tenant_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+    return tenant
+
+
 # ============ MARKET — WINDOWS VDI SELF-SERVICE ============
 # Rutas: /api/market/...
 # Branch: feature/windeskcloud-market
@@ -1610,16 +1787,16 @@ MARKET_ADDONS = [
     {"slug": "geo-block",     "name": "Bloqueo Geográfico",   "price_mo": 1000, "category": "security", "description": "Restringir acceso por país"},
 ]
 
-# Precios base de planes NeoSC (en centavos USD)
+# Precios base de planes NeoSC (en centavos USD) - Masterplan v1
 PLAN_PRICES = {
-    "starter":    {"mo": 4999,  "yr": 47990,  "base_vcpu": 2,  "base_ram": 4,  "base_disk": 60,  "tsplus": 5},
-    "business":   {"mo": 9999,  "yr": 95990,  "base_vcpu": 4,  "base_ram": 8,  "base_disk": 80,  "tsplus": 10},
-    "enterprise": {"mo": 19999, "yr": 191990, "base_vcpu": 8,  "base_ram": 16, "base_disk": 160, "tsplus": 25},
+    "starter":    {"mo": 2900,  "yr": 27840,  "base_vcpu": 2,  "base_ram": 4,  "base_disk": 80,  "tsplus": 5,  "max_users": 5,  "label": "Starter", "description": "VM + NeoDesk (Guacamole HTML5)"},
+    "plus":       {"mo": 7900,  "yr": 75840,  "base_vcpu": 4,  "base_ram": 8,  "base_disk": 120, "tsplus": 10, "max_users": 25, "label": "Plus", "description": "TSplus existente + NeoProxy + NeoMesh"},
+    "enterprise": {"mo": 0,     "yr": 0,      "base_vcpu": 8,  "base_ram": 16, "base_disk": 200, "tsplus": 50, "max_users": 999, "label": "Enterprise", "description": "B2B delegado + NeoVault + On-prem"},
 }
 
 # ─── Modelos ──────────────────────────────────────────────────────────────────
 class MarketOrderCreate(BaseModel):
-    neosc_plan:          str = "business"
+    neosc_plan:          str = "plus"
     billing_period:      str = "monthly"     # monthly | annual
     vcpu:                int = 4
     ram_gb:              int = 8
@@ -1641,7 +1818,7 @@ class MarketPayRequest(BaseModel):
 def _calculate_price(plan: str, billing: str, vcpu: int, ram_gb: int,
                      disk_gb: int, tsplus_licenses: int, addons: List[str]) -> int:
     """Devuelve el precio mensual en centavos."""
-    p = PLAN_PRICES.get(plan, PLAN_PRICES["business"])
+    p = PLAN_PRICES.get(plan, PLAN_PRICES["plus"])
     base = p["yr"] // 12 if billing == "annual" else p["mo"]
     if billing == "annual":
         base = round(base * 0.80)  # 20% descuento adicional sobre base_yr/12

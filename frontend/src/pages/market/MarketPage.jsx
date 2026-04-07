@@ -22,71 +22,71 @@ const API = `${BACKEND_URL}/api`;
 const NEOSC_PLANS = [
   {
     id: 'starter',
-    name: 'NeoSC Starter',
+    name: 'Starter',
     tsplus_licenses: 5,
     base_vcpu: 2,
     base_ram: 4,
-    base_disk: 60,
-    base_price_mo: 4999,   // cents
-    base_price_yr: 47990,
-    color: 'border-teal-500/50',
-    glow: 'hover:shadow-teal-500/10',
-    badge_bg: 'bg-teal-500/10 text-teal-400 border-teal-500/30',
+    base_disk: 80,
+    base_price_mo: 2900,   // cents
+    base_price_yr: 27840,
+    color: 'border-amber-500/50',
+    glow: 'hover:shadow-amber-500/10',
+    badge_bg: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
     popular: false,
     features: [
-      '5 usuarios TSplus HTML5',
-      '2 vCPU / 4 GB RAM',
-      '60 GB NVMe',
-      'Netbird Zero Trust',
-      'Zitadel SSO + MFA',
+      '5 usuarios NeoDesk HTML5',
+      '2 vCPU / 4 GB RAM / 80 GB NVMe',
+      'NeoDesk (Guacamole HTML5 RDP)',
+      'NeoMesh Zero Trust (NetBird)',
+      'NeoGuard SSO + MFA (Zitadel)',
       'Soporte por email',
     ],
     limits: { maxVcpu: 8, maxRam: 16, maxDisk: 200 },
   },
   {
-    id: 'business',
-    name: 'NeoSC Business',
+    id: 'plus',
+    name: 'Plus',
     tsplus_licenses: 10,
     base_vcpu: 4,
     base_ram: 8,
-    base_disk: 80,
-    base_price_mo: 9999,
-    base_price_yr: 95990,
+    base_disk: 120,
+    base_price_mo: 7900,
+    base_price_yr: 75840,
     color: 'border-cyan-500/70',
     glow: 'hover:shadow-cyan-500/15',
     badge_bg: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
     popular: true,
     features: [
-      '10 usuarios TSplus HTML5',
-      '4 vCPU / 8 GB RAM',
-      '80 GB NVMe',
-      'Netbird Zero Trust',
-      'Zitadel SSO + MFA + Google/MS SSO',
+      '25 usuarios NeoDesk+ (TSplus HTML5)',
+      '4 vCPU / 8 GB RAM / 120 GB NVMe',
+      'NeoProxy IAP (Pomerium)',
+      'NeoMesh Zero Trust (NetBird)',
+      'NeoGuard SSO + MFA + Google/MS',
       'Soporte prioritario 4h',
     ],
     limits: { maxVcpu: 16, maxRam: 32, maxDisk: 500 },
   },
   {
     id: 'enterprise',
-    name: 'NeoSC Enterprise',
-    tsplus_licenses: 25,
+    name: 'Enterprise',
+    tsplus_licenses: 50,
     base_vcpu: 8,
     base_ram: 16,
-    base_disk: 160,
-    base_price_mo: 19999,
-    base_price_yr: 191990,
+    base_disk: 200,
+    base_price_mo: 0,
+    base_price_yr: 0,
     color: 'border-purple-500/50',
     glow: 'hover:shadow-purple-500/10',
     badge_bg: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
     popular: false,
     features: [
-      '25 usuarios TSplus HTML5',
-      '8 vCPU / 16 GB RAM',
-      '160 GB NVMe',
-      'Netbird Zero Trust + relay dedicado',
-      'Zitadel SSO + MFA + AD/LDAP',
-      'Grabación de sesiones',
-      'Soporte 24/7 + SLA 99.9%',
+      'Usuarios ilimitados NeoDesk+',
+      '8+ vCPU / 16+ GB RAM / 200+ GB',
+      'NeoVault PAM (JumpServer)',
+      'NeoMesh + relay dedicado',
+      'NeoGuard + AD/LDAP federado',
+      'Grabación sesiones + NeoVault',
+      'SLA 99.9% + soporte 24/7',
     ],
     limits: { maxVcpu: 32, maxRam: 64, maxDisk: 1000 },
   },
@@ -310,19 +310,22 @@ export default function MarketPage() {
                     </div>
                   )}
                   <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium mb-3 ${plan.badge_bg}`}>
-                    {plan.tsplus_licenses} usuarios TSplus
+                    {plan.id === 'enterprise' ? 'Usuarios ilimitados' : `${plan.tsplus_licenses} usuarios`}
                   </div>
                   <h3 className="font-bold text-lg mb-1">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mb-1">
                     <span className="text-3xl font-black text-cyan-400">
-                      {fmtMoney(billing === 'annual' ? Math.round(plan.base_price_yr / 12) : plan.base_price_mo)}
+                      {plan.base_price_mo === 0 ? 'Custom' : fmtMoney(billing === 'annual' ? Math.round(plan.base_price_yr / 12) : plan.base_price_mo)}
                     </span>
-                    <span className="text-muted-foreground text-sm">/mes</span>
+                    {plan.base_price_mo > 0 && <span className="text-muted-foreground text-sm">/mes</span>}
                   </div>
-                  {billing === 'annual' && (
+                  {billing === 'annual' && plan.base_price_yr > 0 && (
                     <p className="text-xs text-muted-foreground mb-3">
                       Facturado {fmtMoney(plan.base_price_yr)}/año
                     </p>
+                  )}
+                  {plan.base_price_mo === 0 && (
+                    <p className="text-xs text-amber-400 mb-3">Contactar ventas</p>
                   )}
                   <div className="text-xs text-muted-foreground mb-4">
                     {plan.base_vcpu} vCPU · {plan.base_ram} GB RAM · {plan.base_disk} GB NVMe

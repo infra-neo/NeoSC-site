@@ -19,6 +19,7 @@ import ApplicationsPage from "@/pages/ApplicationsPage";
 import AdminGlobalPage from "@/pages/AdminGlobalPage";
 import ZitadelAdminPage from "@/pages/ZitadelAdminPage";
 import NetbirdAdminPage from "@/pages/NetbirdAdminPage";
+import EnrollTenantPage from "@/pages/EnrollTenantPage";
 
 // Market — Windows VDI self-service
 import MarketPage from "@/pages/market/MarketPage";
@@ -141,6 +142,11 @@ function App() {
               <Route path="/admin/netbird" element={
                 <ProtectedRoute>
                   <NetbirdAdminPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/enroll-tenant" element={
+                <ProtectedRoute>
+                  <EnrollTenantPage />
                 </ProtectedRoute>
               } />
             </Routes>

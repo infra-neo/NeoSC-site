@@ -38,8 +38,9 @@ const getMenuItems = (isAdmin) => {
 
   const adminItems = [
     { icon: Gauge, label: 'Admin Global', path: '/admin', adminOnly: true, highlight: true },
-    { icon: Shield, label: 'NeoSC SSO', path: '/admin/zitadel', adminOnly: true },
-    { icon: Wifi, label: 'NetBird', path: '/admin/netbird', adminOnly: true },
+    { icon: Users, label: 'Enrolar Tenant', path: '/admin/enroll-tenant', adminOnly: true },
+    { icon: Shield, label: 'NeoGuard SSO', path: '/admin/zitadel', adminOnly: true },
+    { icon: Wifi, label: 'NeoMesh', path: '/admin/netbird', adminOnly: true },
     { icon: Building2, label: 'Organizaciones', path: '/organizations', adminOnly: true },
     { icon: Shield, label: 'Políticas', path: '/policies', adminOnly: true },
     { icon: FileText, label: 'Auditoría', path: '/audit-logs', adminOnly: true },
