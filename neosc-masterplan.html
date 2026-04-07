@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeoSC / WinDesk Cloud — Master Architecture Plan</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080c14;
+  --surface: #0d1420;
+  --surface2: #121b2e;
+  --border: #1e2d4a;
+  --accent: #00d4ff;
+  --accent2: #7c3aed;
+  --accent3: #10b981;
+  --accent4: #f59e0b;
+  --accent5: #ef4444;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --glow: 0 0 20px rgba(0,212,255,0.2);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* HEADER */
+.header {
+  background: linear-gradient(135deg, #080c14 0%, #0d1a2e 50%, #080c14 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 32px 40px;
+  position: relative;
+  overflow: hidden;
+}
+.header::before {
+  content:'';
+  position:absolute; top:0; left:0; right:0; bottom:0;
+  background: radial-gradient(ellipse at 30% 50%, rgba(0,212,255,0.06) 0%, transparent 70%),
+              radial-gradient(ellipse at 80% 20%, rgba(124,58,237,0.06) 0%, transparent 60%);
+}
+.header-inner { position:relative; z-index:1; display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
+.logo-mark {
+  width:52px; height:52px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Space Mono', monospace;
+  font-weight:700; font-size:18px; color:#fff;
+  box-shadow: var(--glow);
+  flex-shrink:0;
+}
+.header h1 { font-family:'Syne', sans-serif; font-size:26px; font-weight:800; letter-spacing:-0.5px; }
+.header h1 span { color: var(--accent); }
+.header p { color: var(--muted); font-size:13px; margin-top:4px; }
+.badges { display:flex; gap:8px; margin-left:auto; flex-wrap:wrap; }
+.badge {
+  padding:4px 12px; border-radius:20px; font-size:11px; font-weight:600;
+  letter-spacing:0.5px; text-transform:uppercase;
+}
+.badge-alpha { background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); }
+.badge-poc { background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); }
+.badge-v1 { background:rgba(0,212,255,0.1); color:var(--accent); border:1px solid rgba(0,212,255,0.2); }
+
+/* NAV TABS */
+.nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  display: flex; gap:0;
+  overflow-x: auto;
+}
+.nav-tab {
+  padding: 14px 20px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 12px; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.5px;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.nav-tab:hover { color: var(--text); }
+.nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* MAIN CONTENT */
+.main { padding: 32px 40px; max-width:1600px; }
+.section { display:none; }
+.section.active { display:block; }
+
+/* SECTION TITLES */
+.section-title {
+  font-family:'Syne', sans-serif;
+  font-size:20px; font-weight:800;
+  color: var(--text);
+  margin-bottom:6px;
+}
+.section-title span { color: var(--accent); }
+.section-sub { color:var(--muted); font-size:13px; margin-bottom:28px; }
+
+/* GRID LAYOUTS */
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
+.grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+
+/* CARDS */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius:12px;
+  padding:20px;
+  position:relative;
+}
+.card-accent-top { border-top:2px solid var(--accent); }
+.card-accent-green { border-top:2px solid var(--accent3); }
+.card-accent-purple { border-top:2px solid var(--accent2); }
+.card-accent-amber { border-top:2px solid var(--accent4); }
+.card-accent-red { border-top:2px solid var(--accent5); }
+
+.card h3 {
+  font-family:'Space Mono', monospace;
+  font-size:12px; font-weight:700;
+  color:var(--accent); text-transform:uppercase;
+  letter-spacing:1px; margin-bottom:12px;
+}
+.card h4 { font-size:14px; font-weight:600; margin-bottom:8px; color:var(--text); }
+
+/* FLOW DIAGRAMS */
+.flow-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius:12px;
+  padding:24px;
+  margin-bottom:20px;
+  overflow-x:auto;
+}
+.flow-title {
+  font-family:'Space Mono', monospace;
+  font-size:11px; color:var(--accent);
+  text-transform:uppercase; letter-spacing:1px;
+  margin-bottom:20px;
+}
+
+/* SVG FLOWS */
+svg text { fill: var(--text); font-family:'DM Sans',sans-serif; }
+
+/* TIERS */
+.tier-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:24px; }
+.tier-card {
+  background: var(--surface2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:20px;
+  position:relative;
+  overflow:hidden;
+}
+.tier-card::before {
+  content:'';
+  position:absolute; top:0; left:0; right:0; height:3px;
+}
+.tier-starter::before { background: var(--accent3); }
+.tier-plus::before { background: var(--accent2); }
+.tier-enterprise::before { background: var(--accent4); }
+.tier-name {
+  font-family:'Syne', sans-serif;
+  font-size:18px; font-weight:800;
+  margin-bottom:4px;
+}
+.tier-starter .tier-name { color: var(--accent3); }
+.tier-plus .tier-name { color: var(--accent2); }
+.tier-enterprise .tier-name { color: var(--accent4); }
+.tier-price { font-family:'Space Mono', monospace; font-size:22px; font-weight:700; margin-bottom:12px; }
+.tier-features { list-style:none; }
+.tier-features li {
+  padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  font-size:12px; color:var(--muted);
+  display:flex; align-items:center; gap:8px;
+}
+.tier-features li::before { content:'→'; color:var(--accent); font-size:10px; }
+.tier-features li.yes::before { content:'✓'; color:var(--accent3); }
+.tier-features li.no::before { content:'✗'; color:var(--muted); }
+.tier-features li.partial::before { content:'◐'; color:var(--accent4); }
+
+/* MICRO TAG */
+.micro-tag {
+  display:inline-block;
+  padding:2px 8px; border-radius:4px;
+  font-size:10px; font-weight:600;
+  font-family:'Space Mono', monospace;
+  text-transform:uppercase;
+}
+.tag-api { background:rgba(0,212,255,0.1); color:var(--accent); }
+.tag-db { background:rgba(16,185,129,0.1); color:var(--accent3); }
+.tag-infra { background:rgba(124,58,237,0.1); color:var(--accent2); }
+.tag-sec { background:rgba(239,68,68,0.1); color:var(--accent5); }
+.tag-ui { background:rgba(245,158,11,0.1); color:var(--accent4); }
+
+/* TABLE */
+.data-table {
+  width:100%; border-collapse:collapse;
+  font-size:12px;
+}
+.data-table th {
+  background:var(--surface2);
+  color:var(--muted);
+  text-align:left; padding:10px 12px;
+  font-family:'Space Mono', monospace;
+  font-size:10px; text-transform:uppercase; letter-spacing:0.5px;
+  border-bottom:1px solid var(--border);
+}
+.data-table td {
+  padding:10px 12px;
+  border-bottom:1px solid rgba(255,255,255,0.04);
+  vertical-align:top;
+  color:var(--text);
+}
+.data-table tr:hover td { background:rgba(255,255,255,0.02); }
+
+/* CODE BLOCK */
+.code-block {
+  background:#060a10;
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:16px;
+  font-family:'Space Mono', monospace;
+  font-size:11px;
+  line-height:1.8;
+  color:#94a3b8;
+  overflow-x:auto;
+  white-space:pre;
+}
+.code-block .kw { color:#7c3aed; }
+.code-block .str { color:#10b981; }
+.code-block .cm { color:#475569; }
+.code-block .var { color:#00d4ff; }
+.code-block .fn { color:#f59e0b; }
+
+/* STATUS PILLS */
+.status { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; }
+.status-dot { width:6px; height:6px; border-radius:50%; }
+.status-done .status-dot { background:#10b981; box-shadow:0 0 6px #10b981; }
+.status-wip .status-dot { background:#f59e0b; box-shadow:0 0 6px #f59e0b; animation:pulse 1.5s infinite; }
+.status-todo .status-dot { background:#475569; }
+.status-block .status-dot { background:#ef4444; box-shadow:0 0 6px #ef4444; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+/* ARCH DIAGRAM nodes */
+.arch-node {
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:10px 14px;
+  text-align:center;
+  font-size:11px;
+  font-weight:600;
+}
+
+/* CHAT PREVIEW */
+.chat-bubble {
+  margin:8px 0;
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+}
+.chat-bubble.ai { flex-direction:row; }
+.chat-bubble.user { flex-direction:row-reverse; }
+.bubble-avatar {
+  width:32px; height:32px; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; flex-shrink:0;
+}
+.ai .bubble-avatar { background:linear-gradient(135deg,var(--accent),var(--accent2)); }
+.user .bubble-avatar { background:var(--surface2); border:1px solid var(--border); }
+.bubble-text {
+  padding:10px 14px;
+  border-radius:10px;
+  font-size:12px;
+  line-height:1.6;
+  max-width:75%;
+}
+.ai .bubble-text {
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:10px 10px 10px 2px;
+}
+.user .bubble-text {
+  background:linear-gradient(135deg, rgba(0,212,255,0.1), rgba(124,58,237,0.1));
+  border:1px solid rgba(0,212,255,0.2);
+  border-radius:10px 10px 2px 10px;
+}
+
+/* RESPONSIVE */
+@media(max-width:900px) {
+  .grid-2,.grid-3,.grid-4,.tier-grid { grid-template-columns:1fr; }
+  .main { padding:20px; }
+  .nav { padding:0 20px; }
+  .header { padding:20px; }
+}
+
+.divider { border:none; border-top:1px solid var(--border); margin:24px 0; }
+.mb-4 { margin-bottom:16px; }
+.mb-6 { margin-bottom:24px; }
+.flex { display:flex; }
+.gap-2 { gap:8px; }
+.gap-3 { gap:12px; }
+.flex-wrap { flex-wrap:wrap; }
+.items-center { align-items:center; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="logo-mark">N</div>
+    <div>
+      <h1><span>NeoSC</span> / WinDesk Cloud — Master Plan</h1>
+      <p>Business Strategy · Architecture · Microservices · AI Onboarding Agent · Demo POC Design</p>
+    </div>
+    <div class="badges">
+      <span class="badge badge-alpha">Alpha 8-Apr-2026</span>
+      <span class="badge badge-poc">POC Ready</span>
+      <span class="badge badge-v1">V1.0 Target</span>
+    </div>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="nav-tab active" onclick="showSection('overview')">🗺 Resumen Ejecutivo</div>
+  <div class="nav-tab" onclick="showSection('tiers')">💎 Tiers & Licencias</div>
+  <div class="nav-tab" onclick="showSection('bizflow')">🔄 Flujo de Negocio</div>
+  <div class="nav-tab" onclick="showSection('aiagent')">🤖 Agente IA Onboarding</div>
+  <div class="nav-tab" onclick="showSection('arch')">🏗 Arquitectura Técnica</div>
+  <div class="nav-tab" onclick="showSection('microservices')">⚙️ Microservicios</div>
+  <div class="nav-tab" onclick="showSection('db')">🗄 Base de Datos</div>
+  <div class="nav-tab" onclick="showSection('poc')">🧪 Demo POC</div>
+  <div class="nav-tab" onclick="showSection('security')">🔐 Seguridad Netbird</div>
+  <div class="nav-tab" onclick="showSection('provisioning')">🤖 VM Provisioning</div>
+</div>
+
+<div class="main">
+
+<!-- ===== OVERVIEW ===== -->
+<div id="overview" class="section active">
+  <div class="section-title">🗺 Resumen <span>Ejecutivo</span></div>
+  <p class="section-sub">Estrategia de go-to-market para NeoSC WinDesk Cloud — captar clientes TSplus existentes y nuevos</p>
+
+  <div class="grid-4 mb-6">
+    <div class="card card-accent-green">
+      <h3>Mercado Principal</h3>
+      <div style="font-size:28px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent3);">TSplus</div>
+      <p style="font-size:12px;color:var(--muted);">Clientes actuales de TSplus que buscan Zero Trust, SSO y gestión centralizada</p>
+    </div>
+    <div class="card card-accent-top">
+      <h3>Mercado Secundario</h3>
+      <div style="font-size:28px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent);">New</div>
+      <p style="font-size:12px;color:var(--muted);">Clientes sin TSplus que necesitan escritorio remoto seguro + VM en cloud</p>
+    </div>
+    <div class="card card-accent-purple">
+      <h3>Diferenciador</h3>
+      <div style="font-size:20px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent2);">Zero Trust</div>
+      <p style="font-size:12px;color:var(--muted);">NeoMesh + NeoGuard + SSO en un solo portal. Sin marca de terceros.</p>
+    </div>
+    <div class="card card-accent-amber">
+      <h3>Self-Service 100%</h3>
+      <div style="font-size:20px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent4);">Auto-Prov</div>
+      <p style="font-size:12px;color:var(--muted);">Org → Tenant → VM → Mesh → Políticas → Usuarios. Sin intervención manual.</p>
+    </div>
+  </div>
+
+  <div class="grid-2 mb-6">
+    <div class="card">
+      <h3>🎯 Propuesta de Valor por Segmento</h3>
+      <table class="data-table" style="margin-top:8px;">
+        <tr><th>Segmento</th><th>Pain Point</th><th>NeoSC soluciona</th></tr>
+        <tr>
+          <td><strong>TSplus Web</strong></td>
+          <td style="color:var(--muted);">Sin Zero Trust, auth básica, expuesto en internet</td>
+          <td><span style="color:var(--accent3);">NeoProxy + NeoGuard + SSO sin cambiar TSplus</span></td>
+        </tr>
+        <tr>
+          <td><strong>TSplus Client</strong></td>
+          <td style="color:var(--muted);">Cliente instalado, VPN legacy, sin MFA central</td>
+          <td><span style="color:var(--accent3);">NeoMesh reemplaza VPN + NeoID unifica MFA</span></td>
+        </tr>
+        <tr>
+          <td><strong>Sin TSplus</strong></td>
+          <td style="color:var(--muted);">Sin escritorio remoto, quieren cloud managed</td>
+          <td><span style="color:var(--accent3);">VM + NeoDesk HTML5 + todo incluido</span></td>
+        </tr>
+        <tr>
+          <td><strong>Enterprise</strong></td>
+          <td style="color:var(--muted);">Múltiples sedes, auditoría, compliance</td>
+          <td><span style="color:var(--accent3);">NeoVault + session recording + B2B delegado</span></td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>📦 Stack NeoSC (sin marcas externas)</h3>
+      <table class="data-table" style="margin-top:8px;">
+        <tr><th>Componente NeoSC</th><th>Motor interno</th><th>Función</th></tr>
+        <tr><td><strong style="color:var(--accent);">NeoGuard</strong></td><td style="color:var(--muted);">Zitadel OIDC</td><td>SSO · MFA · IdP</td></tr>
+        <tr><td><strong style="color:var(--accent);">NeoMesh</strong></td><td style="color:var(--muted);">Netbird WireGuard</td><td>VPN mesh Zero Trust</td></tr>
+        <tr><td><strong style="color:var(--accent);">NeoDesk</strong></td><td style="color:var(--muted);">Guacamole HTML5</td><td>Escritorio remoto web</td></tr>
+        <tr><td><strong style="color:var(--accent);">NeoDesk+</strong></td><td style="color:var(--muted);">TSplus adapter</td><td>HTML5 si tienen licencia</td></tr>
+        <tr><td><strong style="color:var(--accent);">NeoProxy</strong></td><td style="color:var(--muted);">Pomerium IAP</td><td>Reverse proxy Zero Trust</td></tr>
+        <tr><td><strong style="color:var(--accent);">NeoVault</strong></td><td style="color:var(--muted);">JumpServer</td><td>PAM · session recording</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="card mb-6">
+    <h3>🚦 Estado de Implementación — Items críticos para Demo</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px;">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-done"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">OIDC Zitadel + PKCE flow</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-done"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">Netbird mesh configurado</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-done"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">Portal NeoSC (Emergent) con SSO</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-done"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">VM 10.100.10.152 con TSplus (Data Center)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-done"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">VM 10.100.10.153 con Netbird (p2p/Guacamole)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-wip"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">API de aprovisionamiento (FastAPI backend)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-wip"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">AI Onboarding Agent (chat)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-todo"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">WinRM/OpenSSH + TSplus auto-install</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <span class="status status-block"><span class="status-dot"></span></span>
+        <span style="font-size:12px;">ADR-002 Guacamole final (blocker menor)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TIERS ===== -->
+<div id="tiers" class="section">
+  <div class="section-title">💎 Tiers & <span>Licencias</span></div>
+  <p class="section-sub">Tres planes de NeoSC WinDesk Cloud — Starter, Plus, Enterprise</p>
+
+  <div class="tier-grid mb-6">
+    <div class="tier-card tier-starter">
+      <div class="tier-name">NeoSC Starter</div>
+      <div class="tier-price" style="color:var(--accent3);">$29 <small style="font-size:14px;color:var(--muted);">/mes</small></div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;">Infraestructura 100% en Neogenesys. Para nuevos clientes o clientes sin TSplus propio.</p>
+      <ul class="tier-features">
+        <li class="yes">VM Windows en datacenter Neogenesys</li>
+        <li class="yes">NeoDesk HTML5 (Guacamole)</li>
+        <li class="yes">NeoGuard SSO (hasta 5 usuarios)</li>
+        <li class="yes">NeoMesh VPN incluido</li>
+        <li class="yes">Self-service completo via portal</li>
+        <li class="yes">SSL wildcard kappa4.com</li>
+        <li class="no">TSplus licencia propia</li>
+        <li class="no">Infra on-premise cliente</li>
+        <li class="no">NeoVault / session recording</li>
+        <li class="no">B2B delegado</li>
+      </ul>
+      <div style="margin-top:14px;padding:10px;background:rgba(16,185,129,0.08);border-radius:8px;font-size:11px;color:var(--muted);">
+        <strong style="color:var(--accent3);">Infra:</strong> VM en 10.100.10.152-range · Docker NeoMesh local · Guacamole tunnel
+      </div>
+    </div>
+
+    <div class="tier-card tier-plus">
+      <div class="tier-name">NeoSC Plus</div>
+      <div class="tier-price" style="color:var(--accent2);">$79 <small style="font-size:14px;color:var(--muted);">/mes</small></div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;">Para clientes con TSplus existente o que quieren cliente local + conexión RDP/RDS.</p>
+      <ul class="tier-features">
+        <li class="yes">Todo Starter incluido</li>
+        <li class="yes">NeoDesk+ (adapter TSplus HTML5)</li>
+        <li class="yes">Cliente local NeoSC con RDP/RDS</li>
+        <li class="yes">NeoGuard hasta 25 usuarios</li>
+        <li class="yes">Conexión a su TSplus existente</li>
+        <li class="yes">NeoMesh relay nodo en su red</li>
+        <li class="partial">VM en datacenter (opcional)</li>
+        <li class="yes">Multi-device SSO</li>
+        <li class="no">NeoVault recording</li>
+        <li class="no">Multi-tenant B2B</li>
+      </ul>
+      <div style="margin-top:14px;padding:10px;background:rgba(124,58,237,0.08);border-radius:8px;font-size:11px;color:var(--muted);">
+        <strong style="color:var(--accent2);">Infra:</strong> Nodo NeoMesh deploy en red cliente · TSplus en su infra · NeoProxy IAP
+      </div>
+    </div>
+
+    <div class="tier-card tier-enterprise">
+      <div class="tier-name">NeoSC Enterprise</div>
+      <div class="tier-price" style="color:var(--accent4);">Custom</div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:14px;">Multi-tenant, auditoría completa, on-premise mixto. Para corporativos en LATAM.</p>
+      <ul class="tier-features">
+        <li class="yes">Todo Plus incluido</li>
+        <li class="yes">NeoVault (session recording)</li>
+        <li class="yes">Multi-tenant B2B Zitadel delegado</li>
+        <li class="yes">VMs en su propio datacenter</li>
+        <li class="yes">TSplus Enterprise en VMs propias</li>
+        <li class="yes">NeoGuard ilimitado + LDAP/AD</li>
+        <li class="yes">Políticas granulares grupo→recurso</li>
+        <li class="yes">API access completo</li>
+        <li class="yes">SLA 99.9% garantizado</li>
+        <li class="yes">Soporte dedicado Neogenesys</li>
+      </ul>
+      <div style="margin-top:14px;padding:10px;background:rgba(245,158,11,0.08);border-radius:8px;font-size:11px;color:var(--muted);">
+        <strong style="color:var(--accent4);">Infra:</strong> Hybrid deploy · Nodo Netbird hardened en red cliente · Guacamole + TSplus
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🔀 Decisión de Tier por Situación del Cliente</h3>
+    <div class="flow-container" style="background:var(--surface2);margin-top:12px;">
+<svg width="100%" viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg">
+  <!-- Q1: ¿Tiene TSplus? -->
+  <rect x="340" y="10" width="200" height="44" rx="8" fill="#0d1420" stroke="#1e2d4a"/>
+  <text x="440" y="28" text-anchor="middle" font-size="12" fill="#e2e8f0" font-weight="600">¿Ya tiene TSplus?</text>
+  <text x="440" y="46" text-anchor="middle" font-size="10" fill="#64748b">Pregunta inicial del agente IA</text>
+
+  <!-- NO branch -->
+  <line x1="340" y1="32" x2="200" y2="32" stroke="#475569" stroke-width="1.5" stroke-dasharray="4"/>
+  <polygon points="204,29 196,32 204,35" fill="#475569"/>
+  <text x="270" y="28" text-anchor="middle" font-size="10" fill="#ef4444" font-weight="600">NO</text>
+
+  <rect x="80" y="10" width="160" height="44" rx="8" fill="#0d1420" stroke="#10b981"/>
+  <text x="160" y="28" text-anchor="middle" font-size="11" fill="#10b981" font-weight="700">¿Necesita VM?</text>
+  <text x="160" y="44" text-anchor="middle" font-size="10" fill="#64748b">nueva infra cloud</text>
+
+  <!-- SI branch -->
+  <line x1="540" y1="32" x2="680" y2="32" stroke="#475569" stroke-width="1.5" stroke-dasharray="4"/>
+  <polygon points="676,29 684,32 676,35" fill="#475569"/>
+  <text x="610" y="28" text-anchor="middle" font-size="10" fill="#10b981" font-weight="600">SÍ</text>
+
+  <rect x="660" y="10" width="200" height="44" rx="8" fill="#0d1420" stroke="#7c3aed"/>
+  <text x="760" y="28" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700">¿Cómo conectan?</text>
+  <text x="760" y="44" text-anchor="middle" font-size="10" fill="#64748b">Web HTML5 / Cliente</text>
+
+  <!-- VM SI -->
+  <line x1="120" y1="54" x2="80" y2="100" stroke="#10b981" stroke-width="1.5"/>
+  <text x="90" y="90" text-anchor="middle" font-size="10" fill="#10b981">SÍ</text>
+  <rect x="20" y="100" width="140" height="44" rx="8" fill="rgba(16,185,129,0.15)" stroke="#10b981"/>
+  <text x="90" y="118" text-anchor="middle" font-size="11" fill="#10b981" font-weight="700">STARTER</text>
+  <text x="90" y="134" text-anchor="middle" font-size="10" fill="#64748b">VM + NeoDesk</text>
+
+  <!-- VM NO -->
+  <line x1="200" y1="54" x2="240" y2="100" stroke="#475569" stroke-width="1.5"/>
+  <text x="230" y="90" text-anchor="middle" font-size="10" fill="#ef4444">NO</text>
+  <rect x="170" y="100" width="140" height="44" rx="8" fill="rgba(124,58,237,0.15)" stroke="#7c3aed"/>
+  <text x="240" y="118" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700">PLUS</text>
+  <text x="240" y="134" text-anchor="middle" font-size="10" fill="#64748b">NeoMesh + NeoDesk+</text>
+
+  <!-- Web branch -->
+  <line x1="720" y1="54" x2="680" y2="100" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="695" y="90" text-anchor="middle" font-size="10" fill="#7c3aed">Web</text>
+  <rect x="610" y="100" width="140" height="44" rx="8" fill="rgba(124,58,237,0.15)" stroke="#7c3aed"/>
+  <text x="680" y="118" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700">PLUS</text>
+  <text x="680" y="134" text-anchor="middle" font-size="10" fill="#64748b">TSplus + NeoProxy</text>
+
+  <!-- Client branch -->
+  <line x1="800" y1="54" x2="840" y2="100" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="830" y="90" text-anchor="middle" font-size="10" fill="#f59e0b">Cliente</text>
+  <rect x="770" y="100" width="140" height="44" rx="8" fill="rgba(245,158,11,0.15)" stroke="#f59e0b"/>
+  <text x="840" y="118" text-anchor="middle" font-size="11" fill="#f59e0b" font-weight="700">ENTERPRISE</text>
+  <text x="840" y="134" text-anchor="middle" font-size="10" fill="#64748b">On-prem + NeoVault</text>
+
+  <!-- ¿SSO/MFA? -->
+  <rect x="330" y="100" width="230" height="44" rx="8" fill="#0d1420" stroke="#1e2d4a"/>
+  <text x="445" y="118" text-anchor="middle" font-size="11" fill="#e2e8f0">¿Tienen SSO/MFA/LDAP?</text>
+  <text x="445" y="134" text-anchor="middle" font-size="10" fill="#64748b">Impacta integración</text>
+  <line x1="440" y1="54" x2="445" y2="100" stroke="#475569" stroke-width="1.5" stroke-dasharray="4"/>
+
+  <line x1="400" y1="122" x2="350" y2="180" stroke="#475569" stroke-width="1.5"/>
+  <line x1="490" y1="122" x2="540" y2="180" stroke="#475569" stroke-width="1.5"/>
+  <text x="365" y="165" font-size="10" fill="#10b981">SÍ → Federar</text>
+  <text x="510" y="165" font-size="10" fill="#f59e0b">NO → NeoGuard</text>
+
+  <rect x="270" y="180" width="170" height="44" rx="8" fill="rgba(16,185,129,0.1)" stroke="#10b981"/>
+  <text x="355" y="198" text-anchor="middle" font-size="11" fill="#10b981">NeoGuard federar</text>
+  <text x="355" y="214" text-anchor="middle" font-size="10" fill="#64748b">OIDC/SAML bridge</text>
+
+  <rect x="460" y="180" width="170" height="44" rx="8" fill="rgba(245,158,11,0.1)" stroke="#f59e0b"/>
+  <text x="545" y="198" text-anchor="middle" font-size="11" fill="#f59e0b">NeoGuard nativo</text>
+  <text x="545" y="214" text-anchor="middle" font-size="10" fill="#64748b">Nuevo IdP MFA</text>
+</svg>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BIZ FLOW ===== -->
+<div id="bizflow" class="section">
+  <div class="section-title">🔄 Flujo de <span>Negocio</span></div>
+  <p class="section-sub">Journey completo del cliente desde WinDesk Site hasta self-service aprovisionado</p>
+
+  <div class="flow-container mb-6">
+    <div class="flow-title">FLUJO PRINCIPAL — Cliente llega a WinDesk Site</div>
+<svg width="100%" viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+    </marker>
+    <marker id="arr-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/>
+    </marker>
+  </defs>
+
+  <!-- Row 1: Entry -->
+  <ellipse cx="80" cy="40" rx="60" ry="22" fill="none" stroke="#00d4ff" stroke-width="1.5"/>
+  <text x="80" y="36" text-anchor="middle" font-size="11" fill="#00d4ff" font-weight="600">WinDesk</text>
+  <text x="80" y="50" text-anchor="middle" font-size="10" fill="#64748b">Site</text>
+
+  <line x1="140" y1="40" x2="180" y2="40" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- AI Agent chat -->
+  <rect x="180" y="18" width="130" height="44" rx="8" fill="#0d1420" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="245" y="35" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700">🤖 Agente IA</text>
+  <text x="245" y="51" text-anchor="middle" font-size="10" fill="#64748b">Discovery chat</text>
+
+  <line x1="310" y1="40" x2="350" y2="40" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Decision: TSplus? -->
+  <polygon points="430,16 510,40 430,64 350,40" fill="#0d1420" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="430" y="36" text-anchor="middle" font-size="10" fill="#f59e0b" font-weight="600">¿Tiene</text>
+  <text x="430" y="50" text-anchor="middle" font-size="10" fill="#f59e0b">TSplus?</text>
+
+  <!-- NO path: goes down -->
+  <line x1="430" y1="64" x2="430" y2="110" stroke="#10b981" stroke-width="1.5" marker-end="url(#arr-green)"/>
+  <text x="440" y="92" font-size="10" fill="#10b981">NO</text>
+
+  <!-- YES path: goes right -->
+  <line x1="510" y1="40" x2="580" y2="40" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <text x="540" y="34" font-size="10" fill="#7c3aed">SÍ</text>
+
+  <!-- STARTER path -->
+  <rect x="340" y="110" width="180" height="50" rx="8" fill="rgba(16,185,129,0.12)" stroke="#10b981" stroke-width="1.5"/>
+  <text x="430" y="128" text-anchor="middle" font-size="11" fill="#10b981" font-weight="700">Flujo STARTER / NEW</text>
+  <text x="430" y="144" text-anchor="middle" font-size="10" fill="#64748b">Selecciona VM + plan · paga</text>
+  <text x="430" y="156" text-anchor="middle" font-size="9" fill="#64748b">Auto-provisiona VM + NeoDesk</text>
+
+  <!-- PLUS/ENT path -->
+  <rect x="580" y="18" width="160" height="44" rx="8" fill="rgba(124,58,237,0.12)" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="660" y="35" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700">Captura datos</text>
+  <text x="660" y="50" text-anchor="middle" font-size="10" fill="#64748b">IP TSplus · tipo licencia · users</text>
+
+  <line x1="740" y1="40" x2="800" y2="40" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Tier suggest -->
+  <rect x="800" y="18" width="160" height="44" rx="8" fill="#0d1420" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="880" y="35" text-anchor="middle" font-size="11" fill="#f59e0b" font-weight="700">Sugiere Tier</text>
+  <text x="880" y="50" text-anchor="middle" font-size="10" fill="#64748b">PLUS / ENTERPRISE</text>
+
+  <!-- Row 2 -->
+  <line x1="430" y1="160" x2="430" y2="210" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="880" y1="62" x2="880" y2="150" stroke="#475569" stroke-width="1.5"/>
+  <line x1="880" y1="150" x2="510" y2="150" stroke="#475569" stroke-width="1.5"/>
+  <line x1="510" y1="150" x2="510" y2="210" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+
+  <!-- Checkout / Pago -->
+  <rect x="350" y="210" width="200" height="50" rx="8" fill="#0d1420" stroke="#00d4ff" stroke-width="1.5"/>
+  <text x="450" y="228" text-anchor="middle" font-size="11" fill="#00d4ff" font-weight="700">💳 Checkout Stripe</text>
+  <text x="450" y="244" text-anchor="middle" font-size="10" fill="#64748b">Plan · Add-ons · Facturación MX</text>
+  <text x="450" y="256" text-anchor="middle" font-size="9" fill="#64748b">RFC · razón social · CFDI</text>
+
+  <line x1="450" y1="260" x2="450" y2="305" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Auto-Provisioning -->
+  <rect x="300" y="305" width="300" height="50" rx="8" fill="rgba(0,212,255,0.1)" stroke="#00d4ff" stroke-width="2"/>
+  <text x="450" y="323" text-anchor="middle" font-size="12" fill="#00d4ff" font-weight="700">⚡ Auto-Provisioning</text>
+  <text x="450" y="339" text-anchor="middle" font-size="10" fill="#64748b">Org → Tenant → VM → Mesh → Políticas</text>
+  <text x="450" y="351" text-anchor="middle" font-size="9" fill="#64748b">Todo en background · usuario ve progreso</text>
+
+  <line x1="450" y1="355" x2="450" y2="395" stroke="#10b981" stroke-width="2" marker-end="url(#arr-green)"/>
+
+  <!-- Dashboard -->
+  <rect x="340" y="395" width="220" height="18" rx="4" fill="rgba(16,185,129,0.15)" stroke="#10b981"/>
+  <text x="450" y="408" text-anchor="middle" font-size="11" fill="#10b981" font-weight="700">✅ Dashboard NeoSC listo</text>
+
+  <!-- B2B label -->
+  <rect x="750" y="200" width="200" height="70" rx="8" fill="rgba(245,158,11,0.08)" stroke="#f59e0b" stroke-dasharray="4"/>
+  <text x="850" y="220" text-anchor="middle" font-size="10" fill="#f59e0b" font-weight="600">Enterprise: B2B Delegado</text>
+  <text x="850" y="236" text-anchor="middle" font-size="10" fill="#64748b">Admin registra organización</text>
+  <text x="850" y="252" text-anchor="middle" font-size="10" fill="#64748b">Invita usuarios internos</text>
+  <text x="850" y="268" text-anchor="middle" font-size="10" fill="#64748b">Grupos → políticas Netbird</text>
+</svg>
+  </div>
+
+  <div class="grid-2 mb-6">
+    <div class="card">
+      <h3>🛒 Flujo Checkout — Información requerida</h3>
+      <table class="data-table" style="margin-top:8px;">
+        <tr><th>Campo</th><th>Para qué</th><th>Tier</th></tr>
+        <tr><td>Nombre / Razón Social</td><td>Tenant + factura</td><td>Todos</td></tr>
+        <tr><td>RFC</td><td>CFDI México</td><td>Todos</td></tr>
+        <tr><td>Email corporativo</td><td>Admin Zitadel org</td><td>Todos</td></tr>
+        <tr><td>No. de usuarios</td><td>Tier + licencias</td><td>Todos</td></tr>
+        <tr><td>IP / hostname TSplus</td><td>Conectar NeoProxy</td><td>Plus/Ent</td></tr>
+        <tr><td>Tipo licencia TSplus</td><td>Compatibilidad</td><td>Plus/Ent</td></tr>
+        <tr><td>Protocolo conexión actual</td><td>RDP vs HTML5</td><td>Plus/Ent</td></tr>
+        <tr><td>¿Tiene AD/LDAP?</td><td>Federar o nuevo IdP</td><td>Plus/Ent</td></tr>
+        <tr><td>Requerimientos compliance</td><td>Session recording</td><td>Enterprise</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>📧 Información enviada a Neogenesys al comprar Enterprise</h3>
+      <div class="code-block"><span class="cm">// Payload a Neogenesys License API</span>
+{
+  <span class="var">"org_name"</span>: <span class="str">"ACME Corp SA de CV"</span>,
+  <span class="var">"rfc"</span>: <span class="str">"ACM991201ABC"</span>,
+  <span class="var">"admin_email"</span>: <span class="str">"admin@acme.com"</span>,
+  <span class="var">"tier"</span>: <span class="str">"enterprise"</span>,
+  <span class="var">"users_count"</span>: 50,
+  <span class="var">"tsplus_license"</span>: <span class="str">"TS-ENT-2024-XXXX"</span>,
+  <span class="var">"tsplus_host"</span>: <span class="str">"192.168.1.100"</span>,
+  <span class="var">"connection_type"</span>: <span class="str">"html5_web"</span>,
+  <span class="var">"has_ldap"</span>: <span class="kw">true</span>,
+  <span class="var">"ldap_host"</span>: <span class="str">"dc.acme.local"</span>,
+  <span class="var">"datacenter_pref"</span>: <span class="str">"mx-central"</span>,
+  <span class="var">"netbird_node_ip"</span>: <span class="str">"pending_deploy"</span>,
+  <span class="var">"neogenesys_request_id"</span>: <span class="str">"neo-req-uuid-xxxx"</span>
+}</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== AI AGENT ===== -->
+<div id="aiagent" class="section">
+  <div class="section-title">🤖 Agente IA <span>Onboarding</span></div>
+  <p class="section-sub">Chat con lenguaje natural para discovery del cliente — determina tier, infra y necesidades</p>
+
+  <div class="grid-2 mb-6">
+    <div class="card">
+      <h3>💬 Flujo de Conversación del Agente</h3>
+      <div style="margin-top:12px;">
+        <div class="chat-bubble ai">
+          <div class="bubble-avatar">N</div>
+          <div class="bubble-text">
+            ¡Hola! Soy <strong>Neo</strong>, tu asistente de NeoSC. 👋<br><br>
+            Para ayudarte a encontrar la solución perfecta, necesito hacerte unas preguntas rápidas.<br><br>
+            <strong>¿Actualmente utilizas TSplus Remote Access en tu empresa?</strong>
+          </div>
+        </div>
+        <div class="chat-bubble user">
+          <div class="bubble-avatar">👤</div>
+          <div class="bubble-text">Sí, tenemos TSplus Business con 20 conexiones</div>
+        </div>
+        <div class="chat-bubble ai">
+          <div class="bubble-avatar">N</div>
+          <div class="bubble-text">
+            Excelente, TSplus Business es compatible con NeoSC Plus 🎯<br><br>
+            ¿Cómo se conectan actualmente tus usuarios?<br>
+            <em style="color:var(--accent);font-size:11px;">a) Por navegador web (HTML5) &nbsp; b) Con cliente instalado (Windows app) &nbsp; c) Ambos</em>
+          </div>
+        </div>
+        <div class="chat-bubble user">
+          <div class="bubble-avatar">👤</div>
+          <div class="bubble-text">Por web principalmente, algunos con cliente</div>
+        </div>
+        <div class="chat-bubble ai">
+          <div class="bubble-avatar">N</div>
+          <div class="bubble-text">
+            Perfecto. Última pregunta importante:<br><br>
+            ¿Tienen algún sistema de autenticación centralizado? Por ejemplo: <em style="color:var(--accent3);">Active Directory, Google Workspace, Microsoft 365, Okta, MFA</em>... o ¿actualmente solo usan usuario/contraseña de TSplus?
+          </div>
+        </div>
+        <div class="chat-bubble user">
+          <div class="bubble-avatar">👤</div>
+          <div class="bubble-text">Solo usuario y contraseña, sin nada especial</div>
+        </div>
+        <div class="chat-bubble ai">
+          <div class="bubble-avatar">N</div>
+          <div class="bubble-text" style="border-color:rgba(16,185,129,0.3);background:rgba(16,185,129,0.05);">
+            <strong style="color:var(--accent3);">¡Listo! 🎉 Tengo todo lo que necesito.</strong><br><br>
+            Basado en tu configuración, <strong>NeoSC Plus</strong> es la opción ideal:<br>
+            • Conectamos tu TSplus actual sin cambios<br>
+            • Añadimos SSO + MFA con NeoGuard<br>
+            • Zero Trust mesh para tus conexiones web y cliente<br>
+            • Setup en menos de 30 minutos<br><br>
+            ¿Quieres ver el plan detallado y proceder?
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🧠 Árbol de Decisión del Agente</h3>
+      <div class="code-block" style="font-size:10px;line-height:1.9;"><span class="cm">/* Decision tree simplificado */</span>
+
+<span class="kw">STATE</span> {
+  has_tsplus: <span class="kw">null</span>,
+  tsplus_tier: <span class="kw">null</span>,      <span class="cm">// Desktop/Bus/Ent</span>
+  connection_type: <span class="kw">null</span>,  <span class="cm">// web/client/both</span>
+  has_auth: <span class="kw">null</span>,         <span class="cm">// none/mfa/sso/ldap</span>
+  users_count: <span class="kw">null</span>,
+  needs_vm: <span class="kw">null</span>,
+  compliance: <span class="kw">null</span>        <span class="cm">// recording reqs</span>
+}
+
+<span class="fn">determineTier</span>(state) {
+  <span class="kw">if</span> (!state.has_tsplus &amp;&amp; state.needs_vm)
+    <span class="kw">return</span> <span class="str">"STARTER"</span>
+  
+  <span class="kw">if</span> (!state.has_tsplus &amp;&amp; !state.needs_vm)
+    <span class="kw">return</span> <span class="str">"PLUS"</span>  <span class="cm">// cliente local RDP</span>
+  
+  <span class="kw">if</span> (state.has_tsplus) {
+    <span class="kw">if</span> (state.users_count &lt;= 25
+        &amp;&amp; state.connection_type == <span class="str">'web'</span>)
+      <span class="kw">return</span> <span class="str">"PLUS"</span>
+    
+    <span class="kw">if</span> (state.users_count &gt; 25
+        || state.compliance
+        || state.has_auth == <span class="str">'ldap'</span>)
+      <span class="kw">return</span> <span class="str">"ENTERPRISE"</span>
+  }
+}
+
+<span class="cm">// Preguntas en orden por prioridad</span>
+<span class="var">QUESTIONS</span> = [
+  Q1: <span class="str">"¿Tiene TSplus?"</span>,
+  Q2: <span class="str">"¿Cómo conectan? web/cliente"</span>,
+  Q3: <span class="str">"¿Autenticación actual?"</span>,
+  Q4: <span class="str">"¿Cuántos usuarios/conexiones?"</span>,
+  Q5: <span class="str">"¿Necesita grabar sesiones?"</span>,
+  Q6: <span class="str">"¿IP/host de TSplus?"</span>,  <span class="cm">// si aplica</span>
+  Q7: <span class="str">"¿AD/LDAP hostname?"</span>    <span class="cm">// si aplica</span>
+]</div>
+
+      <div style="margin-top:14px;">
+        <h4 style="font-size:12px;color:var(--muted);margin-bottom:8px;">Prompts del sistema para cada pregunta:</h4>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="padding:8px;background:var(--surface2);border-radius:6px;font-size:11px;">
+            <span style="color:var(--accent);font-weight:600;">Q1 System:</span> <em style="color:var(--muted);">"Eres Neo, agente de ventas técnico de NeoSC. Tu primera pregunta SIEMPRE es si el cliente usa TSplus. Sé amigable y conciso."</em>
+          </div>
+          <div style="padding:8px;background:var(--surface2);border-radius:6px;font-size:11px;">
+            <span style="color:var(--accent2);font-weight:600;">Q3 System:</span> <em style="color:var(--muted);">"Explica brevemente las opciones de auth (MFA, SSO, LDAP) de forma que un usuario no técnico entienda."</em>
+          </div>
+          <div style="padding:8px;background:var(--surface2);border-radius:6px;font-size:11px;">
+            <span style="color:var(--accent3);font-weight:600;">Final:</span> <em style="color:var(--muted);">"Presenta el tier recomendado con 3-4 beneficios específicos basados en sus respuestas. Incluye CTA."</em>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>⚙️ Implementación del Agente — Arquitectura técnica</h3>
+    <div class="grid-3" style="margin-top:12px;">
+      <div style="padding:14px;background:var(--surface2);border-radius:8px;">
+        <div style="color:var(--accent);font-weight:700;font-size:12px;margin-bottom:8px;">Frontend Chat Widget</div>
+        <ul style="list-style:none;font-size:11px;color:var(--muted);line-height:2;">
+          <li>→ React component embebido en WinDesk Site</li>
+          <li>→ Streaming responses (SSE)</li>
+          <li>→ State machine: Q1→Q2→...→Result</li>
+          <li>→ Animated tier reveal card al final</li>
+          <li>→ CTA directo a checkout con plan pre-cargado</li>
+        </ul>
+      </div>
+      <div style="padding:14px;background:var(--surface2);border-radius:8px;">
+        <div style="color:var(--accent2);font-weight:700;font-size:12px;margin-bottom:8px;">Backend Agent API</div>
+        <ul style="list-style:none;font-size:11px;color:var(--muted);line-height:2;">
+          <li>→ FastAPI endpoint: POST /agent/chat</li>
+          <li>→ Claude claude-sonnet-4-20250514 con system prompt</li>
+          <li>→ Session state en Redis (TTL 30min)</li>
+          <li>→ Output: message + extracted_fields + tier_suggest</li>
+          <li>→ Webhooks a CRM cuando tier determinado</li>
+        </ul>
+      </div>
+      <div style="padding:14px;background:var(--surface2);border-radius:8px;">
+        <div style="color:var(--accent3);font-weight:700;font-size:12px;margin-bottom:8px;">Sistema Prompt Base</div>
+        <ul style="list-style:none;font-size:11px;color:var(--muted);line-height:2;">
+          <li>→ Eres "Neo" — asistente de NeoSC/WinDesk</li>
+          <li>→ NUNCA mencionas Netbird/Zitadel/Guacamole</li>
+          <li>→ Extraes campos en JSON estructurado</li>
+          <li>→ Máximo 7 preguntas en la conversación</li>
+          <li>→ Respuestas en español · tono profesional/cálido</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ARCHITECTURE ===== -->
+<div id="arch" class="section">
+  <div class="section-title">🏗 Arquitectura <span>Técnica</span></div>
+  <p class="section-sub">C4 Level 2 — Sistema completo NeoSC WinDesk con flujos por tier</p>
+
+  <div class="flow-container mb-6">
+    <div class="flow-title">ARQUITECTURA GENERAL — Todos los componentes</div>
+<svg width="100%" viewBox="0 0 1000 580" xmlns="http://www.w3.org/2000/svg">
+  <!-- Internet Zone -->
+  <rect x="10" y="10" width="230" height="560" rx="10" fill="none" stroke="#1e2d4a" stroke-dasharray="6"/>
+  <text x="125" y="32" text-anchor="middle" font-size="11" fill="#64748b" font-weight="600">🌐 INTERNET / CLIENTES</text>
+
+  <!-- WinDesk Site -->
+  <rect x="30" y="45" width="190" height="55" rx="8" fill="#0d1420" stroke="#00d4ff" stroke-width="1.5"/>
+  <text x="125" y="63" text-anchor="middle" font-size="11" fill="#00d4ff" font-weight="700">WinDesk Site</text>
+  <text x="125" y="77" text-anchor="middle" font-size="9" fill="#64748b">Next.js 15 · Marketing · Blog</text>
+  <text x="125" y="90" text-anchor="middle" font-size="9" fill="#64748b">🤖 AI Agent Chat</text>
+
+  <!-- User types -->
+  <rect x="30" y="115" width="85" height="40" rx="6" fill="#0d1420" stroke="#10b981"/>
+  <text x="72" y="130" text-anchor="middle" font-size="10" fill="#10b981">Cliente</text>
+  <text x="72" y="144" text-anchor="middle" font-size="9" fill="#64748b">Nuevo</text>
+
+  <rect x="135" y="115" width="85" height="40" rx="6" fill="#0d1420" stroke="#7c3aed"/>
+  <text x="177" y="130" text-anchor="middle" font-size="10" fill="#7c3aed">Cliente</text>
+  <text x="177" y="144" text-anchor="middle" font-size="9" fill="#64748b">TSplus</text>
+
+  <!-- Portal NeoSC -->
+  <rect x="30" y="170" width="190" height="55" rx="8" fill="#0d1420" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="125" y="188" text-anchor="middle" font-size="11" fill="#f59e0b" font-weight="700">Portal NeoSC</text>
+  <text x="125" y="202" text-anchor="middle" font-size="9" fill="#64748b">React · Emergent · Stripe</text>
+  <text x="125" y="215" text-anchor="middle" font-size="9" fill="#64748b">SSO via NeoGuard</text>
+
+  <!-- Arrows from internet to platform -->
+  <line x1="240" y1="72" x2="310" y2="72" stroke="#00d4ff" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="240" y1="197" x2="310" y2="197" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Platform Zone -->
+  <rect x="300" y="10" width="420" height="560" rx="10" fill="none" stroke="#1e2d4a" stroke-dasharray="6"/>
+  <text x="510" y="32" text-anchor="middle" font-size="11" fill="#64748b" font-weight="600">☁️ PLATAFORMA NEOGENESYS (GCP + OVH)</text>
+
+  <!-- NeoProxy / Pomerium -->
+  <rect x="320" y="45" width="150" height="50" rx="8" fill="#0d1420" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="395" y="64" text-anchor="middle" font-size="11" fill="#ef4444" font-weight="700">NeoProxy</text>
+  <text x="395" y="78" text-anchor="middle" font-size="9" fill="#64748b">Pomerium IAP</text>
+  <text x="395" y="89" text-anchor="middle" font-size="9" fill="#64748b">Zero Trust gateway</text>
+
+  <!-- NeoGuard / Zitadel -->
+  <rect x="490" y="45" width="150" height="50" rx="8" fill="#0d1420" stroke="#10b981" stroke-width="1.5"/>
+  <text x="565" y="64" text-anchor="middle" font-size="11" fill="#10b981" font-weight="700">NeoGuard</text>
+  <text x="565" y="78" text-anchor="middle" font-size="9" fill="#64748b">Zitadel OIDC/PKCE</text>
+  <text x="565" y="89" text-anchor="middle" font-size="9" fill="#64748b">SSO · MFA · Orgs</text>
+
+  <!-- API Gateway / FastAPI -->
+  <rect x="320" y="120" width="320" height="50" rx="8" fill="#0d1420" stroke="#00d4ff" stroke-width="2"/>
+  <text x="480" y="139" text-anchor="middle" font-size="12" fill="#00d4ff" font-weight="700">NeoSC API — FastAPI</text>
+  <text x="480" y="155" text-anchor="middle" font-size="9" fill="#64748b">/orgs · /tenants · /vms · /mesh · /sessions · /agent · /licensing</text>
+
+  <!-- Microservices row -->
+  <rect x="320" y="195" width="90" height="45" rx="6" fill="#0d1420" stroke="#7c3aed"/>
+  <text x="365" y="212" text-anchor="middle" font-size="10" fill="#7c3aed">Tenant</text>
+  <text x="365" y="226" text-anchor="middle" font-size="9" fill="#64748b">Svc</text>
+  <text x="365" y="237" text-anchor="middle" font-size="8" fill="#475569">Zitadel API</text>
+
+  <rect x="422" y="195" width="90" height="45" rx="6" fill="#0d1420" stroke="#10b981"/>
+  <text x="467" y="212" text-anchor="middle" font-size="10" fill="#10b981">Mesh</text>
+  <text x="467" y="226" text-anchor="middle" font-size="9" fill="#64748b">Svc</text>
+  <text x="467" y="237" text-anchor="middle" font-size="8" fill="#475569">Netbird API</text>
+
+  <rect x="524" y="195" width="90" height="45" rx="6" fill="#0d1420" stroke="#f59e0b"/>
+  <text x="569" y="212" text-anchor="middle" font-size="10" fill="#f59e0b">VM</text>
+  <text x="569" y="226" text-anchor="middle" font-size="9" fill="#64748b">Svc</text>
+  <text x="569" y="237" text-anchor="middle" font-size="8" fill="#475569">Libcloud+WinRM</text>
+
+  <rect x="626" y="195" width="90" height="45" rx="6" fill="#0d1420" stroke="#ef4444"/>
+  <text x="671" y="212" text-anchor="middle" font-size="10" fill="#ef4444">Session</text>
+  <text x="671" y="226" text-anchor="middle" font-size="9" fill="#64748b">Svc</text>
+  <text x="671" y="237" text-anchor="middle" font-size="8" fill="#475569">Guacamole API</text>
+
+  <!-- Temporal Workflow -->
+  <rect x="320" y="265" width="320" height="40" rx="8" fill="rgba(124,58,237,0.1)" stroke="#7c3aed"/>
+  <text x="480" y="280" text-anchor="middle" font-size="11" fill="#7c3aed" font-weight="700">Temporal.io — Workflow Orchestration</text>
+  <text x="480" y="296" text-anchor="middle" font-size="9" fill="#64748b">ProvisionTenantWorkflow · DeployMeshNodeWorkflow · InstallTSplusWorkflow</text>
+
+  <!-- DB Layer -->
+  <rect x="320" y="330" width="140" height="40" rx="6" fill="#0d1420" stroke="#10b981"/>
+  <text x="390" y="348" text-anchor="middle" font-size="10" fill="#10b981">PostgreSQL</text>
+  <text x="390" y="362" text-anchor="middle" font-size="8" fill="#64748b">Cloud SQL · tenants · vms · orgs</text>
+
+  <rect x="475" y="330" width="80" height="40" rx="6" fill="#0d1420" stroke="#ef4444"/>
+  <text x="515" y="348" text-anchor="middle" font-size="10" fill="#ef4444">Redis</text>
+  <text x="515" y="362" text-anchor="middle" font-size="8" fill="#64748b">Sessions · cache</text>
+
+  <rect x="570" y="330" width="70" height="40" rx="6" fill="#0d1420" stroke="#f59e0b"/>
+  <text x="605" y="348" text-anchor="middle" font-size="10" fill="#f59e0b">Infisical</text>
+  <text x="605" y="362" text-anchor="middle" font-size="8" fill="#64748b">Secrets</text>
+
+  <!-- Netbird Management -->
+  <rect x="320" y="395" width="320" height="40" rx="8" fill="#0d1420" stroke="#00d4ff"/>
+  <text x="480" y="413" text-anchor="middle" font-size="11" fill="#00d4ff" font-weight="700">NeoMesh Management (Netbird)</text>
+  <text x="480" y="427" text-anchor="middle" font-size="9" fill="#64748b">manager.kappa4.com · Relay 100.65.191.137 · DNS-only Cloudflare</text>
+
+  <!-- Stripe -->
+  <rect x="320" y="460" width="140" height="40" rx="6" fill="#0d1420" stroke="#7c3aed"/>
+  <text x="390" y="478" text-anchor="middle" font-size="10" fill="#7c3aed">Stripe</text>
+  <text x="390" y="492" text-anchor="middle" font-size="8" fill="#64748b">Billing · webhooks · CFDI</text>
+
+  <rect x="475" y="460" width="165" height="40" rx="6" fill="#0d1420" stroke="#10b981"/>
+  <text x="557" y="478" text-anchor="middle" font-size="10" fill="#10b981">GitHub Actions CI/CD</text>
+  <text x="557" y="492" text-anchor="middle" font-size="8" fill="#64748b">infra-neo/NeoSC · GHCR</text>
+
+  <!-- DATA CENTER Zone -->
+  <rect x="740" y="10" width="250" height="560" rx="10" fill="none" stroke="#1e2d4a" stroke-dasharray="6"/>
+  <text x="865" y="32" text-anchor="middle" font-size="11" fill="#64748b" font-weight="600">🏢 DATA CENTER (OVH Bare Metal)</text>
+
+  <rect x="760" y="45" width="210" height="60" rx="8" fill="#0d1420" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="865" y="65" text-anchor="middle" font-size="11" fill="#f59e0b" font-weight="700">Bare Metal ns533679</text>
+  <text x="865" y="80" text-anchor="middle" font-size="9" fill="#64748b">Ryzen 7 9700X · 62GB · NVMe RAID-1</text>
+  <text x="865" y="93" text-anchor="middle" font-size="9" fill="#64748b">LXD + MicroOVN hypervisor</text>
+
+  <rect x="760" y="125" width="95" height="50" rx="6" fill="#0d1420" stroke="#10b981"/>
+  <text x="807" y="143" text-anchor="middle" font-size="10" fill="#10b981">Linux Relay</text>
+  <text x="807" y="157" text-anchor="middle" font-size="9" fill="#64748b">10.100.10.150</text>
+  <text x="807" y="169" text-anchor="middle" font-size="8" fill="#475569">Netbird node</text>
+
+  <rect x="875" y="125" width="95" height="50" rx="6" fill="#0d1420" stroke="#7c3aed"/>
+  <text x="922" y="143" text-anchor="middle" font-size="10" fill="#7c3aed">Win VM</text>
+  <text x="922" y="157" text-anchor="middle" font-size="9" fill="#64748b">10.100.10.152</text>
+  <text x="922" y="169" text-anchor="middle" font-size="8" fill="#475569">TSplus (demo)</text>
+
+  <rect x="760" y="195" width="95" height="50" rx="6" fill="#0d1420" stroke="#00d4ff"/>
+  <text x="807" y="213" text-anchor="middle" font-size="10" fill="#00d4ff">Win VM+NB</text>
+  <text x="807" y="227" text-anchor="middle" font-size="9" fill="#64748b">10.100.10.153</text>
+  <text x="807" y="239" text-anchor="middle" font-size="8" fill="#475569">Guacamole/p2p</text>
+
+  <rect x="875" y="195" width="95" height="50" rx="6" fill="#0d1420" stroke="#ef4444"/>
+  <text x="922" y="213" text-anchor="middle" font-size="10" fill="#ef4444">Docker Linux</text>
+  <text x="922" y="227" text-anchor="middle" font-size="9" fill="#64748b">Compose stack</text>
+  <text x="922" y="239" text-anchor="middle" font-size="8" fill="#475569">Guacamole+guacd</text>
+
+  <!-- Cross arrows Platform → DC -->
+  <line x1="640" y1="413" x2="755" y2="220" stroke="#00d4ff" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="640" y1="395" x2="755" y2="165" stroke="#10b981" stroke-width="1" stroke-dasharray="4"/>
+</svg>
+  </div>
+</div>
+
+<!-- ===== MICROSERVICES ===== -->
+<div id="microservices" class="section">
+  <div class="section-title">⚙️ <span>Microservicios</span> Requeridos</div>
+  <p class="section-sub">Desglose completo de APIs y servicios para toda la orquestación</p>
+
+  <div class="grid-2 mb-6">
+    <div class="card card-accent-top">
+      <h3>🏢 Tenant Service</h3>
+      <table class="data-table">
+        <tr><th>Endpoint</th><th>Función</th><th>Motor</th></tr>
+        <tr><td><code style="color:var(--accent)">POST /orgs</code></td><td>Crear organización</td><td><span class="micro-tag tag-api">Zitadel</span></td></tr>
+        <tr><td><code style="color:var(--accent)">POST /tenants</code></td><td>Crear tenant + proyecto OIDC</td><td><span class="micro-tag tag-api">Zitadel</span></td></tr>
+        <tr><td><code style="color:var(--accent)">POST /tenants/{id}/users</code></td><td>Invitar usuarios B2B</td><td><span class="micro-tag tag-api">Zitadel</span></td></tr>
+        <tr><td><code style="color:var(--accent)">POST /tenants/{id}/groups</code></td><td>Crear grupos → Netbird sync</td><td><span class="micro-tag tag-api">Zitadel+NB</span></td></tr>
+        <tr><td><code style="color:var(--accent)">GET /tenants/{id}/status</code></td><td>Estado del aprovisionamiento</td><td><span class="micro-tag tag-db">PG</span></td></tr>
+      </table>
+    </div>
+
+    <div class="card card-accent-green">
+      <h3>🕸 NeoMesh Service</h3>
+      <table class="data-table">
+        <tr><th>Endpoint</th><th>Función</th><th>Motor</th></tr>
+        <tr><td><code style="color:var(--accent3)">POST /mesh/peers</code></td><td>Registrar peer Netbird</td><td><span class="micro-tag tag-infra">Netbird</span></td></tr>
+        <tr><td><code style="color:var(--accent3)">POST /mesh/policies</code></td><td>Crear política grupo→recurso</td><td><span class="micro-tag tag-infra">Netbird</span></td></tr>
+        <tr><td><code style="color:var(--accent3)">POST /mesh/routes</code></td><td>Añadir rutas de red</td><td><span class="micro-tag tag-infra">Netbird</span></td></tr>
+        <tr><td><code style="color:var(--accent3)">POST /mesh/setup-key</code></td><td>Generar setup key para nodo</td><td><span class="micro-tag tag-infra">Netbird</span></td></tr>
+        <tr><td><code style="color:var(--accent3)">DELETE /mesh/peers/{id}</code></td><td>Revocar peer comprometido</td><td><span class="micro-tag tag-sec">SEC</span></td></tr>
+      </table>
+    </div>
+
+    <div class="card card-accent-purple">
+      <h3>🖥 VM Service</h3>
+      <table class="data-table">
+        <tr><th>Endpoint</th><th>Función</th><th>Motor</th></tr>
+        <tr><td><code style="color:var(--accent2)">POST /vms</code></td><td>Crear VM Windows</td><td><span class="micro-tag tag-infra">Libcloud</span></td></tr>
+        <tr><td><code style="color:var(--accent2)">POST /vms/{id}/winrm</code></td><td>Habilitar WinRM + OpenSSH</td><td><span class="micro-tag tag-api">WinRM</span></td></tr>
+        <tr><td><code style="color:var(--accent2)">POST /vms/{id}/tsplus/install</code></td><td>Instalar TSplus silencioso</td><td><span class="micro-tag tag-api">WinRM+PS</span></td></tr>
+        <tr><td><code style="color:var(--accent2)">POST /vms/{id}/tsplus/activate</code></td><td>Activar licencia permanente</td><td><span class="micro-tag tag-api">TSplus CLI</span></td></tr>
+        <tr><td><code style="color:var(--accent2)">POST /vms/{id}/netbird/install</code></td><td>Instalar agente Netbird</td><td><span class="micro-tag tag-api">WinRM</span></td></tr>
+        <tr><td><code style="color:var(--accent2)">GET /vms/{id}/status</code></td><td>Estado de la VM</td><td><span class="micro-tag tag-db">PG</span></td></tr>
+      </table>
+    </div>
+
+    <div class="card card-accent-amber">
+      <h3>🖥 Session Service</h3>
+      <table class="data-table">
+        <tr><th>Endpoint</th><th>Función</th><th>Motor</th></tr>
+        <tr><td><code style="color:var(--accent4)">POST /sessions</code></td><td>Crear sesión HTML5</td><td><span class="micro-tag tag-api">Guacamole</span></td></tr>
+        <tr><td><code style="color:var(--accent4)">POST /sessions/tsplus</code></td><td>Token TSplus auto-login</td><td><span class="micro-tag tag-api">TSplus</span></td></tr>
+        <tr><td><code style="color:var(--accent4)">GET /sessions/{id}/token</code></td><td>JWT para WebSocket</td><td><span class="micro-tag tag-sec">JWT</span></td></tr>
+        <tr><td><code style="color:var(--accent4)">DELETE /sessions/{id}</code></td><td>Cerrar sesión</td><td><span class="micro-tag tag-api">Guacamole</span></td></tr>
+        <tr><td><code style="color:var(--accent4)">GET /sessions/active</code></td><td>Sesiones activas del tenant</td><td><span class="micro-tag tag-db">Redis</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="card mb-6">
+    <h3>⚡ Temporal Workflows — Secuencias de Aprovisionamiento</h3>
+    <div class="grid-3" style="margin-top:12px;">
+      <div style="padding:14px;background:var(--surface2);border-radius:8px;">
+        <div style="color:var(--accent3);font-weight:700;margin-bottom:10px;font-size:12px;">ProvisionNewClientWorkflow (Starter)</div>
+        <ol style="list-style:decimal;padding-left:16px;font-size:11px;color:var(--muted);line-height:2.2;">
+          <li>Crear org + tenant en Zitadel</li>
+          <li>Crear VM Windows (Libcloud/OVH LXD)</li>
+          <li>Esperar VM ready (poll)</li>
+          <li>Habilitar WinRM + OpenSSH</li>
+          <li>Instalar Netbird agent</li>
+          <li>Registrar peer en NeoMesh</li>
+          <li>Instalar + activar TSplus (si Starter VM)</li>
+          <li>Configurar Guacamole connection</li>
+          <li>Crear grupos + políticas Netbird</li>
+          <li>Enviar email bienvenida + credenciales</li>
+          <li style="color:var(--accent3);font-weight:600;">✅ Dashboard activo</li>
+        </ol>
+      </div>
+      <div style="padding:14px;background:var(--surface2);border-radius:8px;">
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:10px;font-size:12px;">ConnectExistingTSplusWorkflow (Plus)</div>
+        <ol style="list-style:decimal;padding-left:16px;font-size:11px;color:var(--muted);line-height:2.2;">
+          <li>Crear org + tenant en Zitadel</li>
+          <li>Generar Netbird setup-key para cliente</li>
+          <li>Enviar instrucciones deploy nodo</li>
+          <li>Esperar peer registration (webhook)</li>
+          <li>Configurar ruta hacia TSplus del cliente</li>
+          <li>Configurar NeoProxy (Pomerium) para TSplus</li>
+          <li>Verificar conectividad ping TSplus</li>
+          <li>Configurar token exchange SSO</li>
+          <li>Crear grupos + políticas de acceso</li>
+          <li style="color:var(--accent2);font-weight:600;">✅ TSplus accesible vía NeoSC</li>
+        </ol>
+      </div>
+      <div style="padding:14px;background:var(--surface2);border-radius:8px;">
+        <div style="color:var(--accent4);font-weight:700;margin-bottom:10px;font-size:12px;">EnterpriseB2BWorkflow</div>
+        <ol style="list-style:decimal;padding-left:16px;font-size:11px;color:var(--muted);line-height:2.2;">
+          <li>Crear org enterprise + B2B policy</li>
+          <li>Habilitar delegación de usuarios</li>
+          <li>Deploy nodo hardened en red cliente</li>
+          <li>Configurar LDAP/AD federation</li>
+          <li>Sincronizar grupos AD → Netbird</li>
+          <li>Deploy NeoVault (JumpServer)</li>
+          <li>Configurar session recording</li>
+          <li>Configurar VMs propias del cliente</li>
+          <li>Activar TSplus en VMs enterprise</li>
+          <li>Configurar políticas granulares</li>
+          <li style="color:var(--accent4);font-weight:600;">✅ Enterprise completo activo</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DB ===== -->
+<div id="db" class="section">
+  <div class="section-title">🗄 Base de <span>Datos</span></div>
+  <p class="section-sub">Schema PostgreSQL completo — entidades principales y relaciones</p>
+
+  <div class="card mb-6">
+    <h3>📊 Schema Principal</h3>
+    <div class="code-block" style="font-size:10px;line-height:1.9;"><span class="cm">-- =============================================
+-- NeoSC WinDesk Cloud — Database Schema v1.0
+-- =============================================</span>
+
+<span class="cm">-- Organizaciones (equivale a empresa/cliente)</span>
+<span class="kw">CREATE TABLE</span> <span class="var">organizations</span> (
+  id               UUID <span class="kw">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  name             VARCHAR(255) <span class="kw">NOT NULL</span>,
+  slug             VARCHAR(100) <span class="kw">UNIQUE NOT NULL</span>,         <span class="cm">-- acme-corp</span>
+  rfc              VARCHAR(20),                               <span class="cm">-- México CFDI</span>
+  razon_social     VARCHAR(255),
+  email_admin      VARCHAR(255) <span class="kw">NOT NULL</span>,
+  zitadel_org_id   VARCHAR(100) <span class="kw">UNIQUE</span>,               <span class="cm">-- ID en Zitadel</span>
+  tier             VARCHAR(20) <span class="kw">NOT NULL DEFAULT</span> <span class="str">'starter'</span>, <span class="cm">-- starter/plus/enterprise</span>
+  status           VARCHAR(20) <span class="kw">NOT NULL DEFAULT</span> <span class="str">'provisioning'</span>,
+  stripe_customer_id VARCHAR(100),
+  stripe_subscription_id VARCHAR(100),
+  max_users        INTEGER <span class="kw">DEFAULT</span> 5,
+  created_at       TIMESTAMPTZ <span class="kw">DEFAULT NOW</span>(),
+  updated_at       TIMESTAMPTZ <span class="kw">DEFAULT NOW</span>()
+);
+
+<span class="cm">-- Infraestructura TSplus del cliente (Plus/Enterprise)</span>
+<span class="kw">CREATE TABLE</span> <span class="var">client_infrastructure</span> (
+  id               UUID <span class="kw">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  org_id           UUID <span class="kw">REFERENCES</span> organizations(id),
+  tsplus_host      VARCHAR(255),
+  tsplus_port      INTEGER <span class="kw">DEFAULT</span> 443,
+  tsplus_license   VARCHAR(100),
+  tsplus_tier      VARCHAR(50),                              <span class="cm">-- Desktop/Business/Enterprise</span>
+  connection_type  VARCHAR(20),                              <span class="cm">-- web/client/rdp</span>
+  has_ldap         BOOLEAN <span class="kw">DEFAULT</span> <span class="kw">false</span>,
+  ldap_host        VARCHAR(255),
+  ldap_port        INTEGER,
+  ldap_base_dn     TEXT,
+  auth_type        VARCHAR(20),                              <span class="cm">-- none/mfa/sso/ldap</span>
+  netbird_peer_id  VARCHAR(100),                            <span class="cm">-- ID peer en Netbird</span>
+  netbird_ip       INET,                                    <span class="cm">-- IP asignada por mesh</span>
+  verified         BOOLEAN <span class="kw">DEFAULT</span> <span class="kw">false</span>,
+  created_at       TIMESTAMPTZ <span class="kw">DEFAULT NOW</span>()
+);
+
+<span class="cm">-- VMs aprovisionadas por Neogenesys</span>
+<span class="kw">CREATE TABLE</span> <span class="var">virtual_machines</span> (
+  id               UUID <span class="kw">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  org_id           UUID <span class="kw">REFERENCES</span> organizations(id),
+  name             VARCHAR(255),
+  provider         VARCHAR(50) <span class="kw">DEFAULT</span> <span class="str">'ovh'</span>,             <span class="cm">-- ovh/gcp/hetzner</span>
+  region           VARCHAR(50) <span class="kw">DEFAULT</span> <span class="str">'mx-bhs'</span>,
+  ip_public        INET,
+  ip_private       INET,
+  netbird_peer_id  VARCHAR(100),
+  netbird_ip       INET,
+  os               VARCHAR(50) <span class="kw">DEFAULT</span> <span class="str">'windows-2019'</span>,
+  vcpus            INTEGER <span class="kw">DEFAULT</span> 2,
+  ram_gb           INTEGER <span class="kw">DEFAULT</span> 4,
+  disk_gb          INTEGER <span class="kw">DEFAULT</span> 80,
+  tsplus_installed BOOLEAN <span class="kw">DEFAULT</span> <span class="kw">false</span>,
+  tsplus_activated BOOLEAN <span class="kw">DEFAULT</span> <span class="kw">false</span>,
+  tsplus_license   VARCHAR(100),
+  winrm_enabled    BOOLEAN <span class="kw">DEFAULT</span> <span class="kw">false</span>,
+  ssh_enabled      BOOLEAN <span class="kw">DEFAULT</span> <span class="kw">false</span>,
+  status           VARCHAR(30) <span class="kw">DEFAULT</span> <span class="str">'creating'</span>,
+  created_at       TIMESTAMPTZ <span class="kw">DEFAULT NOW</span>()
+);
+
+<span class="cm">-- Sesiones de usuario</span>
+<span class="kw">CREATE TABLE</span> <span class="var">sessions</span> (
+  id               UUID <span class="kw">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  org_id           UUID <span class="kw">REFERENCES</span> organizations(id),
+  user_id          VARCHAR(100),                            <span class="cm">-- Zitadel user ID</span>
+  vm_id            UUID <span class="kw">REFERENCES</span> virtual_machines(id),
+  session_type     VARCHAR(20),                            <span class="cm">-- guacamole/tsplus/rdp</span>
+  guac_connection_id VARCHAR(100),
+  started_at       TIMESTAMPTZ <span class="kw">DEFAULT NOW</span>(),
+  ended_at         TIMESTAMPTZ,
+  duration_sec     INTEGER,
+  recording_path   TEXT,                                   <span class="cm">-- NeoVault Enterprise</span>
+  ip_client        INET,
+  metadata         JSONB
+);
+
+<span class="cm">-- Licencias NeoSC (enviadas a Neogenesys)</span>
+<span class="kw">CREATE TABLE</span> <span class="var">license_requests</span> (
+  id               UUID <span class="kw">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  org_id           UUID <span class="kw">REFERENCES</span> organizations(id),
+  tier             VARCHAR(20),
+  users_count      INTEGER,
+  payload          JSONB,                                  <span class="cm">-- datos completos enviados</span>
+  neogenesys_req_id VARCHAR(100),
+  status           VARCHAR(20) <span class="kw">DEFAULT</span> <span class="str">'pending'</span>,
+  approved_at      TIMESTAMPTZ,
+  license_key      VARCHAR(255),
+  created_at       TIMESTAMPTZ <span class="kw">DEFAULT NOW</span>()
+);
+
+<span class="cm">-- Índices críticos</span>
+<span class="kw">CREATE INDEX</span> idx_orgs_tier <span class="kw">ON</span> organizations(tier);
+<span class="kw">CREATE INDEX</span> idx_vms_org <span class="kw">ON</span> virtual_machines(org_id);
+<span class="kw">CREATE INDEX</span> idx_sessions_org_user <span class="kw">ON</span> sessions(org_id, user_id);
+<span class="kw">CREATE INDEX</span> idx_infra_org <span class="kw">ON</span> client_infrastructure(org_id);</div>
+  </div>
+</div>
+
+<!-- ===== POC DEMO ===== -->
+<div id="poc" class="section">
+  <div class="section-title">🧪 Demo <span>POC</span> — Neogenesys Alpha Go-Live</div>
+  <p class="section-sub">Guion de demo usando el Data Center actual — 3 escenarios visuales</p>
+
+  <div class="grid-3 mb-6">
+    <div class="card card-accent-green">
+      <h3>Demo 1 — Cliente Nuevo (Starter)</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:12px;">Usando VM 10.100.10.153 (Windows + Netbird)</p>
+      <ol style="list-style:decimal;padding-left:16px;font-size:11px;color:var(--text);line-height:2.2;">
+        <li>Entrar a WinDesk Site</li>
+        <li>Chat con Agente IA Neo</li>
+        <li>Responder: sin TSplus, necesita VM</li>
+        <li>Ver sugerencia STARTER</li>
+        <li>Proceder checkout (modo demo)</li>
+        <li>Ver progreso aprovisionamiento</li>
+        <li>Portal NeoSC → Mis Apps</li>
+        <li><strong style="color:var(--accent3);">Clic → NeoDesk (Guacamole HTML5)</strong></li>
+        <li>Escritorio Windows 153 en browser</li>
+        <li>Sin instalación · sin VPN manual</li>
+      </ol>
+      <div style="margin-top:12px;padding:8px;background:rgba(16,185,129,0.1);border-radius:6px;font-size:11px;">
+        <strong style="color:var(--accent3);">Infra:</strong> 153 → Guacamole en Docker → Netbird tunnel 150 → portal
+      </div>
+    </div>
+
+    <div class="card card-accent-purple">
+      <h3>Demo 2 — Cliente TSplus Existente (Plus)</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:12px;">Usando VM 10.100.10.152 (Windows + TSplus sin Netbird)</p>
+      <ol style="list-style:decimal;padding-left:16px;font-size:11px;color:var(--text);line-height:2.2;">
+        <li>Chat: sí tiene TSplus Business</li>
+        <li>Ingresa host TSplus (simula 152)</li>
+        <li>Ver sugerencia PLUS</li>
+        <li>Portal NeoSC activo</li>
+        <li>Instalar NeoMesh client (simula)</li>
+        <li><strong style="color:var(--accent2);">NeoDesk+ → HTML5 vía TSplus 152</strong></li>
+        <li>SSO auto-login sin contraseña</li>
+        <li>Mostrar SAP HTML5 en escritorio</li>
+        <li>Política grupo → recurso activa</li>
+        <li>Sin acceso directo a 152 sin NeoMesh</li>
+      </ol>
+      <div style="margin-top:12px;padding:8px;background:rgba(124,58,237,0.1);border-radius:6px;font-size:11px;">
+        <strong style="color:var(--accent2);">Infra:</strong> Portal → NeoProxy → Netbird mesh → TSplus 152 → token SSO
+      </div>
+    </div>
+
+    <div class="card card-accent-amber">
+      <h3>Demo 3 — P2P Direct (Enterprise)</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:12px;">VM 153 como servidor dedicado — conexión directa</p>
+      <ol style="list-style:decimal;padding-left:16px;font-size:11px;color:var(--text);line-height:2.2;">
+        <li>Usuario enterprise con cliente NeoSC</li>
+        <li>Conectar a 153 peer-to-peer</li>
+        <li>Sin relay — WireGuard directo</li>
+        <li><strong style="color:var(--accent4);">RDP nativo a través de NeoMesh</strong></li>
+        <li>Mostrar experiencia desktop completa</li>
+        <li>Ver en portal: sesión activa</li>
+        <li>Mostrar usuario conectado</li>
+        <li>Desconectar desde portal (admin)</li>
+        <li>Políticas grupo bloquearon otro user</li>
+        <li>NeoVault: replay sesión grabada</li>
+      </ol>
+      <div style="margin-top:12px;padding:8px;background:rgba(245,158,11,0.1);border-radius:6px;font-size:11px;">
+        <strong style="color:var(--accent4);">Infra:</strong> Cliente NeoSC → Netbird p2p → 153 Windows RDP · NeoVault recording
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-6">
+    <h3>🎬 Checklist Pre-Demo — Items críticos para el 8 de Abril</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;">
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;">INFRAESTRUCTURA</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" checked> VM 153 accesible vía Netbird + Guacamole</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" checked> TSplus activo en 152</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" checked> Relay 150 funcionando</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> Guacamole container en Docker stack</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> SAP HTML5 disponible en 152</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> Cloudflare DNS-only para manager</label>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;">PORTAL & BACKEND</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" checked> SSO Zitadel funcionando en portal</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> Fix BUG-004 TSplus token (scope urn:zitadel:iam...)</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> eval()→json.loads() en backend/server.py</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> Netbird ACL deny-by-default</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> Revocar peer OVH Montreal comprometido</label>
+          <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox"> Agente IA chat (al menos prototipo)</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECURITY ===== -->
+<div id="security" class="section">
+  <div class="section-title">🔐 Seguridad — Netbird <span>Hardening</span></div>
+  <p class="section-sub">Hardenización del nodo NeoMesh · protección del container · nodo cliente enterprise</p>
+
+  <div class="grid-2 mb-6">
+    <div class="card card-accent-red">
+      <h3>🛡 Hardening Nodo NeoMesh (Container)</h3>
+      <div class="code-block" style="font-size:10px;line-height:1.8;"><span class="cm"># docker-compose.netbird-hardened.yml</span>
+services:
+  netbird:
+    image: netbirdio/netbird:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:seccomp-netbird.json
+    read_only: true
+    tmpfs:
+      - /tmp:size=50m,noexec
+    volumes:
+      - netbird_config:/etc/netbird:rw
+      - /lib/modules:/lib/modules:ro
+    networks:
+      - neomesh_internal
+    environment:
+      NB_SETUP_KEY: <span class="str">"${INFISICAL_SETUP_KEY}"</span>
+      NB_MANAGEMENT_URL: <span class="str">"https://manager.kappa4.com"</span>
+    ulimits:
+      nproc: 64
+      nofile:
+        soft: 1024
+        hard: 1024
+
+<span class="cm"># Políticas Netbird ACL — deny-by-default</span>
+<span class="cm"># POST /api/policies</span>
+{
+  <span class="str">"name"</span>: <span class="str">"deny-all-default"</span>,
+  <span class="str">"enabled"</span>: <span class="kw">true</span>,
+  <span class="str">"rules"</span>: [{
+    <span class="str">"action"</span>: <span class="str">"deny"</span>,
+    <span class="str">"bidirectional"</span>: <span class="kw">true</span>,
+    <span class="str">"sources"</span>: [<span class="str">"All"</span>],
+    <span class="str">"destinations"</span>: [<span class="str">"All"</span>]
+  }]
+}
+<span class="cm"># Luego allowlist específico por grupo</span></div>
+    </div>
+
+    <div class="card card-accent-top">
+      <h3>🔒 Nodo Deploy en Red del Cliente (Enterprise)</h3>
+      <div class="code-block" style="font-size:10px;line-height:1.8;"><span class="cm">#!/bin/bash
+# neomesh-node-deploy.sh — Auto-instala nodo hardened
+# Ejecutar como root en Linux del cliente</span>
+
+SETUP_KEY=<span class="str">"${1}"</span>  <span class="cm"># Generado por NeoSC API</span>
+MGMT_URL=<span class="str">"https://manager.kappa4.com"</span>
+ORG_ID=<span class="str">"${2}"</span>
+
+<span class="cm"># 1. Verificar kernel mínimo</span>
+<span class="fn">check_kernel</span>() {
+  MIN=5.6
+  CURRENT=$(uname -r | cut -d. -f1,2)
+  [[ <span class="str">"${CURRENT}"</span> < <span class="str">"${MIN}"</span> ]] &amp;&amp; exit 1
+}
+
+<span class="cm"># 2. Instalar Netbird</span>
+curl -fsSL https://pkgs.netbird.io/install.sh | sh
+
+<span class="cm"># 3. Configurar con setup key del tenant</span>
+netbird up \
+  --setup-key <span class="str">"${SETUP_KEY}"</span> \
+  --management-url <span class="str">"${MGMT_URL}"</span> \
+  --hostname <span class="str">"neomesh-node-${ORG_ID}"</span>
+
+<span class="cm"># 4. Hardening post-install</span>
+iptables -A INPUT -i netbird0 -s 100.64.0.0/10 -j ACCEPT
+iptables -A INPUT -i netbird0 -j DROP  <span class="cm"># deny-by-default</span>
+
+<span class="cm"># 5. Reportar a NeoSC API</span>
+curl -X POST https://api.neosc.kappa4.com/mesh/peers/confirm \
+  -H <span class="str">"Authorization: Bearer ${ORG_TOKEN}"</span> \
+  -d <span class="str">'{"org_id":"'"${ORG_ID}"'","peer_ip":"'"$(netbird status | grep 'NetBird IP')"'"}'</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-6">
+    <h3>🎭 Rebranding NeoMesh — Sin marca Netbird en portal</h3>
+    <div class="grid-3" style="margin-top:12px;">
+      <div style="padding:12px;background:var(--surface2);border-radius:8px;font-size:11px;">
+        <div style="color:var(--accent);font-weight:700;margin-bottom:8px;">Portal NeoSC</div>
+        <p style="color:var(--muted);">Todo el dashboard muestra "NeoMesh", "NeoGuard", "NeoDesk". Los iframes de admin Netbird/Zitadel <strong>NUNCA</strong> expuestos al usuario final.</p>
+      </div>
+      <div style="padding:12px;background:var(--surface2);border-radius:8px;font-size:11px;">
+        <div style="color:var(--accent2);font-weight:700;margin-bottom:8px;">Cliente NeoSC (desktop)</div>
+        <p style="color:var(--muted);">Wrapper Electron del cliente Netbird con branding NeoSC. Íconos, colores y strings reemplazados en build. Nombre del proceso: "NeoSC Connect".</p>
+      </div>
+      <div style="padding:12px;background:var(--surface2);border-radius:8px;font-size:11px;">
+        <div style="color:var(--accent3);font-weight:700;margin-bottom:8px;">API Layer</div>
+        <p style="color:var(--muted);">FastAPI actúa como anti-corruption layer. Todas las llamadas a Netbird/Zitadel/Guacamole APIs ocurren en backend. El frontend solo llama APIs NeoSC.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROVISIONING ===== -->
+<div id="provisioning" class="section">
+  <div class="section-title">🤖 VM <span>Provisioning</span> — Windows + TSplus</div>
+  <p class="section-sub">Secuencia completa de automatización: WinRM → OpenSSH → TSplus → Netbird</p>
+
+  <div class="card mb-6">
+    <h3>⚡ PowerShell Automation — Instalación TSplus Silenciosa</h3>
+    <div class="code-block" style="font-size:10px;line-height:1.9;"><span class="cm"># provision-windows-vm.ps1
+# Ejecutado via WinRM desde FastAPI VM Service
+# Requiere: WinRM habilitado, PowerShell 5.1+</span>
+
+<span class="kw">param</span>(
+  [<span class="var">string</span>]$TSplusLicense,
+  [<span class="var">string</span>]$NetbirdSetupKey,
+  [<span class="var">string</span>]$OrgId,
+  [<span class="var">string</span>]$NeoscApiUrl = <span class="str">"https://api.kappa4.com"</span>
+)
+
+<span class="kw">function</span> <span class="fn">Write-Step</span>([<span class="var">string</span>]$msg) {
+  $body = @{org_id=$OrgId; step=$msg; ts=Get-Date -Format o} | ConvertTo-Json
+  Invoke-RestMethod -Uri <span class="str">"$NeoscApiUrl/vms/progress"</span> -Method POST -Body $body -ContentType <span class="str">'application/json'</span>
+  Write-Host <span class="str">"[$(Get-Date -Format 'HH:mm:ss')] $msg"</span>
+}
+
+<span class="cm"># === PASO 1: Habilitar OpenSSH ===</span>
+<span class="fn">Write-Step</span> <span class="str">"Instalando OpenSSH Server..."</span>
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+New-NetFirewallRule -Name sshd -DisplayName <span class="str">'OpenSSH SSH Server'</span> -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+
+<span class="cm"># === PASO 2: Descargar e instalar TSplus ===</span>
+<span class="fn">Write-Step</span> <span class="str">"Descargando TSplus Remote Access..."</span>
+$url = <span class="str">"https://dl-file.com/TSplus-RemoteSupport.exe"</span>
+Invoke-WebRequest -Uri $url -OutFile <span class="str">"C:\Temp\TSplus.exe"</span>
+
+<span class="fn">Write-Step</span> <span class="str">"Instalando TSplus (modo silencioso)..."</span>
+Start-Process -FilePath <span class="str">"C:\Temp\TSplus.exe"</span> -ArgumentList <span class="str">"/VERYSILENT /NORESTART /COMPONENTS=core,webserver,sts"</span> -Wait
+
+<span class="cm"># === PASO 3: Activar licencia ===</span>
+<span class="fn">Write-Step</span> <span class="str">"Activando licencia TSplus..."</span>
+$tsplusPath = <span class="str">"C:\Program Files (x86)\TSplus\UserDesktop\files"</span>
+$activateExe = Join-Path $tsplusPath <span class="str">"LicenseManager.exe"</span>
+Start-Process -FilePath $activateExe -ArgumentList <span class="str">"/activate $TSplusLicense /silent"</span> -Wait
+
+<span class="cm"># Verificar activación</span>
+Start-Sleep -Seconds 5
+$status = Get-Content <span class="str">"C:\Program Files (x86)\TSplus\Clients\www\software\LicenseStatus.txt"</span>
+<span class="kw">if</span> ($status -notmatch <span class="str">"active"</span>) { <span class="kw">throw</span> <span class="str">"TSplus activation failed"</span> }
+
+<span class="cm"># === PASO 4: Instalar Netbird ===</span>
+<span class="fn">Write-Step</span> <span class="str">"Instalando NeoMesh client..."</span>
+$nbUrl = <span class="str">"https://pkgs.netbird.io/windows/x64/netbird_installer_latest_windows_amd64.exe"</span>
+Invoke-WebRequest -Uri $nbUrl -OutFile <span class="str">"C:\Temp\netbird.exe"</span>
+Start-Process -FilePath <span class="str">"C:\Temp\netbird.exe"</span> -ArgumentList <span class="str">"/quiet"</span> -Wait
+
+<span class="cm"># Conectar al mesh con setup key del tenant</span>
+<span class="fn">Write-Step</span> <span class="str">"Conectando VM al NeoMesh..."</span>
+& <span class="str">"C:\Program Files\Netbird\netbird.exe"</span> up `
+  --setup-key $NetbirdSetupKey `
+  --management-url <span class="str">"https://manager.kappa4.com"</span> `
+  --hostname <span class="str">"neosc-vm-$OrgId"</span>
+
+<span class="cm"># === PASO 5: Reportar IP de Netbird ===</span>
+Start-Sleep -Seconds 10
+$nbIp = (& <span class="str">"C:\Program Files\Netbird\netbird.exe"</span> status | Select-String <span class="str">'NetBird IP'</span>).ToString().Split()[-1]
+<span class="fn">Write-Step</span> <span class="str">"VM lista. NeoMesh IP: $nbIp"</span>
+
+$confirm = @{org_id=$OrgId; netbird_ip=$nbIp; vm_status=<span class="str">"ready"</span>} | ConvertTo-Json
+Invoke-RestMethod -Uri <span class="str">"$NeoscApiUrl/vms/ready"</span> -Method POST -Body $confirm -ContentType <span class="str">'application/json'</span></div>
+  </div>
+
+  <div class="card">
+    <h3>📊 Progress Tracking — UI de aprovisionamiento en portal</h3>
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:rgba(16,185,129,0.2);border:2px solid #10b981;display:flex;align-items:center;justify-content:center;font-size:12px;color:#10b981;flex-shrink:0;">✓</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;">Organización y tenant creados</div>
+          <div style="font-size:10px;color:var(--muted);">Zitadel org + proyecto OIDC configurado</div>
+        </div>
+        <div style="font-size:10px;color:var(--accent3);">2s</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--surface2);border-radius:8px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:rgba(16,185,129,0.2);border:2px solid #10b981;display:flex;align-items:center;justify-content:center;font-size:12px;color:#10b981;flex-shrink:0;">✓</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;">VM Windows iniciada</div>
+          <div style="font-size:10px;color:var(--muted);">OVH / LXD — 2vCPU / 4GB RAM / 80GB</div>
+        </div>
+        <div style="font-size:10px;color:var(--accent3);">45s</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--surface2);border-radius:8px;border:1px solid rgba(0,212,255,0.2);">
+        <div style="width:28px;height:28px;border-radius:50%;background:rgba(0,212,255,0.15);border:2px solid #00d4ff;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;animation:pulse 1s infinite;">⟳</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;color:var(--accent);">Instalando TSplus Remote Access...</div>
+          <div style="font-size:10px;color:var(--muted);">Download + install silencioso vía WinRM</div>
+        </div>
+        <div style="font-size:10px;color:var(--accent);">~2m</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--surface2);border-radius:8px;opacity:0.5;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--surface);border:2px solid #475569;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);flex-shrink:0;">4</div>
+        <div style="flex:1">
+          <div style="font-size:12px;">Activando licencia TSplus</div>
+          <div style="font-size:10px;color:var(--muted);">Licencia permanente + verificación</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--surface2);border-radius:8px;opacity:0.5;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--surface);border:2px solid #475569;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);flex-shrink:0;">5</div>
+        <div style="flex:1">
+          <div style="font-size:12px;">Conectando al NeoMesh</div>
+          <div style="font-size:10px;color:var(--muted);">Netbird peer + políticas de acceso</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--surface2);border-radius:8px;opacity:0.5;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--surface);border:2px solid #475569;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">🎉</div>
+        <div style="flex:1">
+          <div style="font-size:12px;">Tu NeoDesk está listo</div>
+          <div style="font-size:10px;color:var(--muted);">Dashboard activo · primer login</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- end main -->
+
+<script>
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+  window.scrollTo(0,0);
+}
+</script>
+</body>
+</html>
