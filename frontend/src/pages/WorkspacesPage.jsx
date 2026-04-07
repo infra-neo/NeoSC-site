@@ -112,7 +112,12 @@ export default function WorkspacesPage() {
                         {vm.order.neosc_plan}
                       </Badge>
                     )}
-                    <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1">
+                    <Button
+                      size="sm"
+                      className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1"
+                      data-testid={`open-html5-${vm.id}`}
+                      onClick={() => window.open('https://web.proxy.kappa4.com/', '_blank')}
+                    >
                       <Globe className="w-3 h-3" /> Abrir HTML5
                     </Button>
                   </div>

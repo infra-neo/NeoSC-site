@@ -17,7 +17,14 @@ export default function WorkspaceViewerPage() {
 
   useEffect(() => {
     axios.get(`${API}/sessions/${sessionId}`, { headers: getAuthHeader() })
-      .then(r => setSession(r.data))
+      .then(r => {
+        const data = r.data;
+        // If no connection_url, use the TSplus proxy
+        if (!data.connection_url) {
+          data.connection_url = 'https://web.proxy.kappa4.com/';
+        }
+        setSession(data);
+      })
       .catch(() => navigate('/workspaces'));
   }, [sessionId]);
 

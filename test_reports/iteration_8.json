@@ -1,0 +1,87 @@
+{
+  "summary": "Completed frontend testing of 4 user-reported issues: TSplus branching question on Market page, plan selection flow, Workspaces 'Abrir HTML5' button, and Provision Progress onboarding slides. All features working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Landing page",
+        "issues": ["'View Pricing' button scrolls to pricing section instead of navigating to /market - this may be intentional design"]
+      }
+    ]
+  },
+  "passed_tests": [
+    "Market page at /market shows TSplus branching question first (step 'tsplus-check')",
+    "TSplus branching question has two options: 'Sí, ya tengo TSplus' (data-testid='tsplus-yes') and 'No, necesito todo nuevo' (data-testid='tsplus-no')",
+    "Clicking 'No, necesito todo nuevo' shows plan selection with Starter $29, Plus $79, Enterprise Custom",
+    "Clicking 'Sí, ya tengo TSplus' navigates to /admin/enroll-tenant (redirects to login if not authenticated)",
+    "Workspaces page: 'Abrir HTML5' button exists with data-testid='open-html5-{vm.id}'",
+    "Workspaces page: 'Abrir HTML5' button has onClick handler to open https://web.proxy.kappa4.com/ in new tab",
+    "Workspaces page: Multiple Market VMs displayed with 'Abrir HTML5' buttons",
+    "Provision progress page at /market/progress shows onboarding slides",
+    "Provision progress page: 'Anterior' (prev) button has data-testid='slide-prev'",
+    "Provision progress page: 'Siguiente' (next) button has data-testid='slide-next'",
+    "Provision progress page: All 6 slide dots have data-testid='slide-dot-0' through 'slide-dot-5'",
+    "Provision progress page: Slide navigation works (prev/next/dots)",
+    "Landing page: 'Windows VDI Cloud' button navigates to /market",
+    "Landing page: 'Windows VDI — Comprar ahora' button navigates to /market"
+  ],
+  "test_report_links": [
+    "/app/test_reports/iteration_8.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "WorkspacesPage.jsx line 119: 'Abrir HTML5' button correctly opens https://web.proxy.kappa4.com/ in new tab",
+    "MarketPage.jsx: TSplus branching question implemented at step 'tsplus-check' with correct data-testid attributes",
+    "ProvisionProgressPage.jsx: Complete rewrite with onboarding slides and navigation controls",
+    "WorkspaceViewerPage.jsx: Fallback to proxy URL when no connection_url (line 23-25)"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend only testing)",
+    "frontend": "100% (14/14 tests passed)"
+  },
+  "test_credentials": {
+    "admin": "admin@windesk.cloud / Admin123!",
+    "demo_users": ["usuario1@windesk.cloud / Demo123!"]
+  },
+  "seed_data_creation": "None - used existing Market VMs for testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 4 user-reported issues have been fixed and verified: 1) 'Abrir HTML5' buttons work on Workspaces page (opens https://web.proxy.kappa4.com/), 2) Session viewer fallback to proxy URL implemented, 3) Market page shows TSplus branching question before plan selection, 4) Provision progress page shows onboarding slides instead of terminal logs. Data-testid attributes: tsplus-yes, tsplus-no, open-html5-{vm.id}, slide-prev, slide-next, slide-dot-0 through slide-dot-5.",
+  "mocked_apis": {
+    "VM provisioning": "SSE/polling simulated",
+    "Payment gateway": "Demo mode"
+  },
+  "features_verified": {
+    "tsplus_branching_question": {
+      "status": "WORKING",
+      "location": "/market",
+      "data_testids": ["tsplus-yes", "tsplus-no"]
+    },
+    "plan_selection": {
+      "status": "WORKING",
+      "plans": ["Starter $29", "Plus $79", "Enterprise Custom"]
+    },
+    "abrir_html5_button": {
+      "status": "WORKING",
+      "location": "/workspaces",
+      "target_url": "https://web.proxy.kappa4.com/",
+      "data_testid_pattern": "open-html5-{vm.id}"
+    },
+    "provision_onboarding_slides": {
+      "status": "WORKING",
+      "location": "/market/progress",
+      "slide_count": 6,
+      "navigation_testids": ["slide-prev", "slide-next", "slide-dot-0 to slide-dot-5"]
+    },
+    "landing_page_pricing_buttons": {
+      "status": "WORKING",
+      "buttons_to_market": ["Windows VDI Cloud", "Windows VDI — Comprar ahora"]
+    }
+  }
+}

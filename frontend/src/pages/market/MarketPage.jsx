@@ -132,7 +132,7 @@ export default function MarketPage() {
   const [hostname, setHostname] = useState('');
 
   // UI state
-  const [step, setStep] = useState('plan'); // plan | configure | checkout
+  const [step, setStep] = useState('tsplus-check'); // tsplus-check | plan | configure | checkout
   const [loading, setLoading] = useState(false);
   const [totalPrice, setTotalPrice] = useState(0);
   const [activeAddonCat, setActiveAddonCat] = useState('all');
@@ -245,11 +245,11 @@ export default function MarketPage() {
           </div>
           <div className="flex items-center gap-3">
             {/* Steps indicator */}
-            {['plan', 'configure', 'checkout'].map((s, i) => (
+            {['tsplus-check', 'plan', 'configure'].map((s, i) => (
               <div key={s} className="flex items-center gap-1">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
                   step === s ? 'bg-cyan-500 text-black' :
-                  ['plan','configure','checkout'].indexOf(step) > i ? 'bg-cyan-500/30 text-cyan-400' :
+                  ['tsplus-check','plan','configure'].indexOf(step) > i ? 'bg-cyan-500/30 text-cyan-400' :
                   'bg-muted text-muted-foreground'
                 }`}>{i + 1}</div>
                 {i < 2 && <div className="w-8 h-px bg-border" />}
@@ -260,6 +260,121 @@ export default function MarketPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+
+        {/* ════════════════════════════════════════════════════════════
+            STEP 0: ¿Ya tienes TSplus?
+        ════════════════════════════════════════════════════════════ */}
+        {step === 'tsplus-check' && (
+          <div className="max-w-3xl mx-auto">
+            <div className="text-center mb-10">
+              <Badge className="mb-4 bg-cyan-500/10 text-cyan-400 border-cyan-500/30">
+                Windows VDI Cloud — Zero Trust
+              </Badge>
+              <h1 className="text-3xl font-bold mb-3">
+                Bienvenido al Market NeoSC
+              </h1>
+              <p className="text-muted-foreground max-w-xl mx-auto">
+                Para ofrecerte la mejor experiencia, necesitamos saber una cosa:
+              </p>
+            </div>
+
+            <div className="text-center mb-8">
+              <h2 className="text-xl font-bold text-foreground mb-2">
+                ¿Ya cuentas con un servidor TSplus propio?
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Si ya tienes infraestructura TSplus, podemos integrarla directamente con NeoSC.
+                Si no, te proporcionamos todo listo en minutos.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+              {/* Option: Ya tengo TSplus */}
+              <button
+                onClick={() => navigate('/admin/enroll-tenant')}
+                className="group relative rounded-2xl border-2 border-border bg-card p-6 text-left transition-all hover:border-cyan-500/70 hover:shadow-xl hover:shadow-cyan-500/10"
+                data-testid="tsplus-yes"
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center">
+                    <Server className="w-6 h-6 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg">Sí, ya tengo TSplus</h3>
+                    <p className="text-xs text-muted-foreground">Tengo mi propia infraestructura</p>
+                  </div>
+                </div>
+                <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-400 mt-0.5 flex-shrink-0" />
+                    Conecta tu servidor TSplus existente
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-400 mt-0.5 flex-shrink-0" />
+                    Configuramos NeoMesh (VPN Zero Trust)
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-400 mt-0.5 flex-shrink-0" />
+                    Activamos NeoGuard SSO + MFA
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-400 mt-0.5 flex-shrink-0" />
+                    Proceso guiado paso a paso
+                  </li>
+                </ul>
+                <div className="flex items-center gap-2 text-cyan-400 font-bold text-sm group-hover:gap-3 transition-all">
+                  Iniciar Enrollment <ArrowRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              {/* Option: No tengo TSplus */}
+              <button
+                onClick={() => setStep('plan')}
+                className="group relative rounded-2xl border-2 border-border bg-card p-6 text-left transition-all hover:border-purple-500/70 hover:shadow-xl hover:shadow-purple-500/10"
+                data-testid="tsplus-no"
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                    <Monitor className="w-6 h-6 text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg">No, necesito todo nuevo</h3>
+                    <p className="text-xs text-muted-foreground">Quiero una VM Windows completa</p>
+                  </div>
+                </div>
+                <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                    VM Windows con TSplus incluido
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                    Acceso HTML5 desde cualquier navegador
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                    NeoMesh + NeoGuard preconfigurado
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                    Listo en ~8 minutos
+                  </li>
+                </ul>
+                <div className="flex items-center gap-2 text-purple-400 font-bold text-sm group-hover:gap-3 transition-all">
+                  Ver planes y comprar <ArrowRight className="w-4 h-4" />
+                </div>
+              </button>
+            </div>
+
+            {/* Trust signals */}
+            <div className="flex items-center justify-center gap-8 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5"><Lock className="w-3 h-3 text-cyan-400" /> Zero Trust</span>
+              <span className="flex items-center gap-1.5"><Shield className="w-3 h-3 text-cyan-400" /> WireGuard</span>
+              <span className="flex items-center gap-1.5"><Zap className="w-3 h-3 text-cyan-400" /> Listo en minutos</span>
+              <span className="flex items-center gap-1.5"><Globe className="w-3 h-3 text-cyan-400" /> HTML5 clientless</span>
+            </div>
+          </div>
+        )}
 
         {/* ════════════════════════════════════════════════════════════
             STEP 1: Selección de plan
