@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import secrets
 import hashlib
 import httpx
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1801,6 +1802,133 @@ async def get_enrollment_status(tenant_id: str, user: dict = Depends(get_current
     tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
     if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
     return tenant
+
+
+# ============ NEO — AI ASSISTANT ============
+
+NEO_SYSTEM_PROMPT = """Eres Neo, el asistente IA de NeoSC — la plataforma de escritorios Windows remotos seguros.
+
+Tu personalidad:
+- Amigable, cercano, usas español mexicano natural (no forzado)
+- Eres consultor experto en infraestructura cloud, VDI y ciberseguridad
+- Explicas cosas complejas de forma simple
+- Usas "tú" (no usted), eres profesional pero relajado
+- Puedes usar expresiones como "¡órale!", "va que va", "sale", "¡claro que sí!"
+
+Conocimiento de NeoSC:
+PLATAFORMA:
+- NeoSC = Neogenesys Secure Connect — VDI cloud seguro sin VPN, sin cliente
+- Acceso a escritorios Windows desde cualquier navegador
+
+PRODUCTOS:
+- NeoDesk: Escritorio remoto HTML5 vía Apache Guacamole (plan Starter)
+- NeoDesk+: Escritorio remoto HTML5 vía TSplus (plan Plus/Enterprise) 
+- NeoMesh: Red Zero Trust vía NetBird — reemplaza VPNs tradicionales
+- NeoGuard: SSO + MFA vía Zitadel — autenticación segura
+- NeoProxy: Identity-Aware Proxy vía Pomerium (plan Plus+)
+- NeoVault: Gestión de Acceso Privilegiado vía JumpServer (Enterprise)
+
+PLANES:
+- Starter ($29 USD/mes): VM + NeoDesk HTML5, 5 usuarios, 2 vCPU, 4GB RAM, 80GB NVMe. Ideal para equipos pequeños.
+- Plus ($79 USD/mes): Conecta tu TSplus existente + NeoProxy + NeoMesh, 25 usuarios, 4 vCPU, 8GB RAM, 120GB NVMe. Ideal para empresas que ya tienen TSplus.
+- Enterprise (precio personalizado): Todo Plus + NeoVault PAM, AD/LDAP federado, relay dedicado, SLA 99.9%, soporte 24/7. Para corporativos.
+
+TECNOLOGÍA:
+- Zero Trust: Cada conexión se autentica — no hay red "de confianza"
+- HTML5: Acceso desde Chrome/Firefox/Safari sin instalar nada
+- MFA: Autenticación multifactor obligatoria
+- Cifrado E2E: Todo el tráfico cifrado punto a punto
+
+FLUJO ONBOARDING:
+1. Elegir plan en el Market
+2. Configurar VM (CPU, RAM, Disco)
+3. Pago (Stripe/PayPal)
+4. Provisioning automático (~3 min)
+5. Acceder al escritorio desde el navegador
+
+Tu trabajo:
+- DISCOVERY: Si el visitante es nuevo, pregunta qué necesita y recomienda un plan
+- ONBOARDING: Si ya es cliente, guíalo en la plataforma
+- SOPORTE: Responde preguntas técnicas sobre NeoSC
+- Si no sabes algo, dilo honestamente y ofrece contactar a un humano
+
+Mantén respuestas concisas (2-4 párrafos máx). Usa formato Markdown cuando ayude."""
+
+# In-memory chat sessions store
+neo_chat_sessions: dict = {}
+
+class NeoMessage(BaseModel):
+    message: str
+    session_id: str = ""
+
+@api_router.post("/neo/chat")
+async def neo_chat(data: NeoMessage, authorization: str = Header(None)):
+    """Chat with Neo AI assistant"""
+    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    if not llm_key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+
+    session_id = data.session_id or str(uuid.uuid4())
+
+    # Get or create chat session
+    if session_id not in neo_chat_sessions:
+        chat = LlmChat(
+            api_key=llm_key,
+            session_id=session_id,
+            system_message=NEO_SYSTEM_PROMPT,
+        )
+        chat.with_model("anthropic", "claude-sonnet-4-5-20250929")
+        neo_chat_sessions[session_id] = chat
+
+    chat = neo_chat_sessions[session_id]
+
+    # Load conversation history from DB
+    history = await db.neo_conversations.find_one({"session_id": session_id}, {"_id": 0})
+    
+    try:
+        user_msg = UserMessage(text=data.message)
+        response = await chat.send_message(user_msg)
+
+        # Save to DB
+        msg_entry = {
+            "role": "user", "content": data.message,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        assistant_entry = {
+            "role": "assistant", "content": response,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        await db.neo_conversations.update_one(
+            {"session_id": session_id},
+            {"$push": {"messages": {"$each": [msg_entry, assistant_entry]}},
+             "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+             "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True
+        )
+
+        return {"response": response, "session_id": session_id}
+    except Exception as e:
+        logger.error(f"Neo chat error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error en Neo: {str(e)}")
+
+
+@api_router.get("/neo/history/{session_id}")
+async def neo_history(session_id: str):
+    """Get chat history for a session"""
+    conv = await db.neo_conversations.find_one({"session_id": session_id}, {"_id": 0})
+    if not conv:
+        return {"messages": [], "session_id": session_id}
+    return {"messages": conv.get("messages", []), "session_id": session_id}
+
+
+@api_router.delete("/neo/history/{session_id}")
+async def neo_clear_history(session_id: str):
+    """Clear chat history and reset session"""
+    await db.neo_conversations.delete_one({"session_id": session_id})
+    if session_id in neo_chat_sessions:
+        del neo_chat_sessions[session_id]
+    return {"message": "Historial limpiado", "session_id": session_id}
 
 
 # ============ MARKET — WINDOWS VDI SELF-SERVICE ============
