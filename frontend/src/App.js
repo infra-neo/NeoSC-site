@@ -16,6 +16,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import WorkspaceViewerPage from "@/pages/WorkspaceViewerPage";
 import MultiViewPage from "@/pages/MultiViewPage";
 import ApplicationsPage from "@/pages/ApplicationsPage";
+import AdminGlobalPage from "@/pages/AdminGlobalPage";
 
 // Market — Windows VDI self-service
 import MarketPage from "@/pages/market/MarketPage";
@@ -123,6 +124,11 @@ function App() {
               <Route path="/viewer/:sessionId" element={
                 <ProtectedRoute>
                   <WorkspaceViewerPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin" element={
+                <ProtectedRoute>
+                  <AdminGlobalPage />
                 </ProtectedRoute>
               } />
             </Routes>

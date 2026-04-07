@@ -17,7 +17,8 @@ import {
   Globe,
   Grid3X3,
   Languages,
-  ShoppingCart
+  ShoppingCart,
+  Gauge
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +36,7 @@ const getMenuItems = (isAdmin) => {
   ];
 
   const adminItems = [
+    { icon: Gauge, label: 'Admin Global', path: '/admin', adminOnly: true, highlight: true },
     { icon: Building2, label: 'Organizaciones', path: '/organizations', adminOnly: true },
     { icon: Shield, label: 'Políticas', path: '/policies', adminOnly: true },
     { icon: FileText, label: 'Auditoría', path: '/audit-logs', adminOnly: true },
