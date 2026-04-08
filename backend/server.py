@@ -1793,6 +1793,48 @@ async def enroll_step_finalize(tenant_id: str, user: dict = Depends(get_current_
         "status": "activo", "mrr": mrr, "vms": 1 if tenant.get("tier") == "starter" else 0,
         "users_current": 1, "enrollment_steps.finalize": "completed",
     }})
+
+    # Create a workspace (market_vm) for this tenant so it appears in Workspaces list
+    infra = tenant.get("client_infrastructure", {})
+    tsplus_host = infra.get("tsplus_host", "")
+    tsplus_port = infra.get("tsplus_port", 443)
+    protocol = "https" if tsplus_port == 443 else "http"
+    connection_url = f"{protocol}://{tsplus_host}:{tsplus_port}" if tsplus_host else "https://web.proxy.kappa4.com/"
+
+    vm_id = f"vm-{tenant_id}"
+    existing_vm = await db.market_vms.find_one({"id": vm_id})
+    if not existing_vm:
+        vm_doc = {
+            "id": vm_id,
+            "user_id": user["id"],
+            "tenant_id": tenant_id,
+            "lxd_instance_name": tenant.get("name", "Workspace"),
+            "tunnel_hostname": f"{tenant.get('slug', tenant_id)}.neosc.cloud",
+            "status": "running",
+            "vcpu": 4,
+            "ram_gb": 8,
+            "disk_gb": 120,
+            "tsplus_licenses": tenant.get("max_users", 5),
+            "connection_url": connection_url,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.market_vms.insert_one(vm_doc)
+
+        # Create a matching order so it shows up in /market/my-vms
+        order_doc = {
+            "id": f"order-{tenant_id}",
+            "user_id": user["id"],
+            "tenant_id": tenant_id,
+            "vm_id": vm_id,
+            "neosc_plan": tenant.get("tier", "plus"),
+            "tsplus_licenses": tenant.get("max_users", 5),
+            "billing_period": "monthly",
+            "total_cents": plan["mo"],
+            "status": "active",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.market_orders.insert_one(order_doc)
+
     await create_audit_log(user["id"], user.get("email",""), "tenant_enrollment_complete", f"tenant:{tenant_id}", str({"tier": tenant.get("tier"), "mrr": mrr}), True)
     return {"step": "finalize", "status": "completed", "details": {"tenant_status": "activo", "mrr": mrr}}
 

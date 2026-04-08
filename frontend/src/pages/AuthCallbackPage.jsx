@@ -10,24 +10,35 @@ export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const { ssoLogin } = useAuth();
   const [status, setStatus] = useState('Procesando SSO...');
+  const [handled, setHandled] = useState(false);
 
   useEffect(() => {
+    if (handled) return;
+    setHandled(true);
+
     const handle = async () => {
       try {
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
         const state = params.get('state');
+        const error = params.get('error');
+
+        if (error) {
+          setStatus(`Error SSO: ${params.get('error_description') || error}`);
+          setTimeout(() => navigate('/login', { replace: true }), 3000);
+          return;
+        }
 
         if (!code) {
           setStatus('Error: no se recibió código de autorización');
-          setTimeout(() => navigate('/login'), 3000);
+          setTimeout(() => navigate('/login', { replace: true }), 3000);
           return;
         }
 
         const savedState = sessionStorage.getItem('oauth_state');
-        if (state !== savedState) {
-          setStatus('Error: state mismatch');
-          setTimeout(() => navigate('/login'), 3000);
+        if (state && savedState && state !== savedState) {
+          setStatus('Error: state mismatch — intenta de nuevo');
+          setTimeout(() => navigate('/login', { replace: true }), 3000);
           return;
         }
 
@@ -36,9 +47,8 @@ export default function AuthCallbackPage() {
         const authority = sessionStorage.getItem('sso_authority');
         const clientId = sessionStorage.getItem('sso_client_id');
 
-        setStatus('Intercambiando token...');
+        setStatus('Intercambiando token con Zitadel...');
 
-        // Exchange code for tokens via backend
         const tokenRes = await axios.post(`${API}/auth/token-exchange`, {
           code,
           code_verifier: codeVerifier,
@@ -50,7 +60,7 @@ export default function AuthCallbackPage() {
 
         const { tokens, profile, roles, groups } = tokenRes.data;
 
-        setStatus('Iniciando sesión SSO...');
+        setStatus('Iniciando sesión...');
 
         await ssoLogin({
           access_token: tokens.access_token,
@@ -61,23 +71,25 @@ export default function AuthCallbackPage() {
           groups,
         });
 
-        // Cleanup
+        // Cleanup PKCE state
         sessionStorage.removeItem('oauth_state');
         sessionStorage.removeItem('pkce_code_verifier');
         sessionStorage.removeItem('sso_provider');
         sessionStorage.removeItem('sso_authority');
         sessionStorage.removeItem('sso_client_id');
 
+        // Navigate directly — use replace to avoid back-button returning here
         navigate('/dashboard', { replace: true });
       } catch (err) {
         console.error('SSO callback error:', err);
-        setStatus(`Error: ${err.response?.data?.detail || err.message}`);
-        setTimeout(() => navigate('/login'), 4000);
+        const msg = err.response?.data?.detail || err.message;
+        setStatus(`Error: ${msg}`);
+        setTimeout(() => navigate('/login', { replace: true }), 4000);
       }
     };
 
     handle();
-  }, [navigate, ssoLogin]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center">

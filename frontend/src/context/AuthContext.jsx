@@ -61,6 +61,7 @@ export const AuthProvider = ({ children }) => {
   const ssoLogin = async (ssoData) => {
     const res = await axios.post(`${API}/auth/sso`, ssoData);
     const { access_token, user: u } = res.data;
+    u.sso_provider = ssoData.provider || 'zitadel';
     localStorage.setItem(TOKEN_KEY, access_token);
     localStorage.setItem(USER_KEY, JSON.stringify(u));
     setUser(u);

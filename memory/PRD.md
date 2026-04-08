@@ -71,10 +71,19 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - Quick suggestion buttons for discovery/onboarding
 
 ### Phase 7 - UX Fixes & Market Flow (DONE - Feb 2026)
-- **Fix "Abrir HTML5" buttons**: Added onClick to open `https://web.proxy.kappa4.com/` in new tab
-- **Fix Viewer page**: Fallback to TSplus proxy URL when no `connection_url` available
-- **TSplus branching question**: New step at `/market` entry — "¿Ya tienes TSplus?" routes to Enrollment or VM purchase
-- **Onboarding slides**: Replaced terminal-style provisioning progress with 6 dynamic onboarding slides (NeoDesk, NeoMesh, NeoGuard, Panel, Próximos pasos)
+- **Fix "Abrir HTML5" buttons**: Added onClick to open TSplus proxy URL
+- **Fix Viewer page**: Fallback to proxy URL when no `connection_url`
+- **TSplus branching question**: "¿Ya tienes TSplus?" → Enrollment or VM purchase
+- **Onboarding slides**: 6 dynamic slides during provisioning
+- **Sidebar**: Compact (w-56), scrollable, collapsible admin section
+- **Delete VMs**: Admin can delete VMs, endpoint `DELETE /api/market/vms/{vm_id}`
+
+### Phase 8 - Enrollment Redesign + SSO Fix (DONE - Feb 2026)
+- **Enrollment page**: Removed pricing tiers, now "Conectar NeoSC" — collects org + TSplus infra data
+- **"¿Cómo funciona?"** section explaining NeoGuard SSO + NeoMesh VPN + HTML5 access
+- **Finalize creates workspace**: After enrollment, a market_vm + order is created with client's TSplus URL
+- **Workspaces show enrolled tenants**: "Abrir HTML5" uses client's TSplus connection_url
+- **SSO callback fix**: Added `replace: true` navigation, `sso_provider` persistence, better error handling
 
 ## Prioritized Backlog
 ### P0
