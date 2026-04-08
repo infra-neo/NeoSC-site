@@ -381,7 +381,7 @@ async def token_exchange(request: TokenExchangeRequest):
             client_secret = ZITADEL_CLOUD_CLIENT_SECRET
             project_id = ZITADEL_CLOUD_PROJECT_ID
         
-        logger.info(f"Token exchange for provider: {request.provider}, authority: {authority}")
+        logger.info(f"Token exchange for provider: {request.provider}, authority: {authority}, client_id: {client_id}, redirect_uri: {request.redirect_uri}, has_secret: {bool(client_secret and len(client_secret) > 0)}")
         
         async with httpx.AsyncClient() as http_client:
             # Build token exchange payload
@@ -393,8 +393,8 @@ async def token_exchange(request: TokenExchangeRequest):
                 'code_verifier': request.code_verifier,
             }
             
-            # Add client_secret for confidential clients
-            if client_secret:
+            # Add client_secret for confidential clients (skip for public SPA clients)
+            if client_secret and len(client_secret) > 0:
                 token_data['client_secret'] = client_secret
             
             # Exchange code for tokens
@@ -428,15 +428,14 @@ async def token_exchange(request: TokenExchangeRequest):
             id_token_claims = {}
             if tokens.get('id_token'):
                 try:
-                    import base64
+                    import base64, json as _json_local
                     parts = tokens['id_token'].split('.')
                     if len(parts) >= 2:
-                        # Add padding if needed
                         payload = parts[1]
                         padding = 4 - len(payload) % 4
                         if padding != 4:
                             payload += '=' * padding
-                        id_token_claims = eval(base64.urlsafe_b64decode(payload).decode('utf-8'))
+                        id_token_claims = _json_local.loads(base64.urlsafe_b64decode(payload).decode('utf-8'))
                 except Exception as e:
                     logger.warning(f"Error parsing ID token: {e}")
             
