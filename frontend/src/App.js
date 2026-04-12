@@ -21,6 +21,7 @@ import ZitadelAdminPage from "@/pages/ZitadelAdminPage";
 import NetbirdAdminPage from "@/pages/NetbirdAdminPage";
 import EnrollTenantPage from "@/pages/EnrollTenantPage";
 import LxdAdminPage from "@/pages/LxdAdminPage";
+import GuacamolePage from "@/pages/GuacamolePage";
 import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
@@ -154,6 +155,11 @@ function App() {
               <Route path="/admin/lxd" element={
                 <ProtectedRoute>
                   <LxdAdminPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/guacamole" element={
+                <ProtectedRoute>
+                  <GuacamolePage />
                 </ProtectedRoute>
               } />
             </Routes>

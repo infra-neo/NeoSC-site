@@ -18,6 +18,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import lxd_client
+import guacamole_client
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -1387,13 +1388,17 @@ async def admin_system_logs(user: dict = Depends(get_current_user)):
 
 ZITADEL_DOMAIN = os.environ.get("ZITADEL_DOMAIN", "")
 ZITADEL_PAT = os.environ.get("ZITADEL_SERVICE_USER_TOKEN", "")
+ZITADEL_ORG_ID = os.environ.get("ZITADEL_ORG_ID", "360565543960379216")
 
-def zitadel_headers():
-    return {
+def zitadel_headers(org_id: str = None):
+    h = {
         "Authorization": f"Bearer {ZITADEL_PAT}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    if org_id:
+        h["x-zitadel-orgid"] = org_id
+    return h
 
 @api_router.get("/admin/zitadel/users")
 async def zitadel_list_users(user: dict = Depends(get_current_user)):
@@ -1623,46 +1628,68 @@ async def enroll_tenant(data: TenantEnrollment, user: dict = Depends(get_current
 
 @api_router.post("/admin/tenants/{tenant_id}/step/zitadel-org")
 async def enroll_step_zitadel_org(tenant_id: str, user: dict = Depends(get_current_user)):
-    """Step 1: Create project + role + admin user in Zitadel for tenant isolation"""
+    """Step 1: Full automated Zitadel provisioning — Project + Roles + OIDC App + Admin User + Grant"""
     require_admin(user)
     tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
     if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
     result = {"step": "zitadel_org", "status": "error", "details": {}}
 
-    # Use existing org with x-zitadel-orgid header - this works with current PAT permissions
-    ORG_ID = "360565543960379216"
-    zit_h = {**zitadel_headers(), "x-zitadel-orgid": ORG_ID}
+    zit_h = zitadel_headers(org_id=ZITADEL_ORG_ID)
+    slug = tenant.get("slug", tenant_id)
+    admin_email = tenant.get("email_admin", "")
 
     try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            # 1. Create project for tenant
-            project_name = f"NeoSC-{tenant.get('slug', tenant_id)}"
+        async with httpx.AsyncClient(timeout=20) as c:
+            # 1. Create project
+            project_name = f"NeoSC-{slug}"
             r_proj = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects", headers=zit_h,
-                                  json={"name": project_name, "projectRoleAssertion": True})
+                                  json={"name": project_name, "projectRoleAssertion": True, "projectRoleCheck": True})
             if r_proj.status_code >= 400:
-                result["details"] = {"error": f"Project creation failed: {r_proj.text[:200]}"}
+                result["details"] = {"error": f"Project: {r_proj.text[:200]}"}
                 return result
             project_id = r_proj.json().get("id", "")
 
-            # 2. Create role within the project
-            role_key = f"tenant-{tenant.get('slug', tenant_id)}"
-            await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/{project_id}/roles",
-                         headers=zit_h, json={"roleKey": role_key, "displayName": f"Tenant {tenant['name']}"})
+            # 2. Create roles: tenant-admin, tenant-user, tenant-viewer
+            roles_created = []
+            for rk, rn in [("tenant-admin", "Administrador"), ("tenant-user", "Usuario"), ("tenant-viewer", "Solo lectura")]:
+                role_key = f"{slug}-{rk}"
+                rr = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/{project_id}/roles",
+                                  headers=zit_h, json={"roleKey": role_key, "displayName": f"{rn} - {tenant['name']}"})
+                if rr.status_code < 400:
+                    roles_created.append(role_key)
 
-            # 3. Create admin user for the tenant
-            admin_email = tenant.get("email_admin", "")
-            slug = tenant.get("slug", tenant_id)
+            # 3. Create OIDC Application (SPA with PKCE)
+            callback_base = f"https://{slug}.neosc.cloud"
+            r_app = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/{project_id}/apps/oidc", headers=zit_h, json={
+                "name": f"NeoSC-{slug}-SPA",
+                "redirectUris": [f"{callback_base}/auth/callback", "http://localhost:3000/auth/callback"],
+                "postLogoutRedirectUris": [callback_base, "http://localhost:3000"],
+                "responseTypes": ["OIDC_RESPONSE_TYPE_CODE"],
+                "grantTypes": ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
+                "appType": "OIDC_APP_TYPE_USER_AGENT",
+                "authMethodType": "OIDC_AUTH_METHOD_TYPE_NONE",
+                "accessTokenType": "OIDC_TOKEN_TYPE_JWT",
+                "devMode": True,
+            })
+            app_id = ""
+            client_id = ""
+            if r_app.status_code < 400:
+                app_data = r_app.json()
+                app_id = app_data.get("appId", "")
+                client_id = app_data.get("clientId", "")
+
+            # 4. Create admin user
+            zitadel_user_id = ""
             r_user = await c.post(f"{ZITADEL_DOMAIN}/v2/users/human", headers=zit_h, json={
                 "username": admin_email,
                 "profile": {"givenName": "Admin", "familyName": tenant["name"][:50]},
                 "email": {"email": admin_email, "isVerified": True},
                 "password": {"password": f"NeoSC-{slug}-2026!", "changeRequired": True},
             })
-            zitadel_user_id = ""
             if r_user.status_code < 400:
                 zitadel_user_id = r_user.json().get("userId", "")
             else:
-                # User may already exist - try to find them
+                # User may already exist - search
                 r_search = await c.post(f"{ZITADEL_DOMAIN}/v2/users", headers=zit_h,
                                         json={"queries": [{"emailQuery": {"emailAddress": admin_email, "method": "TEXT_QUERY_METHOD_EQUALS"}}]})
                 if r_search.status_code < 400:
@@ -1670,23 +1697,33 @@ async def enroll_step_zitadel_org(tenant_id: str, user: dict = Depends(get_curre
                     if users:
                         zitadel_user_id = users[0].get("userId", "")
 
-            # 4. Grant role to user
+            # 5. Grant admin role to user
+            grant_id = ""
             if zitadel_user_id and project_id:
-                await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/{zitadel_user_id}/grants",
-                             headers=zit_h, json={"projectId": project_id, "roleKeys": [role_key]})
+                admin_role_key = f"{slug}-tenant-admin"
+                rg = await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/{zitadel_user_id}/grants",
+                                  headers=zit_h, json={"projectId": project_id, "roleKeys": [admin_role_key]})
+                if rg.status_code < 400:
+                    grant_id = rg.json().get("userGrantId", "")
 
-            # Save to DB
-            await db.organizations.update_one({"id": tenant_id}, {"$set": {
-                "zitadel_org_id": ORG_ID,
+            # Save everything to DB
+            zitadel_data = {
+                "zitadel_org_id": ZITADEL_ORG_ID,
                 "zitadel_project_id": project_id,
+                "zitadel_project_name": project_name,
+                "zitadel_app_id": app_id,
+                "zitadel_client_id": client_id,
                 "zitadel_user_id": zitadel_user_id,
-                "zitadel_role_key": role_key,
-                "enrollment_steps.zitadel_org": "completed"
-            }})
+                "zitadel_grant_id": grant_id,
+                "zitadel_roles": roles_created,
+                "enrollment_steps.zitadel_org": "completed",
+            }
+            await db.organizations.update_one({"id": tenant_id}, {"$set": zitadel_data})
             result = {"step": "zitadel_org", "status": "completed", "details": {
                 "project_id": project_id, "project_name": project_name,
-                "role_key": role_key, "admin_user_id": zitadel_user_id,
-                "admin_email": admin_email
+                "app_id": app_id, "client_id": client_id,
+                "roles": roles_created, "admin_user_id": zitadel_user_id,
+                "admin_email": admin_email, "grant_id": grant_id,
             }}
     except Exception as e:
         result["details"] = {"error": str(e)}
@@ -1845,6 +1882,272 @@ async def get_enrollment_status(tenant_id: str, user: dict = Depends(get_current
     tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
     if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
     return tenant
+
+
+# ============ NEOCONNECT: RELAY CONTAINER DEPLOYMENT ============
+
+@api_router.post("/admin/tenants/{tenant_id}/step/deploy-relay")
+async def enroll_step_deploy_relay(tenant_id: str, user: dict = Depends(get_current_user)):
+    """Step: Deploy a Linux relay container via LXD with NetBird pre-installed.
+    This container acts as a bridge between NeoSC cloud and the client's TSplus infrastructure."""
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+
+    setup_key = tenant.get("netbird_setup_key", "")
+    slug = tenant.get("slug", tenant_id)
+    container_name = f"neosc-relay-{slug}"
+
+    result = await lxd_client.create_instance(
+        name=container_name,
+        instance_type="container",
+        image_alias="images:almalinux/9",
+        cpu="2",
+        memory="2GiB",
+        disk_size="20GiB",
+        description=f"NeoConnect relay for {tenant.get('name', slug)}",
+        profiles=["default"],
+        storage_pool="dir",
+        project=lxd_client.LXD_PROJECT,
+        username="neosc",
+        password=f"relay-{slug}-2026",
+        netbird_setup_key=setup_key,
+        addons=["netbird"],
+    )
+
+    if result.get("ok"):
+        # Start the container
+        await lxd_client.change_instance_state(container_name, "start", project=lxd_client.LXD_PROJECT)
+
+        # Save relay info
+        await db.organizations.update_one({"id": tenant_id}, {"$set": {
+            "relay_container": container_name,
+            "relay_project": lxd_client.LXD_PROJECT,
+            "enrollment_steps.deploy_relay": "completed",
+        }})
+
+        # Also register in market_vms
+        vm_doc = {
+            "id": f"lxd-{container_name}",
+            "user_id": user["id"],
+            "tenant_id": tenant_id,
+            "lxd_instance_name": container_name,
+            "lxd_project": lxd_client.LXD_PROJECT,
+            "tunnel_hostname": f"{container_name}.neosc.cloud",
+            "status": "running",
+            "vcpu": 2, "ram_gb": 2, "disk_gb": 20,
+            "tsplus_licenses": 0,
+            "instance_type": "container",
+            "connection_url": "",
+            "ssh_user": "neosc",
+            "addons": ["netbird"],
+            "netbird_setup_key": setup_key,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "source": "lxd",
+            "role": "relay",
+        }
+        await db.market_vms.update_one({"id": vm_doc["id"]}, {"$set": vm_doc}, upsert=True)
+
+        await create_audit_log(user["id"], user.get("email",""), "deploy_relay", f"tenant:{tenant_id}", f"container:{container_name}", True)
+        return {"step": "deploy_relay", "status": "completed", "details": {"container": container_name, "setup_key": setup_key}}
+
+    await create_audit_log(user["id"], user.get("email",""), "deploy_relay", f"tenant:{tenant_id}", str(result.get("error","")), False)
+    return {"step": "deploy_relay", "status": "error", "details": {"error": result.get("error", "LXD creation failed")}}
+
+
+@api_router.post("/admin/tenants/{tenant_id}/auto-provision")
+async def auto_provision_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
+    """Run all enrollment steps automatically in sequence."""
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+
+    steps_order = ["zitadel-org", "netbird-group", "netbird-setup-key", "netbird-policy", "deploy-relay"]
+    results = {}
+    failed = False
+
+    for step_key in steps_order:
+        step_db_key = step_key.replace("-", "_")
+        if tenant.get("enrollment_steps", {}).get(step_db_key) == "completed":
+            results[step_key] = {"status": "skipped", "reason": "already completed"}
+            continue
+        try:
+            if step_key == "zitadel-org":
+                r = await enroll_step_zitadel_org(tenant_id, user)
+            elif step_key == "netbird-group":
+                r = await enroll_step_netbird_group(tenant_id, user)
+            elif step_key == "netbird-setup-key":
+                r = await enroll_step_netbird_setup_key(tenant_id, user)
+            elif step_key == "netbird-policy":
+                r = await enroll_step_netbird_policy(tenant_id, user)
+            elif step_key == "deploy-relay":
+                # Refresh tenant to get setup key
+                tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+                r = await enroll_step_deploy_relay(tenant_id, user)
+            else:
+                continue
+            results[step_key] = r
+            if r.get("status") != "completed":
+                failed = True
+                break
+        except Exception as e:
+            results[step_key] = {"status": "error", "details": {"error": str(e)}}
+            failed = True
+            break
+
+    return {"auto_provision": "partial" if failed else "completed", "steps": results}
+
+
+# ============ NEOCONNECT DOWNLOAD LINKS ============
+
+@api_router.get("/admin/tenants/{tenant_id}/neoconnect-info")
+async def get_neoconnect_info(tenant_id: str, user: dict = Depends(get_current_user)):
+    """Get NeoConnect (NetBird) download links and setup info for a tenant."""
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
+
+    setup_key = tenant.get("netbird_setup_key", "")
+    mgmt_url = NETBIRD_API_URL or "https://manager.kappa4.com"
+
+    return {
+        "setup_key": setup_key,
+        "management_url": mgmt_url,
+        "downloads": {
+            "windows": {
+                "url": "https://pkgs.netbird.io/windows/x64",
+                "instructions": f'netbird up --setup-key {setup_key} --management-url {mgmt_url}',
+                "exe_url": "https://github.com/netbirdio/netbird/releases/latest/download/netbird_installer_0.31.0_windows_amd64.exe",
+            },
+            "linux": {
+                "script": f'curl -fsSL https://pkgs.netbird.io/install.sh | sh && netbird up --setup-key {setup_key} --management-url {mgmt_url}',
+            },
+            "macos": {
+                "url": "https://pkgs.netbird.io/macos/amd64",
+                "instructions": f'netbird up --setup-key {setup_key} --management-url {mgmt_url}',
+            },
+            "docker": {
+                "run": f'docker run -d --name netbird --cap-add NET_ADMIN --cap-add SYS_ADMIN -e NB_SETUP_KEY={setup_key} -e NB_MANAGEMENT_URL={mgmt_url} netbirdio/netbird:latest',
+            },
+        },
+        "relay_container": tenant.get("relay_container", ""),
+        "relay_status": "deployed" if tenant.get("relay_container") else "not_deployed",
+    }
+
+
+# ============ GUACAMOLE API INTEGRATION ============
+
+@api_router.get("/guacamole/status")
+async def guacamole_status(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.check_status()
+
+@api_router.get("/guacamole/connections")
+async def guacamole_list_connections(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    connections = await guacamole_client.list_connections()
+    return {"connections": connections, "count": len(connections)}
+
+class GuacConnectionCreate(BaseModel):
+    name: str
+    protocol: str = "rdp"
+    hostname: str
+    port: int = 3389
+    username: str = ""
+    password: str = ""
+    tenant_id: str = ""
+
+@api_router.post("/guacamole/connections")
+async def guacamole_create_connection(payload: GuacConnectionCreate, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    result = await guacamole_client.create_connection(
+        name=payload.name,
+        protocol=payload.protocol,
+        hostname=payload.hostname,
+        port=payload.port,
+        username=payload.username,
+        password=payload.password,
+    )
+    if result.get("ok") and payload.tenant_id:
+        await db.organizations.update_one(
+            {"id": payload.tenant_id},
+            {"$push": {"guacamole_connections": {"id": result["id"], "name": payload.name, "protocol": payload.protocol}}}
+        )
+    await create_audit_log(user["id"], user.get("email",""), "guacamole_create_conn", f"conn:{payload.name}", f"{payload.protocol}://{payload.hostname}:{payload.port}", result.get("ok", False))
+    return result
+
+@api_router.delete("/guacamole/connections/{connection_id}")
+async def guacamole_delete_connection(connection_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.delete_connection(connection_id)
+
+@api_router.get("/guacamole/connections/{connection_id}/link")
+async def guacamole_get_link(connection_id: str, user: dict = Depends(get_current_user)):
+    """Get a direct Guacamole session link for embedding or redirecting."""
+    return await guacamole_client.get_connection_link(connection_id)
+
+@api_router.post("/guacamole/deploy")
+async def guacamole_deploy_server(user: dict = Depends(get_current_user)):
+    """Deploy a Guacamole server as an LXD container with Docker inside."""
+    require_admin(user)
+    container_name = "neosc-guacamole"
+    existing = await lxd_client.get_instance(container_name, project=lxd_client.LXD_PROJECT)
+    if not existing.get("error"):
+        return {"ok": True, "status": "already_exists", "container": container_name}
+
+    guac_cloud_init = guacamole_client.get_cloud_init_guacamole()
+    cloud_init_lines = [
+        "#cloud-config",
+        "users:",
+        "  - name: guacadmin",
+        "    shell: /bin/bash",
+        "    sudo: ALL=(ALL) NOPASSWD:ALL",
+        "    groups: sudo,adm",
+        '    plain_text_passwd: "NeoSC-Guac-2026!"',
+        "    lock_passwd: false",
+        "ssh_pwauth: true",
+        "packages:",
+        "  - curl",
+        "  - wget",
+        "  - openssh-server",
+        "  - ca-certificates",
+        "runcmd:",
+    ]
+    for line in guac_cloud_init.strip().split("\n"):
+        line = line.strip()
+        if line and not line.startswith("#"):
+            cloud_init_lines.append(f"  - {line}")
+
+    config = {
+        "limits.cpu": "4",
+        "limits.memory": "8GiB",
+        "security.nesting": "true",
+        "user.user-data": "\n".join(cloud_init_lines),
+    }
+    payload = {
+        "name": container_name,
+        "type": "container",
+        "source": {"type": "image", "alias": "images:almalinux/9"},
+        "config": config,
+        "devices": {"root": {"path": "/", "pool": "dir", "type": "disk", "size": "50GiB"}},
+        "profiles": ["default"],
+        "description": "NeoSC Guacamole Server (RDP/VNC gateway)",
+    }
+    try:
+        async with lxd_client._get_client() as client:
+            r = await client.post("/1.0/instances", json=payload, params=lxd_client._p())
+            data = r.json()
+            if r.status_code in (200, 202) and data.get("type") != "error":
+                op_url = data.get("operation")
+                if op_url:
+                    await client.get(f"{op_url}/wait", params={**lxd_client._p(), "timeout": "180"}, timeout=190.0)
+                # Start it
+                await lxd_client.change_instance_state(container_name, "start", project=lxd_client.LXD_PROJECT)
+                await create_audit_log(user["id"], user.get("email",""), "guacamole_deploy", f"vm:{container_name}", "Guacamole server deployed", True)
+                return {"ok": True, "container": container_name, "note": "Guacamole will be available on port 8080 after Docker starts (~2 min)"}
+            return {"ok": False, "error": data.get("error", r.text[:300])}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ============ NEO — AI ASSISTANT ============
