@@ -17,6 +17,7 @@ import {
   Users,
   ChevronDown,
   ChevronRight,
+  Server,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,7 @@ const userMenuItems = [
 const adminMenuItems = [
   { icon: Gauge, label: 'Panel Global', path: '/admin' },
   { icon: Users, label: 'Enrolar Tenant', path: '/admin/enroll-tenant' },
+  { icon: Server, label: 'NeoCloud LXD', path: '/admin/lxd' },
   { icon: Shield, label: 'NeoGuard SSO', path: '/admin/zitadel' },
   { icon: Wifi, label: 'NeoMesh VPN', path: '/admin/netbird' },
 ];

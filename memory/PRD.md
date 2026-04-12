@@ -85,6 +85,15 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - **Workspaces show enrolled tenants**: "Abrir HTML5" uses client's TSplus connection_url
 - **SSO callback fix**: Added `replace: true` navigation, `sso_provider` persistence, better error handling
 
+### Phase 9 - LXD/LXC NeoCloud Integration (DONE - Apr 2026)
+- **Backend LXD client** (`lxd_client.py`): Full REST API wrapper with TLS cert auth
+  - `check_connection`, `list_instances`, `create_instance`, `change_state`, `delete_instance`, `list_images`, `list_profiles`
+- **API endpoints**: `/api/lxd/status`, `/api/lxd/instances`, `/api/lxd/instances/{name}/state`, `/api/lxd/images`, `/api/lxd/profiles`
+- **Frontend admin page** (`LxdAdminPage.jsx`): Real-time cluster management with create/start/stop/restart/delete
+- **Sidebar**: Added "NeoCloud LXD" link in admin section
+- **TLS cert**: PFX extracted to `lxd-client.crt` + `lxd-client.key`
+- **Pending**: LXD server connectivity (user opening port for internet access)
+
 ## Prioritized Backlog
 ### P0
 - Grant IAM_OWNER to service user in Zitadel console

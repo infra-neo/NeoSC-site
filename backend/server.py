@@ -13,6 +13,7 @@ import secrets
 import hashlib
 import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+import lxd_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2565,6 +2566,100 @@ async def list_all_market_orders(user: dict = Depends(get_current_user)):
         ).sort("created_at", -1).to_list(200)
 
     return {"orders": orders, "total": len(orders)}
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# LXD / LXC  — NeoCloud VM Provisioning (Real Infrastructure)
+# ════════════════════════════════════════════════════════════════════════════════
+
+@api_router.get("/lxd/status")
+async def lxd_status(user: dict = Depends(get_current_user)):
+    """Check LXD server connectivity and info."""
+    require_admin(user)
+    return await lxd_client.check_connection()
+
+@api_router.get("/lxd/instances")
+async def lxd_list_instances(type: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """List all LXD instances. Optional filter: ?type=virtual-machine or ?type=container"""
+    require_admin(user)
+    instances = await lxd_client.list_instances(instance_type=type)
+    return {"instances": instances, "count": len(instances)}
+
+@api_router.get("/lxd/instances/{name}")
+async def lxd_get_instance(name: str, user: dict = Depends(get_current_user)):
+    """Get details of a specific instance."""
+    require_admin(user)
+    return await lxd_client.get_instance(name)
+
+@api_router.get("/lxd/instances/{name}/state")
+async def lxd_get_instance_state(name: str, user: dict = Depends(get_current_user)):
+    """Get runtime state (CPU, memory, network) of an instance."""
+    require_admin(user)
+    return await lxd_client.get_instance_state(name)
+
+class LxdCreateVM(BaseModel):
+    name: str
+    instance_type: str = "virtual-machine"
+    image_alias: str = "ubuntu/24.04"
+    cpu: str = "4"
+    memory: str = "8GiB"
+    disk_size: str = "120GiB"
+    description: str = ""
+    profiles: Optional[List[str]] = None
+
+@api_router.post("/lxd/instances")
+async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_current_user)):
+    """Create a new VM or container on the LXD server."""
+    require_admin(user)
+    result = await lxd_client.create_instance(
+        name=payload.name,
+        instance_type=payload.instance_type,
+        image_alias=payload.image_alias,
+        cpu=payload.cpu,
+        memory=payload.memory,
+        disk_size=payload.disk_size,
+        description=payload.description,
+        profiles=payload.profiles,
+    )
+    if result.get("ok"):
+        await create_audit_log(user["id"], user["email"], "lxd_create_vm", f"vm:{payload.name}", f"Created {payload.instance_type}: {payload.name}")
+    return result
+
+class LxdStateAction(BaseModel):
+    action: str  # start, stop, restart, freeze
+    force: bool = False
+
+@api_router.post("/lxd/instances/{name}/state")
+async def lxd_change_state(name: str, payload: LxdStateAction, user: dict = Depends(get_current_user)):
+    """Start, stop, restart, or freeze an instance."""
+    require_admin(user)
+    result = await lxd_client.change_instance_state(name, payload.action, payload.force)
+    if result.get("ok"):
+        await create_audit_log(user["id"], user["email"], f"lxd_{payload.action}_vm", f"vm:{name}", f"{payload.action} instance: {name}")
+    return result
+
+@api_router.delete("/lxd/instances/{name}")
+async def lxd_delete_instance(name: str, force: bool = False, user: dict = Depends(get_current_user)):
+    """Delete an instance. Must be stopped first unless force=True."""
+    require_admin(user)
+    result = await lxd_client.delete_instance(name, force=force)
+    if result.get("ok"):
+        await create_audit_log(user["id"], user["email"], "lxd_delete_vm", f"vm:{name}", f"Deleted instance: {name}")
+    return result
+
+@api_router.get("/lxd/images")
+async def lxd_list_images(user: dict = Depends(get_current_user)):
+    """List available images on the LXD server."""
+    require_admin(user)
+    images = await lxd_client.list_images()
+    return {"images": images, "count": len(images)}
+
+@api_router.get("/lxd/profiles")
+async def lxd_list_profiles(user: dict = Depends(get_current_user)):
+    """List available profiles."""
+    require_admin(user)
+    profiles = await lxd_client.list_profiles()
+    return {"profiles": profiles}
 
 
 # ─── Seed admin & demo users on startup ────────────────────────────────────────
