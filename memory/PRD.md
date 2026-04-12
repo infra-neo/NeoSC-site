@@ -13,6 +13,7 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - **NeoDesk+** = TSplus HTML5 Desktop (Plus/Enterprise)
 - **NeoProxy** = Pomerium IAP
 - **NeoVault** = JumpServer PAM
+- **NeoConnect** = NetBird relay container bridging NeoSC ↔ Client TSplus
 
 ## Market Tiers
 - **Starter**: $29/mes — VM + NeoDesk HTML5, 5 users
@@ -21,94 +22,80 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 
 ## What's Been Implemented
 
-### Phase 1 - MVP (DONE)
-- Basic WinDesk Cloud, RBAC, Onboarding, Zitadel OIDC SSO (Manual PKCE)
+### Phase 1-8 (Previous Sessions)
+- MVP, Market, Admin Panel, Zitadel+NetBird, Enrollment, AI Agent Neo, UX Fixes, SSO Fix
 
-### Phase 2 - WinDesk Market (DONE)
-- Complete Market flow (7 screens), 15+ frontend pages, AuthContext, LanguageContext, Sidebar
+### Phase 9 - LXD/LXC NeoCloud Integration (DONE)
+- Full LXD REST API wrapper, cloud-init, project switching, remote exec
 
-### Phase 3 - Admin Global S7 (DONE)
-- Admin panel with KPIs, tenants table, orchestrator live, system logs
+### Phase 10 - Automated Provisioning + NeoConnect + Guacamole (DONE - Apr 2026)
 
-### Phase 4 - Zitadel + NetBird Integration (DONE)
-- NeoGuard SSO Admin (CRUD users, orgs, roles, grants via Zitadel API v2)
-- NeoMesh Admin (peers, groups, setup-keys, routes, users via NetBird REST API)
-- Login page: NeoSC SSO button + bypass local
+#### Zitadel Auto-Provisioning
+- **POST /api/admin/tenants/{id}/step/zitadel-org**: Full automated provisioning:
+  - Creates Zitadel Project (NeoSC-{slug})
+  - Creates 3 Roles: tenant-admin, tenant-user, tenant-viewer
+  - Creates OIDC SPA Application with PKCE (redirect URIs for tenant domain)
+  - Creates admin Human User with password
+  - Grants tenant-admin role to the user
+  - Stores project_id, app_id, client_id, roles, user_id in tenant doc
 
-### Phase 5 - Tenant Enrollment + Rebranding (DONE - Feb 2026)
-- **Tenant Enrollment Wizard** (`/admin/enroll-tenant`) with 6 real steps:
-  1. NeoGuard Org (Zitadel - manual_pending until IAM permission granted)
-  2. NeoMesh Group (NetBird - REAL API)
-  3. NeoMesh Setup Key (NetBird - REAL API)
-  4. NeoMesh Policy (NetBird - REAL API)
-  5. Register Infra (TSplus host/IP)
-  6. Finalize (activate tenant, set MRR)
-- **Market tiers updated**: Starter $29, Plus $79, Enterprise Custom
-- **NeoSC rebranding** across Landing, Market, Dashboard, Sidebar
-- 100% test pass rate (13/13 backend, all frontend)
+#### NeoConnect Relay Container
+- **POST /api/admin/tenants/{id}/step/deploy-relay**: Deploys an LXD Linux container with:
+  - NetBird pre-installed via cloud-init
+  - Auto-enrollment to tenant's NetBird group
+  - Acts as bridge between NeoSC cloud and client's TSplus infrastructure
+- **GET /api/admin/tenants/{id}/neoconnect-info**: Returns:
+  - Setup key for the tenant
+  - Download links for Windows (.exe), Linux (curl script), Docker, macOS
+  - Relay container status
 
-## Key API Endpoints (New)
+#### Auto-Provision All
+- **POST /api/admin/tenants/{id}/auto-provision**: Runs all steps in sequence:
+  zitadel-org → netbird-group → netbird-setup-key → netbird-policy → deploy-relay
+
+#### Apache Guacamole Integration
+- **Backend module**: `guacamole_client.py` — REST API client for Guacamole
+  - Token-based auth, CRUD connections (RDP/VNC/SSH), connection links, status check
+- **GET /api/guacamole/status**: Check Guacamole server connectivity
+- **GET /api/guacamole/connections**: List all configured connections
+- **POST /api/guacamole/connections**: Create RDP/VNC/SSH connection
+- **DELETE /api/guacamole/connections/{id}**: Remove connection
+- **GET /api/guacamole/connections/{id}/link**: Get direct Guacamole session URL
+- **POST /api/guacamole/deploy**: Deploy Guacamole server as LXD container with Docker
+
+#### Frontend Updates
+- **EnrollTenantPage.jsx**: Updated with 7 steps including NeoConnect Relay, Auto-Provision button, NeoConnect download panel (Windows/Linux/Docker tabs with copy-to-clipboard)
+- **GuacamolePage.jsx**: New admin page for Guacamole management — server status, deploy button, create/list/delete connections
+- **Sidebar**: Added NeoDesk Guacamole link in admin section
+- **App.js**: Added /admin/guacamole route
+
+## Key API Endpoints
 - POST `/api/admin/tenants/enroll` — Create new tenant
-- POST `/api/admin/tenants/{id}/step/zitadel-org` — Create Zitadel org
+- POST `/api/admin/tenants/{id}/step/zitadel-org` — **Full** Zitadel auto-provisioning
 - POST `/api/admin/tenants/{id}/step/netbird-group` — Create NetBird group
 - POST `/api/admin/tenants/{id}/step/netbird-setup-key` — Generate setup key
 - POST `/api/admin/tenants/{id}/step/netbird-policy` — Create access policy
+- POST `/api/admin/tenants/{id}/step/deploy-relay` — Deploy LXD relay container
 - POST `/api/admin/tenants/{id}/step/register-infra` — Register client infra
 - POST `/api/admin/tenants/{id}/step/finalize` — Activate tenant
+- POST `/api/admin/tenants/{id}/auto-provision` — Auto-run all steps
+- GET `/api/admin/tenants/{id}/neoconnect-info` — Download links + setup key
 - GET `/api/admin/tenants/{id}/enrollment-status` — Get enrollment state
-
-## Mocked/Pending
-- Zitadel org creation (needs IAM_OWNER in Zitadel console)
-- VM provisioning (SSE simulation)
-- Payments (demo mode)
-
-### Phase 6 - AI Agent "Neo" (DONE - Feb 2026)
-- Backend: `POST /api/neo/chat` using Claude Sonnet 4.5 via `emergentintegrations`
-- Backend: `GET /api/neo/history/{session_id}`, `DELETE /api/neo/history/{session_id}`
-- Frontend: `NeoChat.jsx` floating widget mounted globally in `App.js`
-- Spanish-speaking, friendly consultant personality
-- Conversation persistence in MongoDB (`neo_conversations` collection)
-- Quick suggestion buttons for discovery/onboarding
-
-### Phase 7 - UX Fixes & Market Flow (DONE - Feb 2026)
-- **Fix "Abrir HTML5" buttons**: Added onClick to open TSplus proxy URL
-- **Fix Viewer page**: Fallback to proxy URL when no `connection_url`
-- **TSplus branching question**: "¿Ya tienes TSplus?" → Enrollment or VM purchase
-- **Onboarding slides**: 6 dynamic slides during provisioning
-- **Sidebar**: Compact (w-56), scrollable, collapsible admin section
-- **Delete VMs**: Admin can delete VMs, endpoint `DELETE /api/market/vms/{vm_id}`
-
-### Phase 8 - Enrollment Redesign + SSO Fix (DONE - Feb 2026)
-- **Enrollment page**: Removed pricing tiers, now "Conectar NeoSC" — collects org + TSplus infra data
-- **"¿Cómo funciona?"** section explaining NeoGuard SSO + NeoMesh VPN + HTML5 access
-- **Finalize creates workspace**: After enrollment, a market_vm + order is created with client's TSplus URL
-- **Workspaces show enrolled tenants**: "Abrir HTML5" uses client's TSplus connection_url
-- **SSO callback fix**: Added `replace: true` navigation, `sso_provider` persistence, better error handling
-
-### Phase 9 - LXD/LXC NeoCloud Integration (DONE - Apr 2026)
-- **Backend LXD client** (`lxd_client.py`): Full REST API wrapper with TLS cert auth, project-aware
-- **Project switching**: Dropdown to switch between LXD projects (NeoSC, default)
-- **Cloud-init injection**: Username, password, SSH key injected at creation via user-data YAML
-- **NetBird addon**: Auto-install + enroll via setup key in cloud-init runcmd
-- **Addons system**: NetBird relay, Docker, Cockpit — selectable at creation
-- **Remote exec**: Execute commands inside running containers via `/api/lxd/instances/{name}/exec`
-- **Sync to Workspaces**: LXD instances appear in Workspaces page with SSH/LXD connection buttons
-- **Workspace categories**: "Windows VDI (TSplus)" and "Linux Containers / VMs (LXD)" separated
-- **Real container created**: `neosc-relay-01` (AlmaLinux 9.7) running on `149.56.241.64:8443` NeoSC project
-- **API endpoints**: `/api/lxd/status`, `instances`, `images`, `profiles`, `storage-pools`, `projects`, `sync-workspaces`, `exec`
+- GET/POST/DELETE `/api/guacamole/*` — Guacamole connection management
+- POST `/api/guacamole/deploy` — Deploy Guacamole LXD container
 
 ## Prioritized Backlog
+
 ### P0
-- Grant IAM_OWNER to service user in Zitadel console
+- Configure GUACAMOLE_URL once Guacamole container is running (needs IP from LXD)
 
 ### P1
-- Connect orchestrator to real Celery workers
-- Real VM provisioning via PowerShell/WinRM
-- Stripe checkout with CFDI México
-- NeoProxy (Pomerium) integration
+- Map claims Zitadel → NetBird → LXD (SSO users get correct network routes)
+- Stripe checkout with CFDI Mexico invoicing
+- NeoProxy (Pomerium) IAP integration
 
 ### P2
+- Ansible/WinRM post-provisioning (TSplus auto-install in VMs)
 - NeoVault (JumpServer) PAM integration
-- Session recording
-- Real-time VM metrics
-- Refactor server.py into APIRouters
+- Session recording, real-time VM metrics
+- Refactor server.py into APIRouters (3000+ lines)
