@@ -137,6 +137,9 @@ async def create_instance(
         "type": instance_type,
         "source": {
             "type": "image",
+            "fingerprint": image_alias,
+        } if len(image_alias) >= 12 and "/" not in image_alias else {
+            "type": "image",
             "alias": image_alias,
         },
         "config": {

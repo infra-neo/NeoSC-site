@@ -13,10 +13,11 @@ import secrets
 import hashlib
 import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-import lxd_client
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+import lxd_client
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
