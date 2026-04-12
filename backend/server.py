@@ -2512,25 +2512,46 @@ async def stream_provision_events(
 # ─── GET /market/my-vms ───────────────────────────────────────────────────────
 @api_router.get("/market/my-vms")
 async def get_my_market_vms(user: dict = Depends(get_current_user)):
-    """VMs del usuario compradas via Market."""
+    """VMs del usuario: Market orders + LXD instances."""
+    # 1. VMs from market orders
     orders = await db.market_orders.find(
         {"user_id": user["id"], "status": "active"},
         {"_id": 0}
     ).to_list(50)
 
     vms = []
+    seen_ids = set()
     for order in orders:
         if order.get("vm_id"):
             vm = await db.market_vms.find_one({"id": order["vm_id"]}, {"_id": 0})
             if vm:
                 vm["order"] = {
                     "id": order["id"],
-                    "neosc_plan": order["neosc_plan"],
-                    "tsplus_licenses": order["tsplus_licenses"],
+                    "neosc_plan": order.get("neosc_plan", ""),
+                    "tsplus_licenses": order.get("tsplus_licenses", 0),
                     "billing_period": order.get("billing_period"),
                     "total_cents": order.get("total_cents"),
                 }
                 vms.append(vm)
+                seen_ids.add(vm["id"])
+
+    # 2. LXD instances (admin sees all, users see their own)
+    if user.get("role") == "admin":
+        lxd_vms = await db.market_vms.find({"source": "lxd"}, {"_id": 0}).to_list(100)
+    else:
+        lxd_vms = await db.market_vms.find({"source": "lxd", "user_id": user["id"]}, {"_id": 0}).to_list(100)
+    for vm in lxd_vms:
+        if vm["id"] not in seen_ids:
+            vms.append(vm)
+            seen_ids.add(vm["id"])
+
+    # 3. Tenant enrollment VMs (admin sees all)
+    if user.get("role") == "admin":
+        tenant_vms = await db.market_vms.find({"tenant_id": {"$exists": True}}, {"_id": 0}).to_list(100)
+        for vm in tenant_vms:
+            if vm["id"] not in seen_ids:
+                vms.append(vm)
+                seen_ids.add(vm["id"])
 
     return {"vms": vms}
 
@@ -2575,32 +2596,34 @@ async def list_all_market_orders(user: dict = Depends(get_current_user)):
 
 @api_router.get("/lxd/status")
 async def lxd_status(user: dict = Depends(get_current_user)):
-    """Check LXD server connectivity and info."""
     require_admin(user)
     return await lxd_client.check_connection()
 
-@api_router.get("/lxd/instances")
-async def lxd_list_instances(type: Optional[str] = None, user: dict = Depends(get_current_user)):
-    """List all LXD instances. Optional filter: ?type=virtual-machine or ?type=container"""
+@api_router.get("/lxd/projects")
+async def lxd_list_projects(user: dict = Depends(get_current_user)):
     require_admin(user)
-    instances = await lxd_client.list_instances(instance_type=type)
-    return {"instances": instances, "count": len(instances)}
+    projects = await lxd_client.list_projects()
+    return {"projects": projects, "current": lxd_client.LXD_PROJECT}
+
+@api_router.get("/lxd/instances")
+async def lxd_list_instances(project: Optional[str] = None, type: Optional[str] = None, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    instances = await lxd_client.list_instances(instance_type=type, project=project)
+    return {"instances": instances, "count": len(instances), "project": project or lxd_client.LXD_PROJECT}
 
 @api_router.get("/lxd/instances/{name}")
-async def lxd_get_instance(name: str, user: dict = Depends(get_current_user)):
-    """Get details of a specific instance."""
+async def lxd_get_instance(name: str, project: Optional[str] = None, user: dict = Depends(get_current_user)):
     require_admin(user)
-    return await lxd_client.get_instance(name)
+    return await lxd_client.get_instance(name, project=project)
 
 @api_router.get("/lxd/instances/{name}/state")
-async def lxd_get_instance_state(name: str, user: dict = Depends(get_current_user)):
-    """Get runtime state (CPU, memory, network) of an instance."""
+async def lxd_get_instance_state(name: str, project: Optional[str] = None, user: dict = Depends(get_current_user)):
     require_admin(user)
-    return await lxd_client.get_instance_state(name)
+    return await lxd_client.get_instance_state(name, project=project)
 
 class LxdCreateVM(BaseModel):
     name: str
-    instance_type: str = "virtual-machine"
+    instance_type: str = "container"
     image_alias: str = ""
     cpu: str = "4"
     memory: str = "8GiB"
@@ -2608,10 +2631,18 @@ class LxdCreateVM(BaseModel):
     description: str = ""
     profiles: Optional[List[str]] = None
     storage_pool: str = "default"
+    project: Optional[str] = None
+    # Cloud-init
+    username: str = ""
+    password: str = ""
+    ssh_key: str = ""
+    netbird_setup_key: str = ""
+    addons: Optional[List[str]] = None  # netbird, docker, cockpit
+    # Sync to workspaces
+    add_to_workspaces: bool = True
 
 @api_router.post("/lxd/instances")
 async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_current_user)):
-    """Create a new VM or container on the LXD server."""
     require_admin(user)
     result = await lxd_client.create_instance(
         name=payload.name,
@@ -2623,60 +2654,129 @@ async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_cur
         description=payload.description,
         profiles=payload.profiles,
         storage_pool=payload.storage_pool,
+        project=payload.project,
+        username=payload.username,
+        password=payload.password,
+        ssh_key=payload.ssh_key,
+        netbird_setup_key=payload.netbird_setup_key,
+        addons=payload.addons,
     )
     if result.get("ok"):
         await create_audit_log(user["id"], user["email"], "lxd_create_vm", f"vm:{payload.name}", f"Created {payload.instance_type}: {payload.name}")
+        # Sync to workspaces
+        if payload.add_to_workspaces:
+            vm_doc = {
+                "id": f"lxd-{payload.name}",
+                "user_id": user["id"],
+                "lxd_instance_name": payload.name,
+                "lxd_project": payload.project or lxd_client.LXD_PROJECT,
+                "tunnel_hostname": f"{payload.name}.neosc.cloud",
+                "status": "provisioning",
+                "vcpu": int(payload.cpu) if payload.cpu.isdigit() else 4,
+                "ram_gb": int(payload.memory.replace("GiB", "")) if "GiB" in payload.memory else 8,
+                "disk_gb": int(payload.disk_size.replace("GiB", "")) if "GiB" in payload.disk_size else 120,
+                "tsplus_licenses": 0,
+                "instance_type": payload.instance_type,
+                "connection_url": "",
+                "ssh_user": payload.username,
+                "addons": payload.addons or [],
+                "netbird_setup_key": payload.netbird_setup_key or "",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "source": "lxd",
+            }
+            await db.market_vms.update_one({"id": vm_doc["id"]}, {"$set": vm_doc}, upsert=True)
     return result
 
 class LxdStateAction(BaseModel):
-    action: str  # start, stop, restart, freeze
+    action: str
     force: bool = False
+    project: Optional[str] = None
 
 @api_router.post("/lxd/instances/{name}/state")
 async def lxd_change_state(name: str, payload: LxdStateAction, user: dict = Depends(get_current_user)):
-    """Start, stop, restart, or freeze an instance."""
     require_admin(user)
-    result = await lxd_client.change_instance_state(name, payload.action, payload.force)
+    result = await lxd_client.change_instance_state(name, payload.action, payload.force, project=payload.project)
     if result.get("ok"):
-        await create_audit_log(user["id"], user["email"], f"lxd_{payload.action}_vm", f"vm:{name}", f"{payload.action} instance: {name}")
+        await create_audit_log(user["id"], user["email"], f"lxd_{payload.action}", f"vm:{name}", f"{payload.action}: {name}")
+        # Update workspace status
+        new_status = "running" if payload.action == "start" else "stopped" if payload.action == "stop" else "available"
+        await db.market_vms.update_one({"id": f"lxd-{name}"}, {"$set": {"status": new_status}})
     return result
 
 @api_router.delete("/lxd/instances/{name}")
-async def lxd_delete_instance(name: str, force: bool = False, user: dict = Depends(get_current_user)):
-    """Delete an instance. Must be stopped first unless force=True."""
+async def lxd_delete_instance(name: str, force: bool = False, project: Optional[str] = None, user: dict = Depends(get_current_user)):
     require_admin(user)
-    result = await lxd_client.delete_instance(name, force=force)
+    result = await lxd_client.delete_instance(name, force=force, project=project)
     if result.get("ok"):
-        await create_audit_log(user["id"], user["email"], "lxd_delete_vm", f"vm:{name}", f"Deleted instance: {name}")
+        await create_audit_log(user["id"], user["email"], "lxd_delete", f"vm:{name}", f"Deleted: {name}")
+        await db.market_vms.delete_one({"id": f"lxd-{name}"})
+    return result
+
+class LxdExecCmd(BaseModel):
+    command: List[str]
+    project: Optional[str] = None
+
+@api_router.post("/lxd/instances/{name}/exec")
+async def lxd_exec(name: str, payload: LxdExecCmd, user: dict = Depends(get_current_user)):
+    """Execute a command inside a running instance."""
+    require_admin(user)
+    result = await lxd_client.exec_command(name, payload.command, project=payload.project)
+    await create_audit_log(user["id"], user["email"], "lxd_exec", f"vm:{name}", f"exec: {' '.join(payload.command[:3])}")
     return result
 
 @api_router.get("/lxd/images")
-async def lxd_list_images(user: dict = Depends(get_current_user)):
-    """List available images on the LXD server."""
+async def lxd_list_images(project: Optional[str] = None, user: dict = Depends(get_current_user)):
     require_admin(user)
-    images = await lxd_client.list_images()
+    images = await lxd_client.list_images(project=project)
     return {"images": images, "count": len(images)}
 
 @api_router.get("/lxd/profiles")
-async def lxd_list_profiles(user: dict = Depends(get_current_user)):
-    """List available profiles."""
+async def lxd_list_profiles(project: Optional[str] = None, user: dict = Depends(get_current_user)):
     require_admin(user)
-    profiles = await lxd_client.list_profiles()
-    return {"profiles": profiles}
+    return {"profiles": await lxd_client.list_profiles(project=project)}
 
 @api_router.get("/lxd/storage-pools")
-async def lxd_list_storage_pools(user: dict = Depends(get_current_user)):
-    """List available storage pools."""
+async def lxd_list_storage_pools(project: Optional[str] = None, user: dict = Depends(get_current_user)):
     require_admin(user)
-    pools = await lxd_client.list_storage_pools()
-    return {"pools": pools}
+    return {"pools": await lxd_client.list_storage_pools(project=project)}
 
-@api_router.get("/lxd/projects")
-async def lxd_list_projects(user: dict = Depends(get_current_user)):
-    """List LXD projects."""
+@api_router.post("/lxd/sync-workspaces")
+async def lxd_sync_workspaces(project: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Sync LXD instances to workspaces collection."""
     require_admin(user)
-    projects = await lxd_client.list_projects()
-    return {"projects": projects, "current": lxd_client.LXD_PROJECT}
+    proj = project or lxd_client.LXD_PROJECT
+    instances = await lxd_client.list_instances(project=proj)
+    synced = 0
+    for inst in instances:
+        vm_id = f"lxd-{inst['name']}"
+        existing = await db.market_vms.find_one({"id": vm_id})
+        if not existing:
+            vm_doc = {
+                "id": vm_id,
+                "user_id": user["id"],
+                "lxd_instance_name": inst["name"],
+                "lxd_project": proj,
+                "tunnel_hostname": f"{inst['name']}.neosc.cloud",
+                "status": inst["status"].lower(),
+                "vcpu": int(inst["config"]["cpu"]) if inst["config"]["cpu"].isdigit() else 0,
+                "ram_gb": int(inst["config"]["memory"].replace("GiB", "")) if "GiB" in (inst["config"]["memory"] or "") else 0,
+                "disk_gb": 0,
+                "tsplus_licenses": 0,
+                "instance_type": inst["type"],
+                "connection_url": f"ssh://{inst['ipv4']}" if inst.get("ipv4") else "",
+                "ipv4": inst.get("ipv4", ""),
+                "addons": [],
+                "created_at": inst.get("created_at", ""),
+                "source": "lxd",
+            }
+            await db.market_vms.insert_one(vm_doc)
+            synced += 1
+        else:
+            await db.market_vms.update_one({"id": vm_id}, {"$set": {
+                "status": inst["status"].lower(),
+                "ipv4": inst.get("ipv4", ""),
+            }})
+    return {"synced": synced, "total": len(instances), "project": proj}
 
 
 

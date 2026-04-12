@@ -1,6 +1,6 @@
 """
 LXD/LXC REST API Client for NeoSC NeoCloud VM provisioning.
-Uses TLS client certificate authentication.
+Uses TLS client certificate authentication. Supports project switching.
 """
 import os
 import httpx
@@ -25,7 +25,6 @@ def _get_client() -> httpx.AsyncClient:
 
 
 def _p(project: Optional[str] = None) -> dict:
-    """Return project query param."""
     return {"project": project or LXD_PROJECT}
 
 
@@ -60,7 +59,6 @@ async def list_projects() -> list:
                 for p in r.json().get("metadata", [])
             ]
     except Exception as e:
-        logger.error(f"LXD list projects failed: {e}")
         return []
 
 
@@ -78,7 +76,7 @@ async def list_instances(instance_type: Optional[str] = None, project: Optional[
                 state = inst.get("state", {})
                 network = state.get("network", {})
                 ipv4 = ""
-                for iface_name, iface in network.items():
+                for iface_name, iface in (network or {}).items():
                     if iface_name == "lo":
                         continue
                     for addr in iface.get("addresses", []):
@@ -100,6 +98,7 @@ async def list_instances(instance_type: Optional[str] = None, project: Optional[
                         "cpu": inst.get("config", {}).get("limits.cpu", ""),
                         "memory": inst.get("config", {}).get("limits.memory", ""),
                         "image": inst.get("config", {}).get("image.description", ""),
+                        "os": inst.get("config", {}).get("image.os", ""),
                     },
                     "profiles": inst.get("profiles", []),
                     "location": inst.get("location", ""),
@@ -132,9 +131,63 @@ async def get_instance_state(name: str, project: Optional[str] = None) -> dict:
         return {"error": str(e)}
 
 
+def _build_cloud_init(username: str = "", password: str = "", ssh_key: str = "",
+                       netbird_setup_key: str = "", addons: list = None) -> str:
+    """Build cloud-init user-data YAML."""
+    lines = ["#cloud-config"]
+
+    # User creation
+    if username:
+        lines.append("users:")
+        lines.append(f"  - name: {username}")
+        lines.append("    shell: /bin/bash")
+        lines.append("    sudo: ALL=(ALL) NOPASSWD:ALL")
+        lines.append("    groups: sudo,adm")
+        if password:
+            lines.append(f"    plain_text_passwd: \"{password}\"")
+            lines.append("    lock_passwd: false")
+        if ssh_key:
+            lines.append("    ssh_authorized_keys:")
+            lines.append(f"      - {ssh_key}")
+
+    # SSH config
+    lines.append("ssh_pwauth: true")
+
+    # Packages
+    packages = ["curl", "wget", "openssh-server"]
+    addons = addons or []
+    runcmd = []
+
+    if netbird_setup_key or "netbird" in addons:
+        packages.append("ca-certificates")
+        runcmd.append("curl -fsSL https://pkgs.netbird.io/install.sh | sh")
+        if netbird_setup_key:
+            runcmd.append(f"netbird up --setup-key {netbird_setup_key} --management-url https://manager.kappa4.com")
+
+    if "docker" in addons:
+        runcmd.append("curl -fsSL https://get.docker.com | sh")
+        if username:
+            runcmd.append(f"usermod -aG docker {username}")
+
+    if "cockpit" in addons:
+        packages.append("cockpit")
+        runcmd.append("systemctl enable --now cockpit.socket")
+
+    lines.append("packages:")
+    for p in packages:
+        lines.append(f"  - {p}")
+
+    if runcmd:
+        lines.append("runcmd:")
+        for cmd in runcmd:
+            lines.append(f"  - {cmd}")
+
+    return "\n".join(lines)
+
+
 async def create_instance(
     name: str,
-    instance_type: str = "virtual-machine",
+    instance_type: str = "container",
     image_alias: str = "",
     cpu: str = "4",
     memory: str = "8GiB",
@@ -143,24 +196,36 @@ async def create_instance(
     profiles: list = None,
     storage_pool: str = "default",
     project: Optional[str] = None,
+    username: str = "",
+    password: str = "",
+    ssh_key: str = "",
+    netbird_setup_key: str = "",
+    addons: list = None,
 ) -> dict:
     if profiles is None:
         profiles = ["default"]
 
-    # Determine source: fingerprint (hex >=12 chars) or alias
+    # Source: fingerprint or alias
     if len(image_alias) >= 12 and all(c in "0123456789abcdef" for c in image_alias.lower()):
         source = {"type": "image", "fingerprint": image_alias}
     else:
         source = {"type": "image", "alias": image_alias}
 
+    config = {
+        "limits.cpu": cpu,
+        "limits.memory": memory,
+    }
+
+    # Cloud-init
+    if username or netbird_setup_key or addons:
+        cloud_init = _build_cloud_init(username, password, ssh_key, netbird_setup_key, addons)
+        config["user.user-data"] = cloud_init
+
     payload = {
         "name": name,
         "type": instance_type,
         "source": source,
-        "config": {
-            "limits.cpu": cpu,
-            "limits.memory": memory,
-        },
+        "config": config,
         "devices": {
             "root": {
                 "path": "/",
@@ -177,10 +242,10 @@ async def create_instance(
         async with _get_client() as client:
             r = await client.post("/1.0/instances", json=payload, params=_p(project))
             data = r.json()
-            if r.status_code in (200, 202):
+            if r.status_code in (200, 202) and data.get("type") != "error":
                 op_url = data.get("operation")
                 if op_url:
-                    await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "120"}, timeout=130.0)
+                    await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "180"}, timeout=190.0)
                 return {"ok": True, "name": name, "operation": op_url}
             return {"ok": False, "error": data.get("error", r.text), "error_code": data.get("error_code")}
     except Exception as e:
@@ -193,7 +258,7 @@ async def change_instance_state(name: str, action: str, force: bool = False, pro
         async with _get_client() as client:
             r = await client.put(f"/1.0/instances/{name}/state", json=payload, params=_p(project))
             data = r.json()
-            if r.status_code in (200, 202):
+            if r.status_code in (200, 202) and data.get("type") != "error":
                 op_url = data.get("operation")
                 if op_url:
                     await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "120"}, timeout=130.0)
@@ -207,10 +272,13 @@ async def delete_instance(name: str, force: bool = False, project: Optional[str]
     try:
         async with _get_client() as client:
             if force:
-                await change_instance_state(name, "stop", force=True, project=project)
+                try:
+                    await change_instance_state(name, "stop", force=True, project=project)
+                except Exception:
+                    pass
             r = await client.delete(f"/1.0/instances/{name}", params=_p(project))
             data = r.json()
-            if r.status_code in (200, 202):
+            if r.status_code in (200, 202) and data.get("type") != "error":
                 op_url = data.get("operation")
                 if op_url:
                     await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "120"}, timeout=130.0)
@@ -226,7 +294,6 @@ async def list_images(project: Optional[str] = None) -> list:
             r = await client.get("/1.0/images", params={**_p(project), "recursion": "1"})
             if r.status_code != 200:
                 return []
-            images = r.json().get("metadata", [])
             return [
                 {
                     "fingerprint": img.get("fingerprint", "")[:12],
@@ -240,7 +307,7 @@ async def list_images(project: Optional[str] = None) -> list:
                     "aliases": [a.get("name") for a in img.get("aliases", [])],
                     "created_at": img.get("created_at"),
                 }
-                for img in images
+                for img in r.json().get("metadata", [])
             ]
     except Exception as e:
         logger.error(f"LXD list images failed: {e}")
@@ -278,3 +345,52 @@ async def list_storage_pools(project: Optional[str] = None) -> list:
             ]
     except Exception as e:
         return []
+
+
+async def exec_command(name: str, command: list, project: Optional[str] = None) -> dict:
+    """Execute a command inside a running instance and return the result."""
+    try:
+        async with _get_client() as client:
+            r = await client.post(
+                f"/1.0/instances/{name}/exec",
+                json={
+                    "command": command,
+                    "record-output": True,
+                    "wait-for-websocket": False,
+                    "interactive": False,
+                },
+                params=_p(project),
+            )
+            data = r.json()
+            if r.status_code in (200, 202) and data.get("type") != "error":
+                op_url = data.get("operation")
+                if op_url:
+                    wait_r = await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "30"}, timeout=35.0)
+                    wait_data = wait_r.json()
+                    meta = wait_data.get("metadata", {}).get("metadata", {})
+                    return_code = meta.get("return", -1)
+
+                    # Try to fetch stdout/stderr from log files
+                    output = meta.get("output", {})
+                    stdout_url = output.get("1", "")
+                    stderr_url = output.get("2", "")
+                    stdout_text = ""
+                    stderr_text = ""
+                    if stdout_url:
+                        sr = await client.get(stdout_url, params=_p(project))
+                        if sr.status_code == 200:
+                            stdout_text = sr.text
+                    if stderr_url:
+                        sr = await client.get(stderr_url, params=_p(project))
+                        if sr.status_code == 200:
+                            stderr_text = sr.text
+
+                    return {
+                        "ok": True,
+                        "return_code": return_code,
+                        "stdout": stdout_text,
+                        "stderr": stderr_text,
+                    }
+            return {"ok": False, "error": data.get("error", r.text)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

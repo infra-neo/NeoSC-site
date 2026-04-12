@@ -86,13 +86,16 @@ React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OID
 - **SSO callback fix**: Added `replace: true` navigation, `sso_provider` persistence, better error handling
 
 ### Phase 9 - LXD/LXC NeoCloud Integration (DONE - Apr 2026)
-- **Backend LXD client** (`lxd_client.py`): Full REST API wrapper with TLS cert auth
-  - `check_connection`, `list_instances`, `create_instance`, `change_state`, `delete_instance`, `list_images`, `list_profiles`
-- **API endpoints**: `/api/lxd/status`, `/api/lxd/instances`, `/api/lxd/instances/{name}/state`, `/api/lxd/images`, `/api/lxd/profiles`
-- **Frontend admin page** (`LxdAdminPage.jsx`): Real-time cluster management with create/start/stop/restart/delete
-- **Sidebar**: Added "NeoCloud LXD" link in admin section
-- **TLS cert**: PFX extracted to `lxd-client.crt` + `lxd-client.key`
-- **Pending**: LXD server connectivity (user opening port for internet access)
+- **Backend LXD client** (`lxd_client.py`): Full REST API wrapper with TLS cert auth, project-aware
+- **Project switching**: Dropdown to switch between LXD projects (NeoSC, default)
+- **Cloud-init injection**: Username, password, SSH key injected at creation via user-data YAML
+- **NetBird addon**: Auto-install + enroll via setup key in cloud-init runcmd
+- **Addons system**: NetBird relay, Docker, Cockpit — selectable at creation
+- **Remote exec**: Execute commands inside running containers via `/api/lxd/instances/{name}/exec`
+- **Sync to Workspaces**: LXD instances appear in Workspaces page with SSH/LXD connection buttons
+- **Workspace categories**: "Windows VDI (TSplus)" and "Linux Containers / VMs (LXD)" separated
+- **Real container created**: `neosc-relay-01` (AlmaLinux 9.7) running on `149.56.241.64:8443` NeoSC project
+- **API endpoints**: `/api/lxd/status`, `instances`, `images`, `profiles`, `storage-pools`, `projects`, `sync-workspaces`, `exec`
 
 ## Prioritized Backlog
 ### P0
