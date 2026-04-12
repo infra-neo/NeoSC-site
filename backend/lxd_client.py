@@ -9,13 +9,13 @@ from typing import Optional
 
 logger = logging.getLogger("lxd_client")
 
-LXD_API_URL = os.environ.get("LXD_API_URL", "https://100.121.53.218:8443")
+LXD_API_URL = os.environ.get("LXD_API_URL", "https://149.56.241.64:8443")
 LXD_CERT_PATH = os.environ.get("LXD_CERT_PATH", "/app/backend/lxd-client.crt")
 LXD_KEY_PATH = os.environ.get("LXD_KEY_PATH", "/app/backend/lxd-client.key")
+LXD_PROJECT = os.environ.get("LXD_PROJECT", "NeoSC")
 
 
 def _get_client() -> httpx.AsyncClient:
-    """Create httpx client with LXD TLS cert auth."""
     return httpx.AsyncClient(
         base_url=LXD_API_URL,
         cert=(LXD_CERT_PATH, LXD_KEY_PATH),
@@ -24,20 +24,24 @@ def _get_client() -> httpx.AsyncClient:
     )
 
 
+def _p(project: Optional[str] = None) -> dict:
+    """Return project query param."""
+    return {"project": project or LXD_PROJECT}
+
+
 async def check_connection() -> dict:
-    """Test connectivity to LXD server."""
     try:
         async with _get_client() as client:
             r = await client.get("/1.0")
             if r.status_code == 200:
-                data = r.json()
-                meta = data.get("metadata", {})
+                meta = r.json().get("metadata", {})
                 return {
                     "connected": True,
                     "api_version": meta.get("api_version"),
                     "server_name": meta.get("environment", {}).get("server_name"),
                     "server_version": meta.get("environment", {}).get("server_version"),
                     "auth": meta.get("auth"),
+                    "project": LXD_PROJECT,
                 }
             return {"connected": False, "error": f"HTTP {r.status_code}"}
     except Exception as e:
@@ -45,11 +49,25 @@ async def check_connection() -> dict:
         return {"connected": False, "error": str(e)}
 
 
-async def list_instances(instance_type: Optional[str] = None) -> list:
-    """List all instances (containers + VMs). Use type='virtual-machine' to filter."""
+async def list_projects() -> list:
     try:
         async with _get_client() as client:
-            r = await client.get("/1.0/instances?recursion=2")
+            r = await client.get("/1.0/projects?recursion=1")
+            if r.status_code != 200:
+                return []
+            return [
+                {"name": p.get("name"), "description": p.get("description", "")}
+                for p in r.json().get("metadata", [])
+            ]
+    except Exception as e:
+        logger.error(f"LXD list projects failed: {e}")
+        return []
+
+
+async def list_instances(instance_type: Optional[str] = None, project: Optional[str] = None) -> list:
+    try:
+        async with _get_client() as client:
+            r = await client.get("/1.0/instances", params={**_p(project), "recursion": "2"})
             if r.status_code != 200:
                 return []
             instances = r.json().get("metadata", [])
@@ -59,10 +77,9 @@ async def list_instances(instance_type: Optional[str] = None) -> list:
             for inst in instances:
                 state = inst.get("state", {})
                 network = state.get("network", {})
-                # Get IPv4 from eth0 or enp5s0
                 ipv4 = ""
                 for iface_name, iface in network.items():
-                    if iface_name in ("lo",):
+                    if iface_name == "lo":
                         continue
                     for addr in iface.get("addresses", []):
                         if addr.get("family") == "inet" and addr.get("scope") == "global":
@@ -70,7 +87,6 @@ async def list_instances(instance_type: Optional[str] = None) -> list:
                             break
                     if ipv4:
                         break
-
                 result.append({
                     "name": inst.get("name"),
                     "type": inst.get("type"),
@@ -94,11 +110,10 @@ async def list_instances(instance_type: Optional[str] = None) -> list:
         return []
 
 
-async def get_instance(name: str) -> dict:
-    """Get details of a specific instance."""
+async def get_instance(name: str, project: Optional[str] = None) -> dict:
     try:
         async with _get_client() as client:
-            r = await client.get(f"/1.0/instances/{name}?recursion=1")
+            r = await client.get(f"/1.0/instances/{name}", params={**_p(project), "recursion": "1"})
             if r.status_code != 200:
                 return {"error": f"HTTP {r.status_code}", "detail": r.text}
             return r.json().get("metadata", {})
@@ -106,11 +121,10 @@ async def get_instance(name: str) -> dict:
         return {"error": str(e)}
 
 
-async def get_instance_state(name: str) -> dict:
-    """Get runtime state (CPU, memory, network, disk) of an instance."""
+async def get_instance_state(name: str, project: Optional[str] = None) -> dict:
     try:
         async with _get_client() as client:
-            r = await client.get(f"/1.0/instances/{name}/state")
+            r = await client.get(f"/1.0/instances/{name}/state", params=_p(project))
             if r.status_code != 200:
                 return {"error": f"HTTP {r.status_code}"}
             return r.json().get("metadata", {})
@@ -121,27 +135,28 @@ async def get_instance_state(name: str) -> dict:
 async def create_instance(
     name: str,
     instance_type: str = "virtual-machine",
-    image_alias: str = "ubuntu/24.04",
+    image_alias: str = "",
     cpu: str = "4",
     memory: str = "8GiB",
     disk_size: str = "120GiB",
     description: str = "",
     profiles: list = None,
+    storage_pool: str = "default",
+    project: Optional[str] = None,
 ) -> dict:
-    """Create a new VM or container."""
     if profiles is None:
         profiles = ["default"]
+
+    # Determine source: fingerprint (hex >=12 chars) or alias
+    if len(image_alias) >= 12 and all(c in "0123456789abcdef" for c in image_alias.lower()):
+        source = {"type": "image", "fingerprint": image_alias}
+    else:
+        source = {"type": "image", "alias": image_alias}
 
     payload = {
         "name": name,
         "type": instance_type,
-        "source": {
-            "type": "image",
-            "fingerprint": image_alias,
-        } if len(image_alias) >= 12 and "/" not in image_alias else {
-            "type": "image",
-            "alias": image_alias,
-        },
+        "source": source,
         "config": {
             "limits.cpu": cpu,
             "limits.memory": memory,
@@ -149,7 +164,7 @@ async def create_instance(
         "devices": {
             "root": {
                 "path": "/",
-                "pool": "default",
+                "pool": storage_pool,
                 "type": "disk",
                 "size": disk_size,
             }
@@ -160,66 +175,62 @@ async def create_instance(
 
     try:
         async with _get_client() as client:
-            r = await client.post("/1.0/instances", json=payload)
+            r = await client.post("/1.0/instances", json=payload, params=_p(project))
             data = r.json()
             if r.status_code in (200, 202):
-                # Async operation — wait for it
                 op_url = data.get("operation")
                 if op_url:
-                    await client.get(f"{op_url}/wait?timeout=120")
+                    await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "120"}, timeout=130.0)
                 return {"ok": True, "name": name, "operation": op_url}
-            return {"ok": False, "error": data.get("error", r.text)}
+            return {"ok": False, "error": data.get("error", r.text), "error_code": data.get("error_code")}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-async def change_instance_state(name: str, action: str, force: bool = False) -> dict:
-    """Start, stop, restart, or freeze an instance."""
+async def change_instance_state(name: str, action: str, force: bool = False, project: Optional[str] = None) -> dict:
     payload = {"action": action, "timeout": 60, "force": force}
     try:
         async with _get_client() as client:
-            r = await client.put(f"/1.0/instances/{name}/state", json=payload)
+            r = await client.put(f"/1.0/instances/{name}/state", json=payload, params=_p(project))
             data = r.json()
             if r.status_code in (200, 202):
                 op_url = data.get("operation")
                 if op_url:
-                    await client.get(f"{op_url}/wait?timeout=120")
+                    await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "120"}, timeout=130.0)
                 return {"ok": True, "action": action, "instance": name}
             return {"ok": False, "error": data.get("error", r.text)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-async def delete_instance(name: str, force: bool = False) -> dict:
-    """Delete an instance. Must be stopped first unless force=True."""
+async def delete_instance(name: str, force: bool = False, project: Optional[str] = None) -> dict:
     try:
         async with _get_client() as client:
             if force:
-                # Stop first
-                await change_instance_state(name, "stop", force=True)
-            r = await client.delete(f"/1.0/instances/{name}")
+                await change_instance_state(name, "stop", force=True, project=project)
+            r = await client.delete(f"/1.0/instances/{name}", params=_p(project))
             data = r.json()
             if r.status_code in (200, 202):
                 op_url = data.get("operation")
                 if op_url:
-                    await client.get(f"{op_url}/wait?timeout=120")
+                    await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "120"}, timeout=130.0)
                 return {"ok": True, "deleted": name}
             return {"ok": False, "error": data.get("error", r.text)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-async def list_images() -> list:
-    """List available images on the LXD server."""
+async def list_images(project: Optional[str] = None) -> list:
     try:
         async with _get_client() as client:
-            r = await client.get("/1.0/images?recursion=1")
+            r = await client.get("/1.0/images", params={**_p(project), "recursion": "1"})
             if r.status_code != 200:
                 return []
             images = r.json().get("metadata", [])
             return [
                 {
                     "fingerprint": img.get("fingerprint", "")[:12],
+                    "fingerprint_full": img.get("fingerprint", ""),
                     "description": img.get("properties", {}).get("description", ""),
                     "os": img.get("properties", {}).get("os", ""),
                     "release": img.get("properties", {}).get("release", ""),
@@ -236,18 +247,32 @@ async def list_images() -> list:
         return []
 
 
-async def list_profiles() -> list:
-    """List available profiles."""
+async def list_profiles(project: Optional[str] = None) -> list:
     try:
         async with _get_client() as client:
-            r = await client.get("/1.0/profiles?recursion=1")
+            r = await client.get("/1.0/profiles", params={**_p(project), "recursion": "1"})
+            if r.status_code != 200:
+                return []
+            return [
+                {"name": p.get("name"), "description": p.get("description"), "config": p.get("config", {})}
+                for p in r.json().get("metadata", [])
+            ]
+    except Exception as e:
+        return []
+
+
+async def list_storage_pools(project: Optional[str] = None) -> list:
+    try:
+        async with _get_client() as client:
+            r = await client.get("/1.0/storage-pools", params={**_p(project), "recursion": "1"})
             if r.status_code != 200:
                 return []
             return [
                 {
                     "name": p.get("name"),
-                    "description": p.get("description"),
-                    "config": p.get("config", {}),
+                    "driver": p.get("driver"),
+                    "status": p.get("status"),
+                    "description": p.get("description", ""),
                 }
                 for p in r.json().get("metadata", [])
             ]

@@ -2601,12 +2601,13 @@ async def lxd_get_instance_state(name: str, user: dict = Depends(get_current_use
 class LxdCreateVM(BaseModel):
     name: str
     instance_type: str = "virtual-machine"
-    image_alias: str = "ubuntu/24.04"
+    image_alias: str = ""
     cpu: str = "4"
     memory: str = "8GiB"
     disk_size: str = "120GiB"
     description: str = ""
     profiles: Optional[List[str]] = None
+    storage_pool: str = "default"
 
 @api_router.post("/lxd/instances")
 async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_current_user)):
@@ -2621,6 +2622,7 @@ async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_cur
         disk_size=payload.disk_size,
         description=payload.description,
         profiles=payload.profiles,
+        storage_pool=payload.storage_pool,
     )
     if result.get("ok"):
         await create_audit_log(user["id"], user["email"], "lxd_create_vm", f"vm:{payload.name}", f"Created {payload.instance_type}: {payload.name}")
@@ -2661,6 +2663,21 @@ async def lxd_list_profiles(user: dict = Depends(get_current_user)):
     require_admin(user)
     profiles = await lxd_client.list_profiles()
     return {"profiles": profiles}
+
+@api_router.get("/lxd/storage-pools")
+async def lxd_list_storage_pools(user: dict = Depends(get_current_user)):
+    """List available storage pools."""
+    require_admin(user)
+    pools = await lxd_client.list_storage_pools()
+    return {"pools": pools}
+
+@api_router.get("/lxd/projects")
+async def lxd_list_projects(user: dict = Depends(get_current_user)):
+    """List LXD projects."""
+    require_admin(user)
+    projects = await lxd_client.list_projects()
+    return {"projects": projects, "current": lxd_client.LXD_PROJECT}
+
 
 
 # ─── Seed admin & demo users on startup ────────────────────────────────────────
