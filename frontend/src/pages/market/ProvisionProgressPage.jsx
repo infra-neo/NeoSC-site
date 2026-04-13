@@ -122,7 +122,7 @@ export default function ProvisionProgressPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { getAuthHeader } = useAuth();
-  const orderId = searchParams.get('order_id');
+  const orderId = searchParams.get('order_id') || searchParams.get('orderId');
 
   const [steps, setSteps] = useState(STEP_DEFS.map(d => ({ ...d, status: 'pending' })));
   const [vmData, setVmData] = useState(null);
@@ -151,23 +151,8 @@ export default function ProvisionProgressPage() {
   // SSE stream + polling
   useEffect(() => {
     if (!orderId) return;
-    const url = `${BACKEND_URL}/api/market/orders/${orderId}/stream`;
-
-    let es;
-    try {
-      es = new EventSource(url);
-      es.onmessage = (e) => {
-        try { handleEvent(JSON.parse(e.data)); } catch {}
-      };
-      es.onerror = () => {
-        startPolling();
-        es?.close();
-      };
-    } catch {
-      startPolling();
-    }
-
-    return () => es?.close();
+    // Go straight to polling — SSE requires auth headers which EventSource doesn't support
+    startPolling();
   }, [orderId]);
 
   const startPolling = () => {

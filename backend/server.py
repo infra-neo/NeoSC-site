@@ -2567,13 +2567,22 @@ async def create_market_order(
         f"Orden creada: {order.neosc_plan} / {order.tsplus_licenses} users TSplus"
     )
 
+    # In DEMO_MODE, auto-start provisioning immediately
+    if demo_mode:
+        await db.market_orders.update_one(
+            {"id": order_id},
+            {"$set": {"status": "paid", "payment_method": "demo",
+                      "paid_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        asyncio.create_task(_simulate_provisioning(order_id))
+
     return {
         "order_id": order_id,
         "total_cents": server_total,
         "total_usd": round(server_total / 100, 2),
         "demo": demo_mode,
         "stripe_enabled": not demo_mode,
-        "status": "pending",
+        "status": "provisioning" if demo_mode else "pending",
     }
 
 
@@ -2724,6 +2733,7 @@ async def get_order_provision_status(
 @api_router.get("/market/orders/{order_id}/stream")
 async def stream_provision_events(
     order_id: str,
+    token: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     """
