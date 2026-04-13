@@ -26,6 +26,8 @@ import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
 import MarketPage from "@/pages/market/MarketPage";
+import NeoCloudWizard from "@/pages/market/NeoCloudWizard";
+import NeoConnectWizard from "@/pages/market/NeoConnectWizard";
 import CheckoutPage from "@/pages/market/CheckoutPage";
 import ProvisionProgressPage from "@/pages/market/ProvisionProgressPage";
 
@@ -70,6 +72,8 @@ function App() {
 
               {/* Market — Windows VDI (plan selection public, checkout requires auth) */}
               <Route path="/market" element={<MarketPage />} />
+              <Route path="/market/neocloud" element={<NeoCloudWizard />} />
+              <Route path="/market/neoconnect" element={<NeoConnectWizard />} />
               <Route path="/market/checkout" element={
                 <ProtectedRoute>
                   <CheckoutPage />
