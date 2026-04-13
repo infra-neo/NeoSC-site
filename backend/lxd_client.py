@@ -201,6 +201,9 @@ async def create_instance(
     ssh_key: str = "",
     netbird_setup_key: str = "",
     addons: list = None,
+    iso_path: str = "",
+    enable_tpm: bool = False,
+    secure_boot: bool = False,
 ) -> dict:
     if profiles is None:
         profiles = ["default"]
@@ -216,24 +219,49 @@ async def create_instance(
         "limits.memory": memory,
     }
 
+    # VM-specific config
+    if instance_type == "virtual-machine":
+        if secure_boot:
+            config["security.secureboot"] = "true"
+        else:
+            config["security.secureboot"] = "false"
+
     # Cloud-init
     if username or netbird_setup_key or addons:
         cloud_init = _build_cloud_init(username, password, ssh_key, netbird_setup_key, addons)
         config["user.user-data"] = cloud_init
+
+    devices = {
+        "root": {
+            "path": "/",
+            "pool": storage_pool,
+            "type": "disk",
+            "size": disk_size,
+        }
+    }
+
+    # TPM for Windows 11
+    if enable_tpm and instance_type == "virtual-machine":
+        devices["vtpm"] = {
+            "type": "tpm",
+            "path": "/dev/tpm0",
+        }
+
+    # ISO attachment for VM installation (must be backed by pool for VMs)
+    if iso_path and instance_type == "virtual-machine":
+        devices["install"] = {
+            "type": "disk",
+            "source": iso_path,
+            "pool": storage_pool,
+            "boot.priority": "10",
+        }
 
     payload = {
         "name": name,
         "type": instance_type,
         "source": source,
         "config": config,
-        "devices": {
-            "root": {
-                "path": "/",
-                "pool": storage_pool,
-                "type": "disk",
-                "size": disk_size,
-            }
-        },
+        "devices": devices,
         "profiles": profiles,
         "description": description,
     }
@@ -392,5 +420,96 @@ async def exec_command(name: str, command: list, project: Optional[str] = None) 
                         "stderr": stderr_text,
                     }
             return {"ok": False, "error": data.get("error", r.text)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def update_instance(name: str, updates: dict, project: Optional[str] = None) -> dict:
+    """PATCH an instance config/devices. Used to fix or add devices."""
+    try:
+        async with _get_client() as client:
+            r = await client.patch(
+                f"/1.0/instances/{name}",
+                json=updates,
+                params=_p(project),
+            )
+            data = r.json()
+            if r.status_code in (200, 202) and data.get("type") != "error":
+                return {"ok": True, "name": name}
+            return {"ok": False, "error": data.get("error", r.text)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def remove_instance_device(name: str, device_name: str, project: Optional[str] = None) -> dict:
+    """Remove a specific device from an instance by fetching current config, deleting the device, and PUTting back."""
+    try:
+        async with _get_client() as client:
+            # GET current instance
+            r = await client.get(f"/1.0/instances/{name}", params={**_p(project), "recursion": "1"})
+            if r.status_code != 200:
+                return {"ok": False, "error": f"GET failed: {r.status_code}"}
+            meta = r.json().get("metadata", {})
+            devices = meta.get("devices", {})
+            config = meta.get("config", {})
+            profiles = meta.get("profiles", [])
+            description = meta.get("description", "")
+
+            if device_name not in devices:
+                return {"ok": False, "error": f"Device '{device_name}' not found"}
+
+            del devices[device_name]
+
+            # PUT updated instance (full replace of writable fields)
+            put_payload = {
+                "devices": devices,
+                "config": {k: v for k, v in config.items() if not k.startswith("volatile.")},
+                "profiles": profiles,
+                "description": description,
+            }
+            r2 = await client.put(f"/1.0/instances/{name}", json=put_payload, params=_p(project))
+            data2 = r2.json()
+            if r2.status_code in (200, 202) and data2.get("type") != "error":
+                return {"ok": True, "removed": device_name, "instance": name}
+            return {"ok": False, "error": data2.get("error", r2.text)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def fix_instance_iso_devices(name: str, pool: str = "dir", project: Optional[str] = None) -> dict:
+    """Fix ISO disk devices that are missing a pool (common Windows VM issue).
+    Adds pool backing to any disk device that has 'source' but no 'pool'."""
+    try:
+        async with _get_client() as client:
+            r = await client.get(f"/1.0/instances/{name}", params={**_p(project), "recursion": "1"})
+            if r.status_code != 200:
+                return {"ok": False, "error": f"GET failed: {r.status_code}"}
+            meta = r.json().get("metadata", {})
+            devices = meta.get("devices", {})
+            config = meta.get("config", {})
+            profiles = meta.get("profiles", [])
+            description = meta.get("description", "")
+
+            fixed = []
+            for dev_name, dev_conf in list(devices.items()):
+                if dev_conf.get("type") == "disk" and dev_conf.get("source") and not dev_conf.get("pool"):
+                    # This is an ISO/disk without pool - remove it to unblock other VMs
+                    del devices[dev_name]
+                    fixed.append(dev_name)
+
+            if not fixed:
+                return {"ok": True, "fixed": [], "message": "No devices needed fixing"}
+
+            put_payload = {
+                "devices": devices,
+                "config": {k: v for k, v in config.items() if not k.startswith("volatile.")},
+                "profiles": profiles,
+                "description": description,
+            }
+            r2 = await client.put(f"/1.0/instances/{name}", json=put_payload, params=_p(project))
+            data2 = r2.json()
+            if r2.status_code in (200, 202) and data2.get("type") != "error":
+                return {"ok": True, "fixed": fixed, "instance": name}
+            return {"ok": False, "error": data2.get("error", r2.text)}
     except Exception as e:
         return {"ok": False, "error": str(e)}

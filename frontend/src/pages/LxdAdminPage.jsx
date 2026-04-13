@@ -11,7 +11,7 @@ import {
   Server, Cpu, MemoryStick, Play, Square,
   RefreshCw, Trash2, Plus, Wifi, WifiOff, Loader2,
   RotateCw, Database, Terminal, ChevronDown, ChevronRight,
-  Key, Shield, Network, Box
+  Key, Shield, Network, Box, Wrench, HardDrive
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -39,6 +39,7 @@ export default function LxdAdminPage() {
     cpu: '2', memory: '4GiB', disk_size: '40GiB', description: '', storage_pool: '',
     username: 'neosc', password: '', ssh_key: '',
     netbird_setup_key: '', addons: [], add_to_workspaces: true,
+    iso_path: '', enable_tpm: false, secure_boot: false,
   });
 
   const toggleAddon = (addon) => {
@@ -144,6 +145,44 @@ export default function LxdAdminPage() {
       toast.success(`Sincronizado: ${res.data.synced} nuevas, ${res.data.total} total`);
     } catch (err) {
       toast.error('Error sincronizando');
+    }
+    setActionLoading(null);
+  };
+
+  const doFixDevices = async (name) => {
+    setActionLoading(`${name}-fix`);
+    try {
+      const res = await axios.post(`${API}/lxd/instances/${name}/fix-devices?project=${currentProject}`, {}, { headers });
+      if (res.data.ok) {
+        const fixed = res.data.fixed || [];
+        if (fixed.length > 0) {
+          toast.success(`Dispositivos corregidos en ${name}: ${fixed.join(', ')}`);
+        } else {
+          toast.success(`${name}: no hay dispositivos que corregir`);
+        }
+        await loadData();
+      } else {
+        toast.error(res.data.error || 'Error');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error corrigiendo dispositivos');
+    }
+    setActionLoading(null);
+  };
+
+  const doRemoveDevice = async (name, deviceName) => {
+    if (!window.confirm(`¿Eliminar dispositivo "${deviceName}" de ${name}?`)) return;
+    setActionLoading(`${name}-removedev`);
+    try {
+      const res = await axios.delete(`${API}/lxd/instances/${name}/devices/${deviceName}?project=${currentProject}`, { headers });
+      if (res.data.ok) {
+        toast.success(`Dispositivo ${deviceName} eliminado de ${name}`);
+        await loadData();
+      } else {
+        toast.error(res.data.error || 'Error');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error');
     }
     setActionLoading(null);
   };
@@ -350,6 +389,37 @@ export default function LxdAdminPage() {
                 )}
               </div>
 
+              {/* Row 5: Windows VM options */}
+              {createForm.instance_type === 'virtual-machine' && (
+                <div className="border-t border-border pt-3">
+                  <h4 className="text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1">
+                    <Shield className="w-3 h-3" /> Opciones de VM (Windows)
+                  </h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">ISO Path (en host LXD)</Label>
+                      <Input value={createForm.iso_path} onChange={e => setCreateForm({...createForm, iso_path: e.target.value})} placeholder="/opt/Win11.iso" className="h-8 text-xs font-mono" data-testid="lxd-iso-path" />
+                      <span className="text-[10px] text-muted-foreground">Ruta del ISO en el servidor LXD</span>
+                    </div>
+                    <div className="flex flex-col gap-2 pt-5">
+                      <label className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" checked={createForm.enable_tpm} onChange={e => setCreateForm({...createForm, enable_tpm: e.target.checked})} className="rounded" />
+                        TPM 2.0 (requerido para Win11)
+                      </label>
+                      <label className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" checked={createForm.secure_boot} onChange={e => setCreateForm({...createForm, secure_boot: e.target.checked})} className="rounded" />
+                        Secure Boot
+                      </label>
+                    </div>
+                    <div className="pt-5">
+                      <p className="text-[10px] text-amber-400">
+                        Para VMs Windows: usa pool ZFS (dir), habilita TPM, y adjunta el ISO de instalacion.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Create button */}
               <div className="flex items-center gap-3 pt-2">
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -416,6 +486,14 @@ export default function LxdAdminPage() {
                           onClick={() => doAction(inst.name, 'restart')} disabled={isLoading}>
                           {actionLoading === `${inst.name}-restart` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCw className="w-3 h-3" />}
                         </Button>
+                        {inst.type === 'virtual-machine' && (
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-orange-400 hover:bg-orange-500/10"
+                            onClick={() => doFixDevices(inst.name)} disabled={isLoading}
+                            title="Corregir dispositivos (ISOs sin pool)"
+                            data-testid={`lxd-fix-${inst.name}`}>
+                            {actionLoading === `${inst.name}-fix` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wrench className="w-3 h-3" />}
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:bg-red-500/10"
                           onClick={() => doDelete(inst.name)} disabled={isLoading} data-testid={`lxd-delete-${inst.name}`}>
                           {actionLoading === `${inst.name}-delete` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}

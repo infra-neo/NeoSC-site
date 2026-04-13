@@ -2941,6 +2941,10 @@ class LxdCreateVM(BaseModel):
     ssh_key: str = ""
     netbird_setup_key: str = ""
     addons: Optional[List[str]] = None  # netbird, docker, cockpit
+    # VM-specific (Windows)
+    iso_path: str = ""
+    enable_tpm: bool = False
+    secure_boot: bool = False
     # Sync to workspaces
     add_to_workspaces: bool = True
 
@@ -2963,6 +2967,9 @@ async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_cur
         ssh_key=payload.ssh_key,
         netbird_setup_key=payload.netbird_setup_key,
         addons=payload.addons,
+        iso_path=payload.iso_path,
+        enable_tpm=payload.enable_tpm,
+        secure_boot=payload.secure_boot,
     )
     if result.get("ok"):
         await create_audit_log(user["id"], user["email"], "lxd_create_vm", f"vm:{payload.name}", f"Created {payload.instance_type}: {payload.name}")
@@ -3080,6 +3087,41 @@ async def lxd_sync_workspaces(project: Optional[str] = None, user: dict = Depend
                 "ipv4": inst.get("ipv4", ""),
             }})
     return {"synced": synced, "total": len(instances), "project": proj}
+
+
+@api_router.get("/lxd/instances/{name}/devices")
+async def lxd_get_instance_devices(name: str, project: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Get all devices of an instance (useful for diagnosing issues)."""
+    require_admin(user)
+    inst = await lxd_client.get_instance(name, project=project)
+    if inst.get("error"):
+        raise HTTPException(status_code=404, detail=inst["error"])
+    return {
+        "name": name,
+        "devices": inst.get("devices", {}),
+        "profiles": inst.get("profiles", []),
+    }
+
+
+@api_router.delete("/lxd/instances/{name}/devices/{device_name}")
+async def lxd_remove_device(name: str, device_name: str, project: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Remove a device from an instance (e.g., orphaned ISO mounts)."""
+    require_admin(user)
+    result = await lxd_client.remove_instance_device(name, device_name, project=project)
+    if result.get("ok"):
+        await create_audit_log(user["id"], user["email"], "lxd_remove_device", f"vm:{name}", f"Removed device: {device_name}")
+    return result
+
+
+@api_router.post("/lxd/instances/{name}/fix-devices")
+async def lxd_fix_devices(name: str, project: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Fix ISO/disk devices without pool backing (common Windows VM issue).
+    Removes disk devices that have 'source' but no 'pool' — these block LXD operations."""
+    require_admin(user)
+    result = await lxd_client.fix_instance_iso_devices(name, pool="dir", project=project)
+    if result.get("ok") and result.get("fixed"):
+        await create_audit_log(user["id"], user["email"], "lxd_fix_devices", f"vm:{name}", f"Fixed devices: {result['fixed']}")
+    return result
 
 
 
