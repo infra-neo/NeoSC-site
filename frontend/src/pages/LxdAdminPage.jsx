@@ -73,12 +73,15 @@ export default function LxdAdminPage() {
       if (!currentProject && projectsRes.data.current) {
         setCurrentProject(projectsRes.data.current);
       }
-      if (imgs.length > 0 && !createForm.image_alias) {
-        setCreateForm(prev => ({ ...prev, image_alias: imgs[0].fingerprint }));
+      if (imgs.length > 0) {
+        setCreateForm(prev => prev.image_alias && imgs.some(i => i.fingerprint === prev.image_alias)
+          ? prev
+          : { ...prev, image_alias: imgs[0].fingerprint });
       }
-      if (pls.length > 0 && !createForm.storage_pool) {
-        const created = pls.find(pp => pp.status === 'Created');
-        setCreateForm(prev => ({ ...prev, storage_pool: (created || pls[0]).name }));
+      if (pls.length > 0) {
+        setCreateForm(prev => prev.storage_pool && pls.some(p => p.name === prev.storage_pool)
+          ? prev
+          : { ...prev, storage_pool: (pls.find(pp => pp.status === 'Created') || pls[0]).name });
       }
     } catch { /* ignore */ }
     setLoading(false);
@@ -88,6 +91,7 @@ export default function LxdAdminPage() {
 
   const switchProject = (proj) => {
     setCurrentProject(proj);
+    setCreateForm(prev => ({ ...prev, image_alias: '', storage_pool: '' }));
     loadData(proj);
   };
 
@@ -123,17 +127,21 @@ export default function LxdAdminPage() {
     }
     setActionLoading('creating');
     try {
-      const res = await axios.post(`${API}/lxd/instances`, { ...createForm, project: currentProject }, { headers });
+      const payload = { ...createForm, project: currentProject };
+      // Don't send empty iso_path
+      if (!payload.iso_path) delete payload.iso_path;
+      const res = await axios.post(`${API}/lxd/instances`, payload, { headers });
       if (res.data.ok) {
         toast.success(`"${createForm.name}" creada`);
         setShowCreate(false);
         setCreateForm(prev => ({ ...prev, name: '', description: '', password: '' }));
         await loadData();
       } else {
-        toast.error(res.data.error || 'Error');
+        toast.error(res.data.error || 'Error al crear instancia');
       }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Error');
+      const detail = err.response?.data?.detail || err.response?.data?.error || err.message;
+      toast.error(`Error: ${detail}`);
     }
     setActionLoading(null);
   };
@@ -296,13 +304,25 @@ export default function LxdAdminPage() {
                 </div>
                 <div>
                   <Label className="text-xs">Imagen *</Label>
-                  <select value={createForm.image_alias} onChange={e => setCreateForm({...createForm, image_alias: e.target.value})} className="h-8 text-xs w-full rounded-md border border-border bg-background px-2" data-testid="lxd-vm-image">
+                  <select value={createForm.image_alias} onChange={e => {
+                      const selectedImg = images.find(i => i.fingerprint === e.target.value);
+                      const updates = { image_alias: e.target.value };
+                      if (selectedImg?.type === 'virtual-machine') {
+                        updates.instance_type = 'virtual-machine';
+                      } else if (selectedImg?.type === 'container') {
+                        updates.instance_type = 'container';
+                      }
+                      setCreateForm(prev => ({...prev, ...updates}));
+                    }} className="h-8 text-xs w-full rounded-md border border-border bg-background px-2" data-testid="lxd-vm-image">
                     <option value="">— Seleccionar —</option>
-                    {images.map(img => (
-                      <option key={img.fingerprint} value={img.fingerprint}>
-                        {img.description || `${img.os} ${img.release}`} ({img.type === 'virtual-machine' ? 'VM' : 'CT'})
-                      </option>
-                    ))}
+                    {images.map(img => {
+                      const label = img.description || (img.aliases && img.aliases[0]) || `${img.os || ''} ${img.release || ''}`.trim() || img.fingerprint;
+                      return (
+                        <option key={img.fingerprint} value={img.fingerprint}>
+                          {label} ({img.type === 'virtual-machine' ? 'VM' : 'CT'})
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div>
@@ -393,29 +413,18 @@ export default function LxdAdminPage() {
               {createForm.instance_type === 'virtual-machine' && (
                 <div className="border-t border-border pt-3">
                   <h4 className="text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1">
-                    <Shield className="w-3 h-3" /> Opciones de VM (Windows)
+                    <Shield className="w-3 h-3" /> Opciones de VM
                   </h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-xs">ISO Path (en host LXD)</Label>
-                      <Input value={createForm.iso_path} onChange={e => setCreateForm({...createForm, iso_path: e.target.value})} placeholder="/opt/Win11.iso" className="h-8 text-xs font-mono" data-testid="lxd-iso-path" />
-                      <span className="text-[10px] text-muted-foreground">Ruta del ISO en el servidor LXD</span>
-                    </div>
-                    <div className="flex flex-col gap-2 pt-5">
-                      <label className="flex items-center gap-2 text-xs">
-                        <input type="checkbox" checked={createForm.enable_tpm} onChange={e => setCreateForm({...createForm, enable_tpm: e.target.checked})} className="rounded" />
-                        TPM 2.0 (requerido para Win11)
-                      </label>
-                      <label className="flex items-center gap-2 text-xs">
-                        <input type="checkbox" checked={createForm.secure_boot} onChange={e => setCreateForm({...createForm, secure_boot: e.target.checked})} className="rounded" />
-                        Secure Boot
-                      </label>
-                    </div>
-                    <div className="pt-5">
-                      <p className="text-[10px] text-amber-400">
-                        Para VMs Windows: usa pool ZFS (dir), habilita TPM, y adjunta el ISO de instalacion.
-                      </p>
-                    </div>
+                  <div className="flex gap-4 items-center">
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" checked={createForm.enable_tpm} onChange={e => setCreateForm({...createForm, enable_tpm: e.target.checked})} className="rounded" />
+                      TPM 2.0 (requerido para Win11)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs">
+                      <input type="checkbox" checked={createForm.secure_boot} onChange={e => setCreateForm({...createForm, secure_boot: e.target.checked})} className="rounded" />
+                      Secure Boot
+                    </label>
+                    <span className="text-[10px] text-muted-foreground ml-2">La imagen ya debe tener el OS instalado</span>
                   </div>
                 </div>
               )}
