@@ -3,78 +3,29 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ZITADEL_CONFIG, ZITADEL_CLOUD_CONFIG } from '@/config/zitadel';
-import { 
-  Shield, 
-  Lock, 
-  Monitor, 
-  CheckCircle2, 
-  X, 
-  Play,
-  Maximize2,
-  Minimize2,
-  ChevronRight,
+import {
+  Shield, Lock, Monitor, CheckCircle2, X, Play,
+  Maximize2, Minimize2, ChevronRight, ChevronDown,
+  Wifi, Globe, Server, Container, Key, Users,
+  Cpu, Cloud, Terminal, FileCode, Layout, Chrome,
+  ArrowRight, ExternalLink, Zap, Network, Eye,
+  HardDrive, Search
 } from 'lucide-react';
 
-// Demo configurations - URLs that WORK in iframe
+// Demo configurations
 const demoConfigs = {
-  linux: {
-    title: 'Ubuntu Desktop 22.04',
-    subtitle: 'Full Linux environment with development tools via noVNC',
-    url: 'http://100.107.254.100:6080/',
-    icon: '🐧',
-    gradient: 'from-orange-500 to-yellow-500',
-    plan: 'PRO & ENTERPRISE'
-  },
-  windows: {
-    title: 'Windows Desktop',
-    subtitle: 'Windows environment via TSplus HTML5 Remote Desktop',
-    url: 'https://win11.blueedge.me/',
-    icon: '🪟',
-    gradient: 'from-blue-500 to-cyan-500',
-    plan: 'ALL PLANS'
-  },
-  vscode: {
-    title: 'VS Code Online',
-    subtitle: 'Browser-based development environment',
-    url: 'https://stackblitz.com/edit/typescript?embed=1',
-    icon: '💻',
-    gradient: 'from-blue-600 to-blue-400',
-    plan: 'ALL PLANS'
-  },
-  panel: {
-    title: 'NeoSC Panel',
-    subtitle: 'Modern Linux server management panel',
-    url: 'https://panel.proxy.kappa4.com/',
-    icon: '🎛️',
-    gradient: 'from-purple-500 to-pink-500',
-    plan: 'PRO & ENTERPRISE'
-  },
-  crm: {
-    title: 'CRM Dashboard',
-    subtitle: 'Analytics and business dashboard demo',
-    url: 'https://metabase.com/demo',
-    icon: '📊',
-    gradient: 'from-green-500 to-emerald-500',
-    plan: 'ALL PLANS'
-  },
-  jupyter: {
-    title: 'Jupyter Lab',
-    subtitle: 'Interactive data science workspace',
-    url: 'https://jupyter.org/try',
-    icon: '📓',
-    gradient: 'from-orange-600 to-red-500',
-    plan: 'PRO & ENTERPRISE'
-  }
+  linux: { title: 'Ubuntu Desktop 22.04', subtitle: 'Full Linux environment via noVNC', url: 'http://100.107.254.100:6080/', gradient: 'from-orange-500 to-yellow-500', plan: 'PRO & ENTERPRISE', icon: Layout },
+  windows: { title: 'Windows Desktop', subtitle: 'Windows via TSplus HTML5', url: 'https://win11.blueedge.me/', gradient: 'from-blue-500 to-cyan-500', plan: 'ALL PLANS', icon: Monitor },
+  vscode: { title: 'VS Code Online', subtitle: 'Browser-based IDE', url: 'https://stackblitz.com/edit/typescript?embed=1', gradient: 'from-blue-600 to-blue-400', plan: 'ALL PLANS', icon: FileCode },
+  panel: { title: 'NeoSC Panel', subtitle: 'Server management panel', url: 'https://panel.proxy.kappa4.com/', gradient: 'from-purple-500 to-pink-500', plan: 'PRO & ENTERPRISE', icon: Server },
+  crm: { title: 'CRM Dashboard', subtitle: 'Analytics dashboard', url: 'https://metabase.com/demo', gradient: 'from-green-500 to-emerald-500', plan: 'ALL PLANS', icon: Globe },
+  jupyter: { title: 'Jupyter Lab', subtitle: 'Data science workspace', url: 'https://jupyter.org/try', gradient: 'from-orange-600 to-red-500', plan: 'PRO & ENTERPRISE', icon: Terminal },
 };
 
-// Pricing plans - NeoSC Masterplan v1
 const pricingPlans = [
   {
-    name: 'Starter',
-    icon: '🟢',
-    price: '$29',
-    period: '/mes',
-    description: 'VM + NeoDesk HTML5 para equipos pequeños',
+    name: 'Starter', price: '$29', period: '/mes',
+    description: 'VM + NeoDesk HTML5 para equipos pequenos',
     features: [
       { text: '5 Usuarios NeoDesk', included: true },
       { text: '2 vCPU / 4 GB RAM / 80 GB NVMe', included: true },
@@ -86,14 +37,10 @@ const pricingPlans = [
       { text: 'NeoProxy IAP', included: false },
       { text: 'NeoVault PAM', included: false },
     ],
-    cta: 'Empezar',
-    featured: false
+    cta: 'Empezar', featured: false
   },
   {
-    name: 'Plus',
-    icon: '🔵',
-    price: '$79',
-    period: '/mes',
+    name: 'Plus', price: '$79', period: '/mes',
     description: 'TSplus existente + NeoProxy + NeoMesh',
     features: [
       { text: '25 Usuarios NeoDesk+', included: true },
@@ -105,14 +52,10 @@ const pricingPlans = [
       { text: 'Soporte prioritario 4h', included: true },
       { text: 'NeoVault PAM', included: false },
     ],
-    cta: 'Comprar',
-    featured: true
+    cta: 'Comprar', featured: true
   },
   {
-    name: 'Enterprise',
-    icon: '🟣',
-    price: 'Custom',
-    period: '',
+    name: 'Enterprise', price: 'Custom', period: '',
     description: 'B2B delegado con NeoVault y on-prem',
     features: [
       { text: 'Usuarios ilimitados', included: true },
@@ -120,16 +63,14 @@ const pricingPlans = [
       { text: 'NeoVault PAM (JumpServer)', included: true },
       { text: 'NeoMesh + relay dedicado', included: true },
       { text: 'NeoGuard + AD/LDAP federado', included: true },
-      { text: 'Grabación sesiones', included: true },
+      { text: 'Grabacion sesiones', included: true },
       { text: 'SLA 99.9% + soporte 24/7', included: true },
-      { text: 'CFDI México / Facturación', included: true },
+      { text: 'CFDI Mexico / Facturacion', included: true },
     ],
-    cta: 'Contactar ventas',
-    featured: false
+    cta: 'Contactar ventas', featured: false
   }
 ];
 
-// Features comparison table
 const featuresComparison = [
   { feature: 'Usuarios', starter: '5', professional: '25', enterprise: 'Ilimitados' },
   { feature: 'NeoDesk HTML5', starter: true, professional: true, enterprise: true },
@@ -144,6 +85,54 @@ const featuresComparison = [
   { feature: 'SLA', starter: '-', professional: '99.5%', enterprise: '99.9%' },
 ];
 
+// Platform tree — Teleport-style
+const platformTree = [
+  {
+    label: 'Unified Identity Layer', icon: Shield, color: '#9945ff',
+    children: [
+      { label: 'NeoGuard SSO (Zitadel OIDC)', icon: Lock },
+      { label: 'Multi-Factor Authentication', icon: Key },
+      { label: 'AD / LDAP Federation', icon: Users },
+    ]
+  },
+  {
+    label: 'Zero Trust Access', icon: Wifi, color: '#1e998e',
+    children: [
+      { label: 'NeoMesh VPN (NetBird)', icon: Network },
+      { label: 'NeoProxy IAP (Pomerium)', icon: Globe },
+      { label: 'NeoConnect Relay', icon: Container },
+    ]
+  },
+  {
+    label: 'Remote Desktops & Apps', icon: Monitor, color: '#00b4d8',
+    children: [
+      { label: 'NeoDesk HTML5 (Guacamole)', icon: Chrome },
+      { label: 'NeoDesk+ TSplus HTML5', icon: Layout },
+      { label: 'Ubuntu Desktop / Kiosk', icon: Terminal },
+      { label: 'Windows VMs on LXD', icon: Server },
+    ]
+  },
+  {
+    label: 'Identity Governance', icon: Eye, color: '#f72585',
+    children: [
+      { label: 'NeoVault PAM (JumpServer)', icon: Lock },
+      { label: 'Session Recording', icon: Play },
+      { label: 'Audit Logs & Compliance', icon: Shield },
+    ]
+  },
+];
+
+// Sidebar product icons
+const sidebarProducts = [
+  { icon: Shield, label: 'NeoGuard', color: '#9945ff' },
+  { icon: Wifi, label: 'NeoMesh', color: '#1e998e' },
+  { icon: Monitor, label: 'NeoDesk', color: '#00b4d8' },
+  { icon: Globe, label: 'NeoProxy', color: '#f77f00' },
+  { icon: Lock, label: 'NeoVault', color: '#f72585' },
+  { icon: Container, label: 'NeoCloud', color: '#4cc9f0' },
+  { icon: Network, label: 'NeoConnect', color: '#7209b7' },
+];
+
 export default function LandingPage() {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
@@ -151,476 +140,401 @@ export default function LandingPage() {
   const [demoLoading, setDemoLoading] = useState(false);
   const [currentDemo, setCurrentDemo] = useState(null);
   const [demoFullscreen, setDemoFullscreen] = useState(false);
-  const [activeQuality, setActiveQuality] = useState('balanced');
+  const [expandedTree, setExpandedTree] = useState([0, 2]);
   const demoContainerRef = useRef(null);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 50);
-    };
+    const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Redirect to Zitadel SSO directly
-  const handleSignIn = () => {
-    navigate('/login');
-  };
+  const handleSignIn = () => navigate('/login');
 
   const loadDemo = (type) => {
     const config = demoConfigs[type];
     if (!config) return;
-
     setCurrentDemo({ ...config, type });
     setDemoActive(true);
     setDemoLoading(true);
-
-    // Scroll to demo container
-    setTimeout(() => {
-      demoContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-
-    // Simulate connection delay, then load iframe
-    setTimeout(() => {
-      setDemoLoading(false);
-    }, 1500);
+    setTimeout(() => demoContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    setTimeout(() => setDemoLoading(false), 1500);
   };
 
-  const closeDemo = () => {
-    setDemoActive(false);
-    setCurrentDemo(null);
-    setDemoLoading(false);
-    setDemoFullscreen(false);
-  };
+  const closeDemo = () => { setDemoActive(false); setCurrentDemo(null); setDemoLoading(false); setDemoFullscreen(false); };
 
   const scrollToSection = (id) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const toggleTree = (i) => {
+    setExpandedTree(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-cyan-500/5" />
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+    <div className="min-h-screen bg-[#0f1117] text-[#ced4da] overflow-x-hidden">
+
+      {/* Announcement Bar */}
+      <div className="bg-[#1e998e] text-white text-center py-2 text-xs font-medium z-[60] relative">
+        <span>NeoSC Platform v2.0 — Automated Zitadel + NetBird provisioning is live.</span>
+        <button onClick={() => navigate('/market')} className="ml-2 underline hover:no-underline">
+          Explore Market <ChevronRight className="w-3 h-3 inline" />
+        </button>
       </div>
 
-      {/* Navigation */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? 'bg-background/95 backdrop-blur-xl border-b border-border shadow-lg' : 'bg-transparent'
+      {/* Navigation — Teleport style */}
+      <nav className={`sticky top-0 z-50 transition-all duration-300 border-b ${
+        scrolled ? 'bg-[#0f1117]/95 backdrop-blur-xl border-[#2a2d35]' : 'bg-[#0f1117] border-transparent'
       }`}>
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center">
-              <span className="text-white font-bold text-lg">N</span>
+        <div className="max-w-7xl mx-auto px-6 h-[60px] flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#9945ff] to-[#7209b7] flex items-center justify-center">
+              <span className="text-white font-bold">N</span>
             </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1">
-                <span className="font-semibold text-foreground">Neo</span>
-                <span className="text-cyan-400 font-bold">SC</span>
-              </div>
-              <span className="text-xs text-orange-400">by Neogénesys</span>
+            <div className="flex items-baseline gap-0.5">
+              <span className="font-semibold text-white text-lg">Neo</span>
+              <span className="text-[#1e998e] font-bold text-lg">SC</span>
             </div>
           </Link>
 
-          <div className="hidden md:flex items-center gap-8">
-            <button onClick={() => scrollToSection('demo')} className="text-muted-foreground hover:text-foreground transition-colors">
-              Demo
-            </button>
-            <button onClick={() => scrollToSection('pricing')} className="text-muted-foreground hover:text-foreground transition-colors">
-              Pricing
-            </button>
-            <button onClick={() => scrollToSection('features')} className="text-muted-foreground hover:text-foreground transition-colors">
-              Features
-            </button>
+          <div className="hidden md:flex items-center gap-7 text-sm">
+            {[
+              { label: 'Platform', action: () => scrollToSection('platform') },
+              { label: 'Solutions', action: () => scrollToSection('demo') },
+              { label: 'Pricing', action: () => scrollToSection('pricing') },
+              { label: 'Resources', action: () => scrollToSection('features') },
+            ].map(item => (
+              <button key={item.label} onClick={item.action}
+                className="text-[#8b949e] hover:text-white transition-colors flex items-center gap-1">
+                {item.label} <ChevronDown className="w-3 h-3" />
+              </button>
+            ))}
           </div>
 
           <div className="flex items-center gap-3">
-            <Button variant="ghost" onClick={handleSignIn}>
-              Sign In
+            <button onClick={handleSignIn} className="text-sm text-[#8b949e] hover:text-white transition-colors hidden sm:block">
+              LOG IN
+            </button>
+            <Button onClick={handleSignIn} size="sm"
+              className="bg-[#2a2d35] hover:bg-[#363a42] text-white border border-[#3d4148] text-sm h-9 px-4">
+              Try for Free
             </Button>
-            <Button onClick={handleSignIn} className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500">
-              Start Free Trial
+            <Button onClick={() => navigate('/market')} size="sm"
+              className="bg-[#9945ff] hover:bg-[#8033e0] text-white text-sm h-9 px-4">
+              Explore Market
             </Button>
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="relative pt-32 pb-20 px-6">
-        <div className="max-w-5xl mx-auto text-center">
-          <Badge className="mb-6 bg-cyan-500/10 text-cyan-400 border-cyan-500/30">
-            Powered by NeoMesh Zero Trust Network
-          </Badge>
-          
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-foreground via-cyan-400 to-foreground bg-clip-text text-transparent">
-            Zero Trust Remote Access
-            <br />
-            <span className="text-cyan-400">Platform</span>
-          </h1>
-          
-          <p className="text-xl text-muted-foreground mb-10 max-w-3xl mx-auto leading-relaxed">
-            Access Linux desktops, Windows machines, and web applications securely from anywhere.
-            Built on <span className="text-cyan-400">NeoGuard SSO</span> + <span className="text-orange-400">NeoMesh VPN</span> + <span className="text-purple-400">NeoDesk RDP</span>.
-          </p>
+      <div className="flex">
+        {/* Left Sidebar — Product Icons */}
+        <aside className="hidden lg:flex flex-col items-center w-16 py-6 gap-4 border-r border-[#1e2028] sticky top-[60px] h-[calc(100vh-60px)]">
+          {sidebarProducts.map((p, i) => {
+            const Icon = p.icon;
+            return (
+              <button key={i} title={p.label}
+                className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-[#1e2028] transition-colors group relative">
+                <Icon className="w-5 h-5" style={{ color: p.color }} />
+                <span className="absolute left-12 bg-[#1e2028] text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                  {p.label}
+                </span>
+              </button>
+            );
+          })}
+          <div className="flex-1" />
+          <button onClick={handleSignIn} className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-[#1e2028] transition-colors">
+            <Search className="w-4 h-4 text-[#8b949e]" />
+          </button>
+        </aside>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button 
-              size="lg" 
-              onClick={() => scrollToSection('demo')}
-              className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-lg px-8 py-6"
-            >
-              <Play className="w-5 h-5 mr-2" />
-              Try Live Demo
-            </Button>
-            <Button 
-              size="lg" 
-              variant="outline" 
-              onClick={() => scrollToSection('pricing')}
-              className="text-lg px-8 py-6 border-border hover:border-cyan-500/50"
-            >
-              View Pricing
-            </Button>
-            <Button
-              size="lg"
-              onClick={() => navigate('/market')}
-              className="text-lg px-8 py-6 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white border-0 gap-2"
-            >
-              🪟 Windows VDI Cloud
-            </Button>
-          </div>
+        {/* Main Content */}
+        <main className="flex-1 min-w-0">
 
-          {/* Trust badges */}
-          <div className="flex items-center justify-center gap-6 mt-12 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-green-400" />
-              SOC 2 Compliant
-            </div>
-            <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-cyan-400" />
-              GDPR Ready
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-purple-400" />
-              ISO 27001
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Demo Section */}
-      <section id="demo" className="py-20 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl font-bold mb-4">Experience NeoSC in Action</h2>
-            <p className="text-muted-foreground text-lg">Click on any workspace to start an instant demo session</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Object.entries(demoConfigs).map(([key, config]) => (
-              <div
-                key={key}
-                onClick={() => loadDemo(key)}
-                className="group relative p-6 rounded-2xl bg-card border border-border cursor-pointer transition-all duration-300 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 hover:scale-[1.02] overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                
-                <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${config.gradient} flex items-center justify-center text-3xl mb-4 relative z-10`}>
-                  {config.icon}
-                </div>
-                
-                <h3 className="text-xl font-semibold mb-2 relative z-10">{config.title.split(' ').slice(0, 2).join(' ')}</h3>
-                <p className="text-muted-foreground text-sm mb-4 relative z-10">{config.subtitle}</p>
-                
-                <Badge variant="outline" className="text-xs border-cyan-500/30 text-cyan-400 relative z-10">
-                  ✓ {config.plan}
-                </Badge>
-              </div>
-            ))}
-          </div>
-
-          {/* Live Demo Container - EMBEDDED IFRAME */}
-          <div 
-            ref={demoContainerRef}
-            className={`mt-8 transition-all duration-500 ${
-              demoActive ? 'opacity-100 max-h-[800px]' : 'opacity-0 max-h-0 overflow-hidden'
-            }`}
-          >
-            <div className={`rounded-2xl border border-cyan-500/30 bg-card overflow-hidden shadow-2xl shadow-cyan-500/10 ${
-              demoFullscreen ? 'fixed inset-4 z-50' : ''
-            }`}>
-              {/* Demo Header */}
-              <div className="flex items-center justify-between p-4 border-b border-border bg-muted/30">
-                <div className="flex items-center gap-3">
-                  {currentDemo && (
-                    <>
-                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${currentDemo.gradient} flex items-center justify-center text-xl`}>
-                        {currentDemo.icon}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-lg">{currentDemo.title}</h3>
-                        <p className="text-sm text-muted-foreground">{currentDemo.subtitle}</p>
-                      </div>
-                    </>
-                  )}
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  {/* Quality tabs */}
-                  <div className="hidden md:flex items-center gap-1 p-1 bg-muted/50 rounded-lg mr-4">
-                    {['high', 'balanced', 'low'].map((q) => (
-                      <button
-                        key={q}
-                        onClick={() => setActiveQuality(q)}
-                        className={`px-3 py-1 rounded text-xs transition-colors ${
-                          activeQuality === q 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        {q === 'high' ? 'High Quality' : q === 'balanced' ? 'Balanced' : 'Low Latency'}
-                      </button>
-                    ))}
+          {/* Hero — Teleport Style */}
+          <section className="relative px-6 pt-16 pb-12">
+            <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-12">
+              {/* Left: Platform title + tree */}
+              <div className="flex-1 space-y-8">
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#9945ff] to-[#7209b7] flex items-center justify-center">
+                      <Shield className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="text-[#9945ff] text-sm font-semibold tracking-wide uppercase">NeoSC Platform</span>
                   </div>
-                  
-                  <Button variant="ghost" size="icon" onClick={() => setDemoFullscreen(!demoFullscreen)}>
-                    {demoFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={closeDemo} className="text-destructive hover:text-destructive">
-                    <X className="w-4 h-4" />
-                  </Button>
+                  <h1 className="text-4xl sm:text-5xl font-bold text-white leading-tight" data-testid="hero-title">
+                    NeoSC Infrastructure
+                    <br />
+                    <span className="bg-gradient-to-r from-[#9945ff] to-[#1e998e] bg-clip-text text-transparent">Identity Platform</span>
+                  </h1>
+                  <p className="mt-4 text-lg text-[#8b949e] max-w-xl">
+                    Unified Identity Securing Desktops, Apps & Infrastructure.
+                    Zero Trust Access for Windows, Linux and Cloud workloads.
+                  </p>
+                </div>
+
+                {/* Platform Tree */}
+                <div id="platform" className="space-y-1" data-testid="platform-tree">
+                  {platformTree.map((branch, i) => {
+                    const Icon = branch.icon;
+                    const isOpen = expandedTree.includes(i);
+                    return (
+                      <div key={i}>
+                        <button onClick={() => toggleTree(i)}
+                          className="flex items-center gap-3 w-full py-2.5 px-3 rounded-lg hover:bg-[#1a1d24] transition-colors text-left group">
+                          <div className="w-1 h-8 rounded-full" style={{ backgroundColor: branch.color }} />
+                          <Icon className="w-4 h-4" style={{ color: branch.color }} />
+                          <span className="text-white font-medium text-sm flex-1">{branch.label}</span>
+                          <ChevronRight className={`w-3.5 h-3.5 text-[#8b949e] transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                        </button>
+                        {isOpen && (
+                          <div className="ml-8 pl-4 border-l border-[#2a2d35] space-y-0.5">
+                            {branch.children.map((child, j) => {
+                              const CIcon = child.icon;
+                              return (
+                                <div key={j} className="flex items-center gap-2.5 py-1.5 px-3 rounded text-sm text-[#8b949e] hover:text-white hover:bg-[#1a1d24] transition-colors cursor-default">
+                                  <CIcon className="w-3.5 h-3.5" />
+                                  {child.label}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Demo Content - IFRAME */}
-              <div className={`bg-black relative ${demoFullscreen ? 'h-[calc(100%-70px)]' : 'h-[500px]'}`}>
-                {demoLoading ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-background/95">
-                    <div className="w-12 h-12 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4" />
-                    <h4 className="text-lg font-medium mb-2">Connecting to {currentDemo?.title}...</h4>
-                    <p className="text-sm text-muted-foreground">Establishing secure tunnel...</p>
-                    <div className="mt-4 flex items-center gap-2 text-xs text-green-400">
-                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                      Encrypted connection active
+              {/* Right: Featured Resource / CTA */}
+              <div className="w-full lg:w-[380px] space-y-6">
+                <div className="rounded-2xl border border-[#2a2d35] bg-[#161920] p-6 space-y-5">
+                  <div className="text-xs text-[#8b949e] uppercase tracking-wider font-semibold">Featured Resource</div>
+                  <div className="rounded-xl bg-gradient-to-br from-[#9945ff]/20 to-[#1e998e]/20 p-8 flex items-center justify-center">
+                    <div className="text-center space-y-3">
+                      <div className="w-16 h-16 rounded-2xl bg-[#9945ff]/20 flex items-center justify-center mx-auto">
+                        <Shield className="w-8 h-8 text-[#9945ff]" />
+                      </div>
+                      <div className="text-white font-semibold">Zero Trust<br />Secure Connect</div>
                     </div>
                   </div>
-                ) : currentDemo ? (
-                  <iframe
-                    src={currentDemo.url}
-                    className="w-full h-full border-0"
-                    title={currentDemo.title}
-                    allow="clipboard-read; clipboard-write; fullscreen"
-                    sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
-                  />
-                ) : null}
+                  <div>
+                    <div className="text-white font-semibold mb-1">NeoSC: Beyond VPN access</div>
+                    <p className="text-xs text-[#8b949e]">
+                      See how NeoGuard SSO + NeoMesh VPN + NeoDesk RDP create a unified identity perimeter.
+                    </p>
+                  </div>
+                  <button onClick={() => scrollToSection('demo')} className="flex items-center gap-2 text-[#1e998e] text-sm font-medium hover:underline">
+                    Try Live Demo <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Quick stats */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { val: '99.9%', label: 'Uptime SLA', color: '#1e998e' },
+                    { val: '<2min', label: 'Provisioning', color: '#9945ff' },
+                    { val: '0', label: 'Open Ports', color: '#f72585' },
+                    { val: '3', label: 'Auth Factors', color: '#f77f00' },
+                  ].map((s, i) => (
+                    <div key={i} className="rounded-xl border border-[#2a2d35] bg-[#161920] p-3 text-center">
+                      <div className="text-xl font-bold" style={{ color: s.color }}>{s.val}</div>
+                      <div className="text-[10px] text-[#8b949e]">{s.label}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      {/* Pricing Section */}
-      <section id="pricing" className="py-20 px-6 bg-muted/30">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
-            <p className="text-muted-foreground text-lg">Choose the plan that fits your organization</p>
-          </div>
+          {/* Live Demo Section */}
+          <section id="demo" className="px-6 py-16 border-t border-[#1e2028]" ref={demoContainerRef}>
+            <div className="max-w-6xl mx-auto">
+              <div className="text-center mb-10">
+                <Badge className="bg-[#1e998e]/10 text-[#1e998e] border-[#1e998e]/30 mb-3">Interactive Demos</Badge>
+                <h2 className="text-3xl font-bold text-white">Try it now — no install required</h2>
+                <p className="text-[#8b949e] mt-2">Click any workspace to launch an HTML5 session in your browser</p>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {pricingPlans.map((plan) => (
-              <div
-                key={plan.name}
-                className={`relative p-6 rounded-2xl bg-card border transition-all hover:shadow-lg ${
-                  plan.featured 
-                    ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' 
-                    : 'border-border hover:border-cyan-500/30'
-                }`}
-              >
-                {plan.featured && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge className="bg-gradient-to-r from-orange-500 to-red-500 text-white border-0">
-                      🔥 MOST POPULAR
-                    </Badge>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+                {Object.entries(demoConfigs).map(([key, config]) => {
+                  const Icon = config.icon;
+                  return (
+                    <button key={key} onClick={() => loadDemo(key)}
+                      className={`rounded-xl border p-4 text-center transition-all hover:scale-[1.02] ${
+                        currentDemo?.type === key
+                          ? 'border-[#1e998e] bg-[#1e998e]/10'
+                          : 'border-[#2a2d35] bg-[#161920] hover:border-[#3d4148]'
+                      }`} data-testid={`demo-${key}`}>
+                      <Icon className="w-6 h-6 mx-auto mb-2 text-[#8b949e]" />
+                      <div className="text-xs font-medium text-white">{config.title}</div>
+                      <div className="text-[9px] text-[#8b949e] mt-0.5">{config.plan}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {demoActive && currentDemo && (
+                <div className={`rounded-2xl border border-[#2a2d35] bg-[#0a0c10] overflow-hidden ${demoFullscreen ? 'fixed inset-0 z-50 rounded-none' : ''}`}>
+                  <div className="flex items-center justify-between px-4 py-2 bg-[#161920] border-b border-[#2a2d35]">
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-red-500 cursor-pointer" onClick={closeDemo} />
+                        <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                        <div className="w-3 h-3 rounded-full bg-green-500" />
+                      </div>
+                      <span className="text-xs text-[#8b949e] font-mono">{currentDemo.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setDemoFullscreen(!demoFullscreen)} className="text-[#8b949e] hover:text-white">
+                        {demoFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                      </button>
+                      <button onClick={closeDemo} className="text-[#8b949e] hover:text-white">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                )}
-
-                <div className="text-3xl mb-2">{plan.icon}</div>
-                <h3 className="text-2xl font-bold mb-1">{plan.name}</h3>
-                <div className="mb-2">
-                  <span className="text-4xl font-bold">{plan.price}</span>
-                  <span className="text-muted-foreground">{plan.period}</span>
+                  <div className={`relative ${demoFullscreen ? 'h-[calc(100vh-40px)]' : 'h-[500px]'}`}>
+                    {demoLoading ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#0a0c10]">
+                        <div className="text-center space-y-3">
+                          <div className="w-10 h-10 border-2 border-[#1e998e] border-t-transparent rounded-full animate-spin mx-auto" />
+                          <p className="text-sm text-[#8b949e]">Establishing secure tunnel...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <iframe src={currentDemo.url} className="w-full h-full border-0" title={currentDemo.title}
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms" />
+                    )}
+                  </div>
                 </div>
-                <p className="text-muted-foreground text-sm mb-6">{plan.description}</p>
+              )}
+            </div>
+          </section>
 
-                <ul className="space-y-3 mb-6">
-                  {plan.features.map((feature, idx) => (
-                    <li key={idx} className={`flex items-center gap-2 text-sm ${
-                      feature.included ? '' : 'text-muted-foreground/50'
-                    }`}>
-                      {feature.included ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-400" />
-                      ) : (
-                        <X className="w-4 h-4 text-muted-foreground/30" />
-                      )}
-                      {feature.text}
-                    </li>
-                  ))}
-                </ul>
+          {/* Pricing */}
+          <section id="pricing" className="px-6 py-16 border-t border-[#1e2028]">
+            <div className="max-w-6xl mx-auto">
+              <div className="text-center mb-10">
+                <h2 className="text-3xl font-bold text-white">Simple, transparent pricing</h2>
+                <p className="text-[#8b949e] mt-2">Start free, scale with your team</p>
+              </div>
 
-                <Button 
-                  className={`w-full ${
-                    plan.featured 
-                      ? 'bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500' 
-                      : ''
-                  }`}
-                  variant={plan.featured ? 'default' : 'outline'}
-                  onClick={() => navigate('/market')}
-                >
-                  {plan.cta}
+              <div className="grid md:grid-cols-3 gap-5">
+                {pricingPlans.map((plan, i) => (
+                  <div key={i} className={`rounded-2xl border p-6 transition-all relative ${
+                    plan.featured
+                      ? 'border-[#9945ff]/50 bg-[#161920] ring-1 ring-[#9945ff]/20'
+                      : 'border-[#2a2d35] bg-[#161920]'
+                  }`} data-testid={`pricing-${plan.name.toLowerCase()}`}>
+                    {plan.featured && (
+                      <Badge className="absolute -top-2.5 right-4 bg-[#9945ff] text-white text-[10px]">Popular</Badge>
+                    )}
+                    <div className="mb-5">
+                      <div className="text-lg font-bold text-white">{plan.name}</div>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <span className="text-3xl font-bold text-white">{plan.price}</span>
+                        <span className="text-[#8b949e] text-sm">{plan.period}</span>
+                      </div>
+                      <p className="text-xs text-[#8b949e] mt-1">{plan.description}</p>
+                    </div>
+                    <div className="space-y-2 mb-6">
+                      {plan.features.map((f, j) => (
+                        <div key={j} className="flex items-center gap-2 text-xs">
+                          {f.included
+                            ? <CheckCircle2 className="w-3.5 h-3.5 text-[#1e998e] flex-shrink-0" />
+                            : <X className="w-3.5 h-3.5 text-[#3d4148] flex-shrink-0" />
+                          }
+                          <span className={f.included ? 'text-[#ced4da]' : 'text-[#3d4148]'}>{f.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Button onClick={() => navigate('/market')}
+                      className={`w-full ${plan.featured
+                        ? 'bg-[#9945ff] hover:bg-[#8033e0] text-white'
+                        : 'bg-[#2a2d35] hover:bg-[#363a42] text-white border border-[#3d4148]'
+                      }`}>
+                      {plan.cta}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Features Comparison */}
+          <section id="features" className="px-6 py-16 border-t border-[#1e2028]">
+            <div className="max-w-5xl mx-auto">
+              <h2 className="text-2xl font-bold text-white text-center mb-8">Feature comparison</h2>
+              <div className="rounded-2xl border border-[#2a2d35] bg-[#161920] overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2a2d35]">
+                      <th className="text-left py-3 px-5 text-[#8b949e] font-medium">Feature</th>
+                      <th className="text-center py-3 px-4 text-white font-medium">Starter</th>
+                      <th className="text-center py-3 px-4 text-[#9945ff] font-medium">Plus</th>
+                      <th className="text-center py-3 px-4 text-white font-medium">Enterprise</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {featuresComparison.map((row, i) => (
+                      <tr key={i} className="border-b border-[#1e2028] hover:bg-[#1a1d24]">
+                        <td className="py-2.5 px-5 text-[#8b949e] text-xs">{row.feature}</td>
+                        {['starter', 'professional', 'enterprise'].map(tier => {
+                          const val = row[tier];
+                          return (
+                            <td key={tier} className="py-2.5 px-4 text-center text-xs">
+                              {val === true ? <CheckCircle2 className="w-4 h-4 text-[#1e998e] mx-auto" /> :
+                               val === false ? <X className="w-4 h-4 text-[#3d4148] mx-auto" /> :
+                               <span className="text-[#ced4da]">{val}</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          {/* Bottom CTA — Gradient bar */}
+          <section className="px-6 py-16 bg-gradient-to-r from-[#9945ff]/20 via-[#7209b7]/10 to-[#1e998e]/20 border-t border-[#1e2028]">
+            <div className="max-w-4xl mx-auto text-center space-y-6">
+              <h2 className="text-3xl font-bold text-white">Ready to secure your infrastructure?</h2>
+              <p className="text-[#8b949e]">Deploy NeoSC in minutes. No credit card required.</p>
+              <div className="flex items-center justify-center gap-4">
+                <Button onClick={() => navigate('/market')} size="lg"
+                  className="bg-[#9945ff] hover:bg-[#8033e0] text-white font-bold px-8 py-6 text-base gap-2">
+                  Start Free Trial <ArrowRight className="w-4 h-4" />
+                </Button>
+                <Button onClick={handleSignIn} size="lg" variant="outline"
+                  className="border-[#3d4148] text-white hover:bg-[#2a2d35] px-8 py-6 text-base">
+                  Contact Sales
                 </Button>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features Comparison Table */}
-      <section id="features" className="py-20 px-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl font-bold mb-4">Feature Comparison</h2>
-            <p className="text-muted-foreground text-lg">Compare all plans side by side</p>
-          </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-border bg-card">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left p-4 font-semibold">Feature</th>
-                  <th className="text-center p-4 font-semibold">Starter</th>
-                  <th className="text-center p-4 font-semibold text-cyan-400">Plus</th>
-                  <th className="text-center p-4 font-semibold">Enterprise</th>
-                </tr>
-              </thead>
-              <tbody>
-                {featuresComparison.map((row, idx) => (
-                  <tr key={idx} className="border-b border-border last:border-0 hover:bg-muted/20">
-                    <td className="p-4 font-medium">{row.feature}</td>
-                    <td className="p-4 text-center">
-                      {typeof row.starter === 'boolean' ? (
-                        row.starter ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-400 mx-auto" />
-                        ) : (
-                          <X className="w-5 h-5 text-muted-foreground/30 mx-auto" />
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">{row.starter}</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center bg-cyan-500/5">
-                      {typeof row.professional === 'boolean' ? (
-                        row.professional ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-400 mx-auto" />
-                        ) : (
-                          <X className="w-5 h-5 text-muted-foreground/30 mx-auto" />
-                        )
-                      ) : (
-                        <span className="text-cyan-400">{row.professional}</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      {typeof row.enterprise === 'boolean' ? (
-                        row.enterprise ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-400 mx-auto" />
-                        ) : (
-                          <X className="w-5 h-5 text-muted-foreground/30 mx-auto" />
-                        )
-                      ) : (
-                        <span className="text-purple-400">{row.enterprise}</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-6 bg-gradient-to-r from-cyan-500/10 via-primary/10 to-purple-500/10">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl font-bold mb-4">Ready to Get Started?</h2>
-          <p className="text-muted-foreground text-lg mb-8">
-            Join thousands of organizations using NeoSC for secure remote access
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button 
-              size="lg" 
-              onClick={handleSignIn}
-              className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-lg px-8 py-6"
-            >
-              Get Started Free
-              <ChevronRight className="w-5 h-5 ml-2" />
-            </Button>
-            <Button
-              size="lg"
-              onClick={() => navigate('/market')}
-              className="text-lg px-8 py-6 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white border-0 gap-2"
-            >
-              🪟 Windows VDI — Comprar ahora
-            </Button>
-            <Button 
-              size="lg" 
-              variant="outline" 
-              onClick={() => scrollToSection('demo')}
-              className="text-lg px-8 py-6"
-            >
-              <Play className="w-5 h-5 mr-2" />
-              Watch Demo
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-8 px-6 border-t border-border">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">N</span>
             </div>
-            <span className="text-muted-foreground">© 2025 NeoSC by Neogénesys. All rights reserved.</span>
-          </div>
-          <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#" className="hover:text-foreground transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-foreground transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
-          </div>
-        </div>
-      </footer>
+          </section>
+
+          {/* Footer */}
+          <footer className="px-6 py-10 border-t border-[#1e2028]">
+            <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-md bg-gradient-to-br from-[#9945ff] to-[#7209b7] flex items-center justify-center">
+                  <span className="text-white font-bold text-xs">N</span>
+                </div>
+                <span className="text-sm text-[#8b949e]">NeoSC by Neogenesys</span>
+              </div>
+              <div className="flex gap-6 text-xs text-[#8b949e]">
+                <a href="#" className="hover:text-white transition-colors">Terms of service</a>
+                <a href="#" className="hover:text-white transition-colors">Privacy policy</a>
+                <span>2026 Neogenesys</span>
+              </div>
+            </div>
+          </footer>
+        </main>
+      </div>
     </div>
   );
-}
-
-// Helper functions for PKCE
-function generateRandomString() {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function generateCodeChallenge(verifier) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(hash)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
 }
