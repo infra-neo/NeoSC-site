@@ -2048,6 +2048,11 @@ async def guacamole_list_connections(user: dict = Depends(get_current_user)):
     connections = await guacamole_client.list_connections()
     return {"connections": connections, "count": len(connections)}
 
+@api_router.get("/guacamole/connections/{connection_id}/detail")
+async def guacamole_connection_detail(connection_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.get_connection_detail(connection_id)
+
 class GuacConnectionCreate(BaseModel):
     name: str
     protocol: str = "rdp"
@@ -2061,12 +2066,9 @@ class GuacConnectionCreate(BaseModel):
 async def guacamole_create_connection(payload: GuacConnectionCreate, user: dict = Depends(get_current_user)):
     require_admin(user)
     result = await guacamole_client.create_connection(
-        name=payload.name,
-        protocol=payload.protocol,
-        hostname=payload.hostname,
-        port=payload.port,
-        username=payload.username,
-        password=payload.password,
+        name=payload.name, protocol=payload.protocol,
+        hostname=payload.hostname, port=payload.port,
+        username=payload.username, password=payload.password,
     )
     if result.get("ok") and payload.tenant_id:
         await db.organizations.update_one(
@@ -2083,71 +2085,113 @@ async def guacamole_delete_connection(connection_id: str, user: dict = Depends(g
 
 @api_router.get("/guacamole/connections/{connection_id}/link")
 async def guacamole_get_link(connection_id: str, user: dict = Depends(get_current_user)):
-    """Get a direct Guacamole session link for embedding or redirecting."""
     return await guacamole_client.get_connection_link(connection_id)
 
-@api_router.post("/guacamole/deploy")
-async def guacamole_deploy_server(user: dict = Depends(get_current_user)):
-    """Deploy a Guacamole server as an LXD container with Docker inside."""
+# ─── Guacamole Users ─────────────────────────────────────────────────────────
+
+@api_router.get("/guacamole/users")
+async def guacamole_list_users(user: dict = Depends(get_current_user)):
     require_admin(user)
-    container_name = "neosc-guacamole"
-    existing = await lxd_client.get_instance(container_name, project=lxd_client.LXD_PROJECT)
-    if not existing.get("error"):
-        return {"ok": True, "status": "already_exists", "container": container_name}
+    return await guacamole_client.list_users()
 
-    guac_cloud_init = guacamole_client.get_cloud_init_guacamole()
-    cloud_init_lines = [
-        "#cloud-config",
-        "users:",
-        "  - name: guacadmin",
-        "    shell: /bin/bash",
-        "    sudo: ALL=(ALL) NOPASSWD:ALL",
-        "    groups: sudo,adm",
-        '    plain_text_passwd: "NeoSC-Guac-2026!"',
-        "    lock_passwd: false",
-        "ssh_pwauth: true",
-        "packages:",
-        "  - curl",
-        "  - wget",
-        "  - openssh-server",
-        "  - ca-certificates",
-        "runcmd:",
-    ]
-    for line in guac_cloud_init.strip().split("\n"):
-        line = line.strip()
-        if line and not line.startswith("#"):
-            cloud_init_lines.append(f"  - {line}")
+class GuacUserCreate(BaseModel):
+    username: str
+    password: str = ""
 
-    config = {
-        "limits.cpu": "4",
-        "limits.memory": "8GiB",
-        "security.nesting": "true",
-        "user.user-data": "\n".join(cloud_init_lines),
-    }
-    payload = {
-        "name": container_name,
-        "type": "container",
-        "source": {"type": "image", "alias": "images:almalinux/9"},
-        "config": config,
-        "devices": {"root": {"path": "/", "pool": "dir", "type": "disk", "size": "50GiB"}},
-        "profiles": ["default"],
-        "description": "NeoSC Guacamole Server (RDP/VNC gateway)",
-    }
+@api_router.post("/guacamole/users")
+async def guacamole_create_user(payload: GuacUserCreate, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    result = await guacamole_client.create_user(payload.username, payload.password)
+    await create_audit_log(user["id"], user.get("email",""), "guacamole_create_user", f"guac_user:{payload.username}", "", result.get("ok", False))
+    return result
+
+@api_router.post("/guacamole/users/{username}/grant/{connection_id}")
+async def guacamole_grant_connection(username: str, connection_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.grant_connection_to_user(username, connection_id)
+
+# ─── Guacamole User Groups ───────────────────────────────────────────────────
+
+@api_router.get("/guacamole/groups")
+async def guacamole_list_groups(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.list_user_groups()
+
+class GuacGroupCreate(BaseModel):
+    identifier: str
+
+@api_router.post("/guacamole/groups")
+async def guacamole_create_group(payload: GuacGroupCreate, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.create_user_group(payload.identifier)
+
+@api_router.post("/guacamole/groups/{group_id}/add-user/{username}")
+async def guacamole_add_user_to_group(group_id: str, username: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.add_user_to_group(group_id, username)
+
+@api_router.post("/guacamole/groups/{group_id}/grant/{connection_id}")
+async def guacamole_grant_conn_to_group(group_id: str, connection_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await guacamole_client.grant_connection_to_group(group_id, connection_id)
+
+# ─── Zitadel → Guacamole OIDC Sync ──────────────────────────────────────────
+
+@api_router.post("/guacamole/sync-zitadel-groups")
+async def guacamole_sync_zitadel_groups(user: dict = Depends(get_current_user)):
+    """Sync Zitadel organization roles to Guacamole user groups.
+    Creates matching groups in Guacamole for each Zitadel role found."""
+    require_admin(user)
+    results = {"groups_created": [], "users_synced": [], "errors": []}
+
+    # Get Zitadel roles from projects
+    zit_h = zitadel_headers(org_id=ZITADEL_ORG_ID)
     try:
-        async with lxd_client._get_client() as client:
-            r = await client.post("/1.0/instances", json=payload, params=lxd_client._p())
-            data = r.json()
-            if r.status_code in (200, 202) and data.get("type") != "error":
-                op_url = data.get("operation")
-                if op_url:
-                    await client.get(f"{op_url}/wait", params={**lxd_client._p(), "timeout": "180"}, timeout=190.0)
-                # Start it
-                await lxd_client.change_instance_state(container_name, "start", project=lxd_client.LXD_PROJECT)
-                await create_audit_log(user["id"], user.get("email",""), "guacamole_deploy", f"vm:{container_name}", "Guacamole server deployed", True)
-                return {"ok": True, "container": container_name, "note": "Guacamole will be available on port 8080 after Docker starts (~2 min)"}
-            return {"ok": False, "error": data.get("error", r.text[:300])}
+        async with httpx.AsyncClient(timeout=20) as c:
+            # List projects
+            r_proj = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/_search", headers=zit_h, json={})
+            projects = r_proj.json().get("result", []) if r_proj.status_code < 400 else []
+
+            for proj in projects:
+                pid = proj.get("id", "")
+                pname = proj.get("name", "")
+                # Get roles for this project
+                r_roles = await c.post(f"{ZITADEL_DOMAIN}/management/v1/projects/{pid}/roles/_search",
+                                       headers=zit_h, json={})
+                roles = r_roles.json().get("result", []) if r_roles.status_code < 400 else []
+
+                for role in roles:
+                    role_key = role.get("key", "")
+                    display = role.get("displayName", role_key)
+                    # Create Guacamole group matching the role
+                    group_id = f"zitadel-{role_key}"
+                    gr = await guacamole_client.create_user_group(group_id)
+                    if gr.get("ok"):
+                        results["groups_created"].append(group_id)
+
+                    # Get users with this role (grants)
+                    r_grants = await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/grants/_search",
+                                            headers=zit_h, json={
+                                                "queries": [{"projectIdQuery": {"projectId": pid}},
+                                                            {"roleKeyQuery": {"roleKey": role_key}}]
+                                            })
+                    grants = r_grants.json().get("result", []) if r_grants.status_code < 400 else []
+
+                    for grant in grants:
+                        email = grant.get("email", "") or grant.get("userName", "")
+                        if email:
+                            # Create Guacamole user if not exists
+                            await guacamole_client.create_user(email)
+                            # Add to group
+                            await guacamole_client.add_user_to_group(group_id, email)
+                            results["users_synced"].append({"user": email, "group": group_id})
+
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        results["errors"].append(str(e))
+
+    await create_audit_log(user["id"], user.get("email",""), "guacamole_sync_zitadel",
+                           f"groups:{len(results['groups_created'])}", str(results)[:200])
+    return results
 
 
 # ============ NEO — AI ASSISTANT ============
