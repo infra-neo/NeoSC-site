@@ -2568,6 +2568,228 @@ async def sync_all_netbird_policies(user: dict = Depends(get_current_user)):
     return {"synced": len(results), "results": results}
 
 
+# ============ CLAIMS MAPPING END-TO-END ============
+# Zitadel roles → NetBird groups + policies → LXD project ACLs
+
+CLAIMS_MAP_CONFIG = {
+    "zitadel_guacamole_project_id": "368643737728850586",
+    "zitadel_portal_project_id": "360845682363341210",
+    "role_to_lxd_project": {
+        "admin": "default",
+        "grp-admins": "default",
+        "grp-infra": "default",
+        "neosc": "NeoSC",
+        "user": "NeoSC",
+        "viewer": "NeoSC",
+    },
+    "role_to_netbird_ports": {
+        "admin": ["22", "3389", "443", "8443", "5901", "80", "8080", "9443"],
+        "grp-admins": ["22", "3389", "443", "8443", "5901", "80", "8080", "9443"],
+        "grp-infra": ["22", "3389", "443", "8443", "5901"],
+        "user": ["3389", "443", "8443"],
+        "viewer": ["443", "8443"],
+        "grp-ops": ["3389", "443"],
+        "neosc": ["22", "3389", "443", "8443", "5901", "80"],
+        "sapuser": ["3389", "443"],
+    },
+}
+
+
+@api_router.get("/claims-map/config")
+async def get_claims_map_config(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return CLAIMS_MAP_CONFIG
+
+
+@api_router.put("/claims-map/config")
+async def update_claims_map_config(body: dict, user: dict = Depends(get_current_user)):
+    """Update role→project and role→ports mapping."""
+    require_admin(user)
+    if "role_to_lxd_project" in body:
+        CLAIMS_MAP_CONFIG["role_to_lxd_project"] = body["role_to_lxd_project"]
+    if "role_to_netbird_ports" in body:
+        CLAIMS_MAP_CONFIG["role_to_netbird_ports"] = body["role_to_netbird_ports"]
+    # Persist to DB
+    await db.config.update_one({"key": "claims_map"}, {"$set": {"value": CLAIMS_MAP_CONFIG}}, upsert=True)
+    return {"ok": True, "config": CLAIMS_MAP_CONFIG}
+
+
+@api_router.post("/claims-map/sync")
+async def sync_claims_end_to_end(user: dict = Depends(get_current_user)):
+    """Full end-to-end sync: Zitadel roles → NetBird groups/policies → LXD project ACL mapping.
+    
+    Flow:
+    1. Read all user grants from Zitadel (guacamole + portal projects)
+    2. For each role → ensure NetBird group exists with matching name
+    3. For each role → ensure NetBird policy with correct port ACL
+    4. Build LXD project access map (role → which LXD project they can see)
+    5. Store the full mapping in DB for the Workspaces page to consume
+    """
+    require_admin(user)
+    results = {
+        "zitadel_grants": 0,
+        "netbird_groups_synced": [],
+        "netbird_policies_synced": [],
+        "lxd_access_map": {},
+        "user_map": [],
+        "errors": [],
+    }
+
+    zit_h = zitadel_headers(org_id=ZITADEL_ORG_ID)
+    project_ids = [
+        CLAIMS_MAP_CONFIG["zitadel_guacamole_project_id"],
+        CLAIMS_MAP_CONFIG["zitadel_portal_project_id"],
+    ]
+
+    # Collect all grants
+    all_grants = []
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            for pid in project_ids:
+                r = await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/grants/_search",
+                                 headers=zit_h, json={"queries": [{"projectIdQuery": {"projectId": pid}}], "limit": 100})
+                if r.status_code < 400:
+                    grants = r.json().get("result", [])
+                    all_grants.extend(grants)
+
+        results["zitadel_grants"] = len(all_grants)
+
+        # Build user→roles map
+        user_roles = {}
+        for g in all_grants:
+            email = g.get("email", "") or g.get("userName", "")
+            if not email:
+                continue
+            roles = g.get("roleKeys", [])
+            if email not in user_roles:
+                user_roles[email] = set()
+            user_roles[email].update(roles)
+
+        # Sync NetBird groups and policies per role
+        async with httpx.AsyncClient(timeout=15) as c:
+            # Get existing NB groups
+            r_groups = await c.get(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers())
+            nb_groups = r_groups.json() if r_groups.status_code == 200 else []
+            nb_group_map = {g["name"]: g for g in nb_groups}
+
+            # Get existing NB policies
+            r_policies = await c.get(f"{NETBIRD_API_URL}/api/policies", headers=netbird_headers())
+            nb_policies = r_policies.json() if r_policies.status_code == 200 else []
+            nb_policy_map = {p["name"]: p for p in nb_policies}
+
+            all_group = next((g for g in nb_groups if g["name"] == "All"), None)
+            routing_group = next((g for g in nb_groups if g["name"] == "Routing Peers"), None)
+            dst_group_id = (routing_group or all_group or {}).get("id", "")
+
+            # Process each unique role
+            all_roles = set()
+            for roles in user_roles.values():
+                all_roles.update(roles)
+
+            for role in sorted(all_roles):
+                # Skip tenant-specific roles for NetBird (they have their own enrollment flow)
+                if role.startswith("tenant-") or role.startswith("test-"):
+                    continue
+
+                ports = CLAIMS_MAP_CONFIG["role_to_netbird_ports"].get(role, ["443"])
+
+                # 1. Ensure NetBird group exists
+                if role not in nb_group_map:
+                    r_cg = await c.post(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers(),
+                                        json={"name": role, "peers": []})
+                    if r_cg.status_code in (200, 201):
+                        nb_group_map[role] = r_cg.json()
+                        results["netbird_groups_synced"].append(role)
+
+                src_gid = nb_group_map.get(role, {}).get("id", "")
+                if not src_gid:
+                    continue
+
+                # 2. Ensure NetBird policy
+                policy_name = f"neosc-claims-{role}"
+                if policy_name not in nb_policy_map:
+                    pol_payload = {
+                        "name": policy_name,
+                        "description": f"NeoSC claims map: role={role} ports={','.join(ports)}",
+                        "enabled": True,
+                        "rules": [{
+                            "name": policy_name,
+                            "description": f"Allow {role} to access ports {','.join(ports)}",
+                            "enabled": True,
+                            "action": "accept",
+                            "bidirectional": True,
+                            "protocol": "tcp",
+                            "ports": ports,
+                            "sources": [src_gid],
+                            "destinations": [dst_group_id] if dst_group_id else [src_gid],
+                        }],
+                    }
+                    r_pol = await c.post(f"{NETBIRD_API_URL}/api/policies", headers=netbird_headers(), json=pol_payload)
+                    if r_pol.status_code in (200, 201):
+                        results["netbird_policies_synced"].append({"role": role, "policy": policy_name, "ports": ports})
+                else:
+                    results["netbird_policies_synced"].append({"role": role, "policy": policy_name, "status": "exists"})
+
+        # 3. Build LXD access map
+        lxd_access = {}
+        for email, roles in user_roles.items():
+            projects = set()
+            for role in roles:
+                proj = CLAIMS_MAP_CONFIG["role_to_lxd_project"].get(role)
+                if proj:
+                    projects.add(proj)
+            lxd_access[email] = sorted(projects)
+            results["user_map"].append({
+                "email": email,
+                "roles": sorted(roles),
+                "netbird_groups": sorted(roles),
+                "lxd_projects": sorted(projects),
+            })
+
+        results["lxd_access_map"] = lxd_access
+
+        # 4. Store the full mapping in DB
+        await db.config.update_one(
+            {"key": "claims_map_state"},
+            {"$set": {
+                "value": {
+                    "user_map": results["user_map"],
+                    "lxd_access_map": lxd_access,
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                },
+            }},
+            upsert=True,
+        )
+
+        # 5. Also sync to Guacamole groups
+        for role in sorted(all_roles):
+            if role.startswith("tenant-") or role.startswith("test-"):
+                continue
+            await guacamole_client.create_user_group(role)
+            # Add users with this role to the Guacamole group
+            for email, roles in user_roles.items():
+                if role in roles:
+                    await guacamole_client.create_user(email)
+                    await guacamole_client.add_user_to_group(role, email)
+
+    except Exception as e:
+        results["errors"].append(str(e))
+
+    await create_audit_log(user["id"], user.get("email", ""), "claims_map_sync",
+                           f"grants:{results['zitadel_grants']}", f"nb_groups:{len(results['netbird_groups_synced'])} policies:{len(results['netbird_policies_synced'])}")
+    return results
+
+
+@api_router.get("/claims-map/state")
+async def get_claims_map_state(user: dict = Depends(get_current_user)):
+    """Get the last synced claims mapping state."""
+    require_admin(user)
+    state = await db.config.find_one({"key": "claims_map_state"}, {"_id": 0})
+    if state:
+        return state.get("value", {})
+    return {"user_map": [], "lxd_access_map": {}, "synced_at": None}
+
+
 
 # ============ NEO — AI ASSISTANT ============
 

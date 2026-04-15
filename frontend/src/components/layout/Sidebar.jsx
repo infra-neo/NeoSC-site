@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Server,
   Container,
+  Link2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +36,7 @@ const adminMenuItems = [
   { icon: Users, label: 'Enrolar Tenant', path: '/admin/enroll-tenant' },
   { icon: Server, label: 'NeoCloud LXD', path: '/admin/lxd' },
   { icon: Container, label: 'NeoVDI', path: '/admin/neovdi' },
+  { icon: Link2, label: 'Claims Map', path: '/admin/claims-map' },
   { icon: Shield, label: 'NeoGuard SSO', path: '/admin/zitadel' },
   { icon: Wifi, label: 'NeoMesh VPN', path: '/admin/netbird' },
 ];

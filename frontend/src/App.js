@@ -22,6 +22,7 @@ import NetbirdAdminPage from "@/pages/NetbirdAdminPage";
 import EnrollTenantPage from "@/pages/EnrollTenantPage";
 import LxdAdminPage from "@/pages/LxdAdminPage";
 import GuacamolePage from "@/pages/GuacamolePage";
+import ClaimsMapPage from "@/pages/ClaimsMapPage";
 import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
@@ -164,6 +165,11 @@ function App() {
               <Route path="/admin/neovdi" element={
                 <ProtectedRoute>
                   <GuacamolePage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/claims-map" element={
+                <ProtectedRoute>
+                  <ClaimsMapPage />
                 </ProtectedRoute>
               } />
             </Routes>
