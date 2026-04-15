@@ -452,6 +452,19 @@ export default function GuacamolePage() {
           {/* ═══ ACCESS CONTROL TAB ═══ */}
           {activeTab === 'access' && (
             <div className="space-y-3">
+              {assignments.length > 0 && (
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={async () => {
+                    try {
+                      const res = await axios.post(`${API}/workspace-assignments/sync-all-netbird`, {}, { headers });
+                      toast.success(`Sync: ${res.data.synced} policies sincronizadas`);
+                      loadData();
+                    } catch { toast.error('Error sync all'); }
+                  }} className="bg-green-600 hover:bg-green-500 gap-1 text-xs" data-testid="sync-all-netbird">
+                    <Wifi className="w-3 h-3" /> Sync All NetBird
+                  </Button>
+                </div>
+              )}
               {assignments.length === 0 ? (
                 <div className="p-8 text-center text-sm text-muted-foreground rounded-xl border border-border bg-card">
                   <Shield className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
@@ -467,12 +480,22 @@ export default function GuacamolePage() {
                         <div className="text-[10px] text-muted-foreground">
                           {a.resource_type} → Grupo: <span className="text-cyan-400">{a.group_id}</span>
                           {a.guacamole_connection_id && <span className="ml-1 text-purple-400">| NeoVDI #{a.guacamole_connection_id}</span>}
+                          {a.netbird_policy_id && <span className="ml-1 text-green-400">| NetBird: {a.netbird_policy_id.slice(0,12)}</span>}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
                       <Button size="sm" variant="ghost" onClick={() => openAccessEditor(a)} className="h-7 text-xs gap-1 text-amber-400" data-testid={`edit-access-${a.id}`}>
                         <Settings className="w-3 h-3" /> Acceso
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={async () => {
+                        try {
+                          const res = await axios.post(`${API}/workspace-assignments/${a.id}/sync-netbird`, {}, { headers });
+                          if (res.data.ok) { toast.success(`NetBird policy: ${res.data.policy_name} | ports: ${res.data.ports?.join(', ')}`); loadData(); }
+                          else toast.error(res.data.error || 'Error');
+                        } catch (err) { toast.error(err.response?.data?.detail || 'Error sync'); }
+                      }} className="h-7 text-xs gap-1 text-green-400" data-testid={`sync-nb-${a.id}`}>
+                        <Wifi className="w-3 h-3" /> NetBird
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => deleteAssignment(a.id)} className="h-7 text-xs text-red-400"><Trash2 className="w-3 h-3" /></Button>
                     </div>

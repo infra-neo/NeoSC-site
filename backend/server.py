@@ -2459,23 +2459,113 @@ async def sync_assignment_netbird(assignment_id: str, user: dict = Depends(get_c
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
-    # Map protocols to ports for NetBird policy
-    port_map = {"rdp": "3389", "vnc": "5901", "ssh": "22", "html5": "443", "web": "443,8080"}
+    # Map protocols to ports
+    port_map = {"rdp": ["3389"], "vnc": ["5901"], "ssh": ["22"], "html5": ["443", "8443"], "web": ["80", "443", "8080"]}
     ports = []
     for proto in assignment.get("protocols_available", []):
-        if proto in port_map:
-            ports.extend(port_map[proto].split(","))
-    ports = list(set(ports))
+        ports.extend(port_map.get(proto, []))
+    ports = sorted(set(ports))
 
-    # This would create a NetBird policy — currently just returns the config
-    return {
-        "assignment_id": assignment_id,
-        "group_id": assignment.get("group_id"),
-        "resource": assignment.get("resource_name"),
-        "ports": ports,
-        "protocols": assignment.get("protocols_available"),
-        "note": "NetBird policy would allow these ports for this group",
-    }
+    group_name = assignment.get("group_id", "")
+    resource_name = assignment.get("resource_name", "")
+
+    # 1. Find or create the source group in NetBird (matches the Zitadel/Guacamole group)
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            # List groups
+            r_groups = await c.get(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers())
+            nb_groups = r_groups.json() if r_groups.status_code == 200 else []
+
+            src_group = next((g for g in nb_groups if g["name"] == group_name), None)
+            if not src_group:
+                # Create source group
+                r_cg = await c.post(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers(),
+                                    json={"name": group_name, "peers": []})
+                if r_cg.status_code in (200, 201):
+                    src_group = r_cg.json()
+                else:
+                    return {"ok": False, "error": f"Failed to create group: {r_cg.text[:200]}"}
+
+            src_group_id = src_group["id"]
+
+            # 2. Find the "All" group as destination (or a specific destination group)
+            all_group = next((g for g in nb_groups if g["name"] == "All"), None)
+            dst_group_id = all_group["id"] if all_group else src_group_id
+
+            # Check for specific destination groups like "LXC", "DataCenter TSPLus", "Routing Peers"
+            lxc_group = next((g for g in nb_groups if g["name"] in ("LXC", "Routing Peers")), None)
+            if lxc_group:
+                dst_group_id = lxc_group["id"]
+
+            # 3. Check if policy already exists
+            policy_name = f"neosc-ws-{group_name}-{resource_name}"
+            existing_policy_id = assignment.get("netbird_policy_id", "")
+            
+            policy_payload = {
+                "name": policy_name,
+                "description": f"NeoSC Workspace: {resource_name} for group {group_name}. Protocols: {', '.join(assignment.get('protocols_available', []))}",
+                "enabled": True,
+                "rules": [{
+                    "name": policy_name,
+                    "description": f"Allow {', '.join(ports)} from {group_name} to {resource_name}",
+                    "enabled": True,
+                    "action": "accept",
+                    "bidirectional": True,
+                    "protocol": "tcp",
+                    "ports": ports,
+                    "sources": [src_group_id],
+                    "destinations": [dst_group_id],
+                }],
+            }
+
+            if existing_policy_id:
+                # Update existing policy
+                r_pol = await c.put(f"{NETBIRD_API_URL}/api/policies/{existing_policy_id}",
+                                    headers=netbird_headers(), json=policy_payload)
+            else:
+                # Create new policy
+                r_pol = await c.post(f"{NETBIRD_API_URL}/api/policies",
+                                     headers=netbird_headers(), json=policy_payload)
+
+            if r_pol.status_code in (200, 201):
+                pol_data = r_pol.json()
+                policy_id = pol_data.get("id", "")
+                # Save policy ID to assignment
+                await db.workspace_assignments.update_one(
+                    {"id": assignment_id},
+                    {"$set": {"netbird_policy_id": policy_id}}
+                )
+                await create_audit_log(user["id"], user.get("email", ""), "netbird_policy_sync",
+                                       f"assignment:{assignment_id}", f"policy:{policy_id} ports:{ports}")
+                return {
+                    "ok": True,
+                    "policy_id": policy_id,
+                    "policy_name": policy_name,
+                    "src_group": {"id": src_group_id, "name": group_name},
+                    "dst_group": {"id": dst_group_id},
+                    "ports": ports,
+                    "protocols": assignment.get("protocols_available"),
+                }
+            else:
+                return {"ok": False, "error": f"Policy API: {r_pol.status_code} {r_pol.text[:300]}"}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@api_router.post("/workspace-assignments/sync-all-netbird")
+async def sync_all_netbird_policies(user: dict = Depends(get_current_user)):
+    """Sync NetBird policies for ALL workspace assignments."""
+    require_admin(user)
+    assignments = await db.workspace_assignments.find({}, {"_id": 0}).to_list(100)
+    results = []
+    for a in assignments:
+        try:
+            r = await sync_assignment_netbird(a["id"], user)
+            results.append({"assignment": a["id"], "resource": a["resource_name"], **r})
+        except Exception as e:
+            results.append({"assignment": a["id"], "resource": a["resource_name"], "ok": False, "error": str(e)})
+    return {"synced": len(results), "results": results}
 
 
 
