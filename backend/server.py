@@ -2163,11 +2163,11 @@ async def guacamole_sync_zitadel_groups(user: dict = Depends(get_current_user)):
                 for role in roles:
                     role_key = role.get("key", "")
                     display = role.get("displayName", role_key)
-                    # Create Guacamole group matching the role
-                    group_id = f"zitadel-{role_key}"
-                    gr = await guacamole_client.create_user_group(group_id)
+                    # Create Guacamole group matching the role key directly
+                    # (must match what the Zitadel Action injects in "groups" claim)
+                    gr = await guacamole_client.create_user_group(role_key)
                     if gr.get("ok"):
-                        results["groups_created"].append(group_id)
+                        results["groups_created"].append(role_key)
 
                     # Get users with this role (grants)
                     r_grants = await c.post(f"{ZITADEL_DOMAIN}/management/v1/users/grants/_search",
@@ -2182,9 +2182,9 @@ async def guacamole_sync_zitadel_groups(user: dict = Depends(get_current_user)):
                         if email:
                             # Create Guacamole user if not exists
                             await guacamole_client.create_user(email)
-                            # Add to group
-                            await guacamole_client.add_user_to_group(group_id, email)
-                            results["users_synced"].append({"user": email, "group": group_id})
+                            # Add to group (role_key directly, matches Zitadel Action output)
+                            await guacamole_client.add_user_to_group(role_key, email)
+                            results["users_synced"].append({"user": email, "group": role_key})
 
     except Exception as e:
         results["errors"].append(str(e))
@@ -2213,17 +2213,20 @@ async def get_oidc_config(user: dict = Depends(get_current_user)):
     require_admin(user)
     return {
         "zitadel_domain": ZITADEL_DOMAIN,
-        "client_id": "368658584004778169",
+        "client_id": "368660070466141146",
         "redirect_uri": f"{guacamole_client.GUACAMOLE_URL}/",
         "post_logout_redirect": os.environ.get("ZITADEL_POST_LOGOUT_URL", "") + "/workspaces",
         "authorization_endpoint": f"{ZITADEL_DOMAIN}/oauth/v2/authorize",
         "token_endpoint": f"{ZITADEL_DOMAIN}/oauth/v2/token",
         "jwks_endpoint": f"{ZITADEL_DOMAIN}/oauth/v2/keys",
         "issuer": ZITADEL_DOMAIN,
-        "scopes": "openid profile email urn:zitadel:iam:org:project:roles",
-        "groups_claim": "urn:zitadel:iam:org:project:roles",
+        "scopes": "openid profile email groups",
+        "groups_claim": "groups",
         "username_claim": "preferred_username",
         "guacamole_url": guacamole_client.GUACAMOLE_URL,
+        "guacamole_version": "1.6.0",
+        "extensions": ["auth-sso-openid", "auth-ldap", "auth-duo", "auth-totp", "auth-sso-saml", "display-statistics", "recording-filename-suffix", "recording-rename-on-connect", "recording-rename-on-disconnect"],
+        "note": "Groups claim uses Zitadel Action to inject 'groups' array into the ID token. Configure the Action in Zitadel console under Actions > Flows > Complement Token.",
     }
 
 

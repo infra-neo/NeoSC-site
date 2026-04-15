@@ -362,8 +362,8 @@ export default function GuacamolePage() {
           {activeTab === 'oidc' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5 space-y-4">
-                <h3 className="font-bold text-sm flex items-center gap-2"><Lock className="w-4 h-4 text-purple-400" /> NeoVDI OIDC — Zitadel Configuration</h3>
-                <p className="text-xs text-muted-foreground">Configuracion OIDC para que NeoVDI autentique via Zitadel. Los roles de proyecto se mapean a grupos en NeoVDI. Al cerrar sesion redirige a NeoSC Workspaces.</p>
+                <h3 className="font-bold text-sm flex items-center gap-2"><Lock className="w-4 h-4 text-purple-400" /> NeoVDI OIDC — Zitadel Integration</h3>
+                <p className="text-xs text-muted-foreground">Guacamole 1.6.0 configurado via Docker env vars. Los roles de Zitadel se inyectan como claim "groups" via Action y se mapean a user groups en NeoVDI.</p>
 
                 {oidcConfig ? (
                   <div className="space-y-2">
@@ -385,36 +385,69 @@ export default function GuacamolePage() {
                         <button onClick={() => copyText(val)} className="p-0.5 rounded hover:bg-muted"><Copy className="w-3 h-3 text-muted-foreground" /></button>
                       </div>
                     ))}
+                    {oidcConfig.extensions && (
+                      <div className="flex items-start gap-2 text-xs pt-1">
+                        <span className="text-muted-foreground w-32 flex-shrink-0">Extensions:</span>
+                        <div className="flex flex-wrap gap-1">{oidcConfig.extensions.map(e => <Badge key={e} variant="outline" className="text-[9px]">{e}</Badge>)}</div>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Cargando configuracion...</div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Cargando...</div>
                 )}
+              </div>
 
-                <div className="pt-3 border-t border-border">
-                  <h4 className="text-xs font-bold mb-2">Script de instalacion</h4>
-                  <p className="text-[11px] text-muted-foreground mb-2">Ejecuta este script en el servidor NeoVDI (149.56.241.64) para configurar OIDC automaticamente:</p>
-                  <div className="relative">
-                    <pre className="p-3 rounded-lg bg-black/40 text-[11px] text-green-400 font-mono overflow-x-auto">
-{`# SSH al servidor NeoVDI y ejecutar:
-curl -sL ${BACKEND_URL}/api/guacamole/oidc-script | sudo bash`}
-                    </pre>
-                    <button onClick={() => copyText(`curl -sL ${BACKEND_URL}/api/guacamole/oidc-script | sudo bash`)}
-                      className="absolute top-2 right-2 p-1 rounded bg-white/10 hover:bg-white/20"><Copy className="w-3 h-3 text-white" /></button>
-                  </div>
+              {/* Zitadel Action */}
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
+                <h4 className="font-bold text-sm flex items-center gap-2"><Zap className="w-4 h-4 text-amber-400" /> Zitadel Action: Inyectar "groups" en token</h4>
+                <p className="text-[11px] text-muted-foreground">NeoVDI espera un claim <code className="text-amber-400">groups</code> (array) en el ID token. Crea esta Action en Zitadel Console:</p>
+                <div className="relative">
+                  <pre className="p-3 rounded-lg bg-black/40 text-[11px] text-green-400 font-mono overflow-x-auto whitespace-pre">{`function addGroupsClaim(ctx, api) {
+  if (ctx.v1.user && ctx.v1.user.grants) {
+    var groups = [];
+    ctx.v1.user.grants.grants.forEach(function(grant) {
+      grant.roles.forEach(function(role) {
+        groups.push(role);
+      });
+    });
+    api.v1.claims.setClaim("groups", groups);
+  }
+}`}</pre>
+                  <button onClick={() => copyText(`function addGroupsClaim(ctx, api) {\n  if (ctx.v1.user && ctx.v1.user.grants) {\n    var groups = [];\n    ctx.v1.user.grants.grants.forEach(function(grant) {\n      grant.roles.forEach(function(role) {\n        groups.push(role);\n      });\n    });\n    api.v1.claims.setClaim("groups", groups);\n  }\n}`)}
+                    className="absolute top-2 right-2 p-1 rounded bg-white/10 hover:bg-white/20"><Copy className="w-3 h-3 text-white" /></button>
                 </div>
+                <div className="text-[11px] text-muted-foreground space-y-1">
+                  <p><strong>Pasos en Zitadel Console:</strong></p>
+                  <ol className="list-decimal ml-4 space-y-0.5">
+                    <li>Actions → New Action → Nombre: <code className="text-cyan-400">addGroupsClaim</code> → pegar el script</li>
+                    <li>Actions → Flows → <strong>Complement Token</strong></li>
+                    <li>Trigger: <strong>Pre Access Token Creation</strong> → Asignar <code className="text-cyan-400">addGroupsClaim</code></li>
+                  </ol>
+                  <p className="mt-2">Resultado: cada token incluira <code className="text-amber-400">{`{"groups": ["admin", "user", ...]}`}</code></p>
+                </div>
+              </div>
 
-                <div className="pt-3 border-t border-border">
-                  <h4 className="text-xs font-bold mb-2">Claim → Group Mapping</h4>
-                  <div className="text-[11px] text-muted-foreground space-y-1">
-                    <p>Zitadel envia los roles del proyecto en el claim <code className="text-purple-400">urn:zitadel:iam:org:project:roles</code>.</p>
-                    <p>NeoVDI los mapea automaticamente a user groups. Ejemplo:</p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]">Zitadel: admin</Badge>
-                      <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                      <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-[10px]">NeoVDI: zitadel-admin</Badge>
-                    </div>
-                    <p className="mt-2">El boton "Sync Zitadel" crea los grupos y asigna usuarios segun los grants actuales.</p>
-                  </div>
+              {/* Claim mapping */}
+              <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+                <h4 className="font-bold text-sm">Flujo: Zitadel Role → NeoVDI Group → Conexion</h4>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]">Zitadel: role "admin"</Badge>
+                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                  <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px]">Action: groups=["admin"]</Badge>
+                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                  <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-[10px]">NeoVDI: group "admin"</Badge>
+                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                  <Badge className="bg-green-500/10 text-green-400 border-green-500/30 text-[10px]">Acceso: Windows RDP</Badge>
+                </div>
+                <div className="text-[11px] text-muted-foreground space-y-1">
+                  <p>1. El usuario inicia sesion via OIDC en NeoVDI</p>
+                  <p>2. Zitadel ejecuta la Action y agrega sus roles como "groups" en el token</p>
+                  <p>3. NeoVDI recibe el token, lee el claim "groups" y asigna al usuario a esos grupos</p>
+                  <p>4. El grupo tiene permisos sobre conexiones especificas (RDP, VNC, SSH)</p>
+                  <p>5. Al cerrar sesion → Zitadel redirige a <strong>/workspaces</strong> de NeoSC</p>
+                </div>
+                <div className="pt-2">
+                  <p className="text-[10px] text-muted-foreground">Usa el boton <strong>"Sync Zitadel"</strong> para crear automaticamente los grupos en NeoVDI basados en los roles actuales de Zitadel.</p>
                 </div>
               </div>
             </div>
