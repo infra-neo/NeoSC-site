@@ -2232,7 +2232,7 @@ async def get_oidc_config(user: dict = Depends(get_current_user)):
 
 # ─── NeoVault (JumpServer) Status ────────────────────────────────────────────
 
-JUMPSERVER_URL = os.environ.get("JUMPSERVER_URL", "https://bastion.manager.kappa4.com")
+JUMPSERVER_URL = os.environ.get("JUMPSERVER_URL", "https://conecta.kappa4.com")
 
 @api_router.get("/neovault/status")
 async def neovault_status(user: dict = Depends(get_current_user)):
