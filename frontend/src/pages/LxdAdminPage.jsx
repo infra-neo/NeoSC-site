@@ -507,6 +507,15 @@ export default function LxdAdminPage() {
                           onClick={() => doDelete(inst.name)} disabled={isLoading} data-testid={`lxd-delete-${inst.name}`}>
                           {actionLoading === `${inst.name}-delete` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                         </Button>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-cyan-400 hover:bg-cyan-500/10 text-[10px] gap-0.5"
+                          onClick={() => {
+                            const proto = inst.type === 'virtual-machine' ? 'rdp' : 'vnc';
+                            const port = proto === 'rdp' ? 3389 : 5901;
+                            window.open(`/admin/neovdi?assign=${inst.name}&type=lxd-${inst.type === 'virtual-machine' ? 'vm' : 'container'}&proto=${proto}&port=${port}`, '_self');
+                          }}
+                          data-testid={`lxd-ws-${inst.name}`}>
+                          <Plus className="w-3 h-3" /> WS
+                        </Button>
                       </div>
                     </div>
                     <div className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">

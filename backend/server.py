@@ -136,6 +136,31 @@ class Policy(BaseModel):
 
 # ============ HELPER FUNCTIONS ============
 
+# ─── Workspace Assignment Model ───────────────────────────────────────────────
+
+class WorkspaceAccessRule(BaseModel):
+    user_id: str = ""
+    user_email: str = ""
+    allowed: bool = True
+    protocols: List[str] = []  # rdp, vnc, ssh, html5, web
+
+class WorkspaceAssignment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: f"wa-{uuid.uuid4().hex[:8]}")
+    resource_id: str  # app id, lxd instance name, or guacamole connection id
+    resource_name: str
+    resource_type: str  # app, lxd-vm, lxd-container, guacamole, external
+    group_id: str  # NeoVDI / Zitadel group
+    group_name: str = ""
+    protocols_available: List[str] = []  # rdp, vnc, ssh, html5, web
+    user_access: List[dict] = []  # [{user_id, user_email, allowed, protocols}]
+    netbird_policy_id: str = ""
+    guacamole_connection_id: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_by: str = ""
+
+# ─── Helper Functions ─────────────────────────────────────────────────────────
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -2312,6 +2337,146 @@ async def install_app(app_id: str, user: dict = Depends(get_current_user)):
         return {"ok": True, "container": container_name, "guacamole": guac_r}
 
     return {"ok": False, "error": result.get("error", "LXD creation failed")}
+
+
+# ============ WORKSPACE ASSIGNMENTS — Access Control ============
+
+@api_router.get("/workspace-assignments")
+async def list_workspace_assignments(group_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    query = {}
+    if group_id:
+        query["group_id"] = group_id
+    assignments = await db.workspace_assignments.find(query, {"_id": 0}).to_list(200)
+    return {"assignments": assignments, "count": len(assignments)}
+
+
+class AssignResourceBody(BaseModel):
+    resource_id: str
+    resource_name: str
+    resource_type: str  # app, lxd-vm, lxd-container, guacamole, external
+    group_id: str
+    group_name: str = ""
+    protocols_available: List[str] = []  # rdp, vnc, ssh, html5, web
+    hostname: str = ""
+    port: int = 0
+
+@api_router.post("/workspace-assignments")
+async def assign_resource_to_workspace(body: AssignResourceBody, user: dict = Depends(get_current_user)):
+    """Assign a resource (app/VM/connection) to a group workspace with protocol controls."""
+    require_admin(user)
+
+    # Check if already assigned
+    existing = await db.workspace_assignments.find_one(
+        {"resource_id": body.resource_id, "group_id": body.group_id}, {"_id": 0})
+    if existing:
+        return {"ok": False, "error": "Resource already assigned to this group", "assignment_id": existing["id"]}
+
+    # Auto-create Guacamole connection if hostname provided
+    guac_conn_id = ""
+    if body.hostname and any(p in body.protocols_available for p in ["rdp", "vnc", "ssh"]):
+        proto = "rdp" if "rdp" in body.protocols_available else "vnc" if "vnc" in body.protocols_available else "ssh"
+        port = body.port or (3389 if proto == "rdp" else 5901 if proto == "vnc" else 22)
+        guac_r = await guacamole_client.create_connection(
+            name=f"WS-{body.group_id}-{body.resource_name}",
+            protocol=proto, hostname=body.hostname, port=port,
+        )
+        if guac_r.get("ok"):
+            guac_conn_id = guac_r.get("id", "")
+            # Grant connection to group in Guacamole
+            await guacamole_client.grant_connection_to_group(body.group_id, guac_conn_id)
+
+    # Get group members for initial user_access list
+    user_access = []
+    guac_groups = await guacamole_client.list_user_groups()
+    group_data = next((g for g in guac_groups if g["identifier"] == body.group_id), None)
+    if group_data and group_data.get("members"):
+        for member in group_data["members"]:
+            user_access.append({
+                "user_email": member,
+                "allowed": True,
+                "protocols": body.protocols_available[:],
+            })
+
+    doc = {
+        "id": f"wa-{uuid.uuid4().hex[:8]}",
+        "resource_id": body.resource_id,
+        "resource_name": body.resource_name,
+        "resource_type": body.resource_type,
+        "group_id": body.group_id,
+        "group_name": body.group_name,
+        "protocols_available": body.protocols_available,
+        "user_access": user_access,
+        "guacamole_connection_id": guac_conn_id,
+        "netbird_policy_id": "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user["id"],
+    }
+    await db.workspace_assignments.insert_one(doc)
+
+    await create_audit_log(user["id"], user.get("email", ""), "workspace_assign",
+                           f"resource:{body.resource_id}", f"group:{body.group_id} protocols:{body.protocols_available}")
+    doc.pop("_id", None)
+    return {"ok": True, "assignment": doc}
+
+
+class UpdateUserAccessBody(BaseModel):
+    user_access: List[dict]  # [{user_email, allowed, protocols}]
+
+@api_router.put("/workspace-assignments/{assignment_id}/access")
+async def update_assignment_access(assignment_id: str, body: UpdateUserAccessBody, user: dict = Depends(get_current_user)):
+    """Update per-user access controls for an assignment."""
+    require_admin(user)
+    result = await db.workspace_assignments.update_one(
+        {"id": assignment_id},
+        {"$set": {"user_access": [ua for ua in body.user_access]}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    await create_audit_log(user["id"], user.get("email", ""), "workspace_access_update",
+                           f"assignment:{assignment_id}", f"users:{len(body.user_access)}")
+    return {"ok": True, "updated": assignment_id}
+
+
+@api_router.delete("/workspace-assignments/{assignment_id}")
+async def delete_workspace_assignment(assignment_id: str, user: dict = Depends(get_current_user)):
+    require_admin(user)
+    assignment = await db.workspace_assignments.find_one({"id": assignment_id}, {"_id": 0})
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    # Cleanup Guacamole connection if we created it
+    if assignment.get("guacamole_connection_id"):
+        await guacamole_client.delete_connection(assignment["guacamole_connection_id"])
+    await db.workspace_assignments.delete_one({"id": assignment_id})
+    return {"ok": True, "deleted": assignment_id}
+
+
+@api_router.post("/workspace-assignments/{assignment_id}/sync-netbird")
+async def sync_assignment_netbird(assignment_id: str, user: dict = Depends(get_current_user)):
+    """Create/update a NetBird policy matching this assignment's group and allowed protocols."""
+    require_admin(user)
+    assignment = await db.workspace_assignments.find_one({"id": assignment_id}, {"_id": 0})
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    # Map protocols to ports for NetBird policy
+    port_map = {"rdp": "3389", "vnc": "5901", "ssh": "22", "html5": "443", "web": "443,8080"}
+    ports = []
+    for proto in assignment.get("protocols_available", []):
+        if proto in port_map:
+            ports.extend(port_map[proto].split(","))
+    ports = list(set(ports))
+
+    # This would create a NetBird policy — currently just returns the config
+    return {
+        "assignment_id": assignment_id,
+        "group_id": assignment.get("group_id"),
+        "resource": assignment.get("resource_name"),
+        "ports": ports,
+        "protocols": assignment.get("protocols_available"),
+        "note": "NetBird policy would allow these ports for this group",
+    }
+
 
 
 # ============ NEO — AI ASSISTANT ============
