@@ -34,7 +34,7 @@ const adminMenuItems = [
   { icon: Gauge, label: 'Panel Global', path: '/admin' },
   { icon: Users, label: 'Enrolar Tenant', path: '/admin/enroll-tenant' },
   { icon: Server, label: 'NeoCloud LXD', path: '/admin/lxd' },
-  { icon: Container, label: 'NeoDesk Guacamole', path: '/admin/guacamole' },
+  { icon: Container, label: 'NeoVDI', path: '/admin/neovdi' },
   { icon: Shield, label: 'NeoGuard SSO', path: '/admin/zitadel' },
   { icon: Wifi, label: 'NeoMesh VPN', path: '/admin/netbird' },
 ];

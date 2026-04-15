@@ -161,7 +161,7 @@ function App() {
                   <LxdAdminPage />
                 </ProtectedRoute>
               } />
-              <Route path="/admin/guacamole" element={
+              <Route path="/admin/neovdi" element={
                 <ProtectedRoute>
                   <GuacamolePage />
                 </ProtectedRoute>

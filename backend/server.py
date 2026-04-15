@@ -2194,6 +2194,123 @@ async def guacamole_sync_zitadel_groups(user: dict = Depends(get_current_user)):
     return results
 
 
+# ─── OIDC Script Download ────────────────────────────────────────────────────
+
+@api_router.get("/guacamole/oidc-script")
+async def get_oidc_setup_script(user: dict = Depends(get_current_user)):
+    """Return the OIDC configuration script for Guacamole."""
+    require_admin(user)
+    import pathlib
+    script_path = pathlib.Path(__file__).parent / "scripts" / "setup-guacamole-oidc.sh"
+    if script_path.exists():
+        return {"ok": True, "script": script_path.read_text(), "filename": "setup-guacamole-oidc.sh"}
+    return {"ok": False, "error": "Script not found"}
+
+
+@api_router.get("/guacamole/oidc-config")
+async def get_oidc_config(user: dict = Depends(get_current_user)):
+    """Return the OIDC config values for display in UI."""
+    require_admin(user)
+    return {
+        "zitadel_domain": ZITADEL_DOMAIN,
+        "client_id": "368658584004778169",
+        "redirect_uri": f"{guacamole_client.GUACAMOLE_URL}/",
+        "post_logout_redirect": os.environ.get("ZITADEL_POST_LOGOUT_URL", "") + "/workspaces",
+        "authorization_endpoint": f"{ZITADEL_DOMAIN}/oauth/v2/authorize",
+        "token_endpoint": f"{ZITADEL_DOMAIN}/oauth/v2/token",
+        "jwks_endpoint": f"{ZITADEL_DOMAIN}/oauth/v2/keys",
+        "issuer": ZITADEL_DOMAIN,
+        "scopes": "openid profile email urn:zitadel:iam:org:project:roles",
+        "groups_claim": "urn:zitadel:iam:org:project:roles",
+        "username_claim": "preferred_username",
+        "guacamole_url": guacamole_client.GUACAMOLE_URL,
+    }
+
+
+# ─── NeoVault (JumpServer) Status ────────────────────────────────────────────
+
+JUMPSERVER_URL = os.environ.get("JUMPSERVER_URL", "https://bastion.manager.kappa4.com")
+
+@api_router.get("/neovault/status")
+async def neovault_status(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    try:
+        async with httpx.AsyncClient(timeout=10, verify=False) as c:
+            r = await c.get(f"{JUMPSERVER_URL}/api/health/", headers={"Accept": "application/json"})
+            return {"connected": r.status_code < 500, "url": JUMPSERVER_URL, "status_code": r.status_code}
+    except Exception as e:
+        return {"connected": False, "url": JUMPSERVER_URL, "error": str(e)}
+
+
+# ─── App Catalog ─────────────────────────────────────────────────────────────
+
+APP_CATALOG = [
+    {"id": "ubuntu-desktop", "name": "Ubuntu Desktop", "desc": "Full Linux desktop environment", "icon": "layout",
+     "protocol": "vnc", "port": 5901, "image": "images:ubuntu/24.04", "type": "container",
+     "category": "desktop", "status": "available"},
+    {"id": "vscode-server", "name": "VS Code Server", "desc": "Browser-based IDE with extensions", "icon": "code",
+     "protocol": "vnc", "port": 5901, "image": "images:ubuntu/24.04", "type": "container",
+     "category": "dev", "status": "available"},
+    {"id": "p4admin", "name": "P4Admin", "desc": "Perforce Administration Tool", "icon": "database",
+     "protocol": "vnc", "port": 5901, "image": "images:ubuntu/24.04", "type": "container",
+     "category": "dev", "status": "installed"},
+    {"id": "browser-kiosk", "name": "Browser Kiosk", "desc": "Isolated Chrome/Firefox browser", "icon": "globe",
+     "protocol": "vnc", "port": 5901, "image": "images:ubuntu/24.04", "type": "container",
+     "category": "productivity", "status": "available"},
+    {"id": "libreoffice", "name": "LibreOffice", "desc": "Full office suite", "icon": "file-text",
+     "protocol": "vnc", "port": 5901, "image": "images:ubuntu/24.04", "type": "container",
+     "category": "productivity", "status": "available"},
+    {"id": "ssh-terminal", "name": "SSH Terminal", "desc": "Web terminal for SSH access", "icon": "terminal",
+     "protocol": "ssh", "port": 22, "image": "images:ubuntu/24.04", "type": "container",
+     "category": "admin", "status": "installed"},
+    {"id": "windows-rdp", "name": "Windows Desktop", "desc": "Full Windows VM via RDP", "icon": "monitor",
+     "protocol": "rdp", "port": 3389, "image": "from-instance-win11-vdi", "type": "virtual-machine",
+     "category": "desktop", "status": "available"},
+    {"id": "jumpserver", "name": "NeoVault PAM", "desc": "JumpServer session recording", "icon": "lock",
+     "protocol": "web", "port": 443, "image": "", "type": "external",
+     "category": "security", "status": "installed", "url": JUMPSERVER_URL},
+    {"id": "tsplus-html5", "name": "TSplus HTML5", "desc": "TSplus Remote Desktop via browser", "icon": "monitor",
+     "protocol": "web", "port": 443, "image": "", "type": "external",
+     "category": "desktop", "status": "available"},
+]
+
+@api_router.get("/apps/catalog")
+async def list_app_catalog(user: dict = Depends(get_current_user)):
+    return {"apps": APP_CATALOG, "count": len(APP_CATALOG)}
+
+@api_router.post("/apps/install/{app_id}")
+async def install_app(app_id: str, user: dict = Depends(get_current_user)):
+    """Install a catalog app by creating an LXD container + Guacamole connection."""
+    require_admin(user)
+    app = next((a for a in APP_CATALOG if a["id"] == app_id), None)
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    if app["type"] == "external":
+        return {"ok": True, "type": "external", "url": app.get("url", ""), "message": "External app — open directly"}
+
+    container_name = f"neosc-app-{app_id}"
+    result = await lxd_client.create_instance(
+        name=container_name, instance_type=app["type"],
+        image_alias=app["image"], cpu="2", memory="4GiB", disk_size="30GiB",
+        description=f"NeoSC App: {app['name']}",
+        profiles=["default"], storage_pool="dir",
+        project=lxd_client.LXD_PROJECT,
+        username="neosc", password="neosc-app-2026",
+    )
+    if result.get("ok"):
+        await lxd_client.change_instance_state(container_name, "start", project=lxd_client.LXD_PROJECT)
+        # Register in Guacamole
+        guac_r = await guacamole_client.create_connection(
+            name=f"NeoApp-{app['name']}", protocol=app["protocol"],
+            hostname=container_name, port=app["port"],
+            username="neosc", password="neosc-app-2026",
+        )
+        await create_audit_log(user["id"], user.get("email",""), "app_install", f"app:{app_id}", f"container:{container_name}")
+        return {"ok": True, "container": container_name, "guacamole": guac_r}
+
+    return {"ok": False, "error": result.get("error", "LXD creation failed")}
+
+
 # ============ NEO — AI ASSISTANT ============
 
 NEO_SYSTEM_PROMPT = """Eres Neo, el asistente IA de NeoSC — la plataforma de escritorios Windows remotos seguros.
@@ -3049,6 +3166,38 @@ async def lxd_create_instance(payload: LxdCreateVM, user: dict = Depends(get_cur
                 "source": "lxd",
             }
             await db.market_vms.update_one({"id": vm_doc["id"]}, {"$set": vm_doc}, upsert=True)
+
+            # Auto-register in Guacamole (NeoVDI)
+            try:
+                if payload.instance_type == "virtual-machine":
+                    # Windows VM → RDP
+                    guac_result = await guacamole_client.create_connection(
+                        name=f"NeoVDI-{payload.name}",
+                        protocol="rdp",
+                        hostname=payload.name,
+                        port=3389,
+                        username=payload.username or "",
+                        password=payload.password or "",
+                    )
+                else:
+                    # Linux container → VNC or SSH
+                    guac_result = await guacamole_client.create_connection(
+                        name=f"NeoVDI-{payload.name}",
+                        protocol="vnc",
+                        hostname=payload.name,
+                        port=5901,
+                        username=payload.username or "",
+                        password=payload.password or "",
+                    )
+                if guac_result.get("ok"):
+                    vm_doc["guacamole_connection_id"] = guac_result.get("id")
+                    vm_doc["connection_url"] = f"{guacamole_client.GUACAMOLE_URL}/#/client/"
+                    await db.market_vms.update_one({"id": vm_doc["id"]}, {"$set": {
+                        "guacamole_connection_id": guac_result.get("id"),
+                        "connection_url": vm_doc["connection_url"],
+                    }})
+            except Exception as guac_err:
+                logger.warning(f"Auto-register Guacamole failed for {payload.name}: {guac_err}")
     return result
 
 class LxdStateAction(BaseModel):

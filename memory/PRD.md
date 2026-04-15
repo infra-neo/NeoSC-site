@@ -1,73 +1,51 @@
 # WinDesk Market (NeoSC) - PRD
 
 ## Original Problem Statement
-Transform a WinDesk Cloud MVP into the "NeoSC" platform — a full SaaS application for self-service provisioning of cloud Windows VMs with NeoDesk (Guacamole/TSplus HTML5), NeoMesh (NetBird Zero Trust), and NeoGuard (Zitadel SSO).
+Transform a WinDesk Cloud MVP into the "NeoSC" platform — a full SaaS for self-service provisioning of cloud desktops with NeoVDI (HTML5 RDP/VNC), NeoMesh (NetBird Zero Trust), and NeoGuard (Zitadel SSO).
 
 ## Tech Stack
 React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI. Auth: JWT + Zitadel OIDC PKCE.
 
-## NeoSC Branding
+## NeoSC Product Suite
 - **NeoGuard** = Zitadel SSO/MFA
 - **NeoMesh** = NetBird Zero Trust VPN
-- **NeoDesk** = Guacamole HTML5 Desktop (Starter)
-- **NeoDesk+** = TSplus HTML5 Desktop (Plus/Enterprise)
-- **NeoConnect** = NetBird relay bridging NeoSC ↔ Client TSplus
-- **NeoCloud** = On-demand desktops & apps (LXC/VM)
+- **NeoVDI** = HTML5 Desktop Gateway (Guacamole backend, rebranded)
+- **NeoCloud** = LXD/LXC VM & Container management
+- **NeoConnect** = NetBird relay bridging NeoSC ↔ Client infrastructure
+- **NeoVault** = JumpServer PAM (bastion.manager.kappa4.com)
 
-## Two-Portal Market Architecture (NEW - Apr 2026)
+## What's Implemented
 
-### Portal 1: NeoCloud (`/market/neocloud`)
-5-step wizard for new customers wanting cloud desktops/apps:
-1. **Workspace type**: Windows Desktop (VM), Ubuntu Desktop (LXC), Browser Kiosk, VSCode Server, Office Suite, Dev Container
-2. **Resources**: CPU/RAM/Disk + Addons (VPN, storage, backup, SSO)
-3. **Plan**: Starter $29, Plus $79, Enterprise custom
-4. **Account**: Login or register
-5. **Confirm + Pay**: Order creation → provisioning
+### Phase 11 — NeoVDI + OIDC + Apps Catalog (Apr 2026)
+- **NeoVDI rebrand**: All UI references changed from Guacamole → NeoVDI
+- **OIDC Integration**: Created Zitadel OIDC app for NeoVDI (Client ID: 368658584004778169), with roles (admin/user/viewer), groups claim mapping, post-logout redirect to /workspaces
+- **Setup Script**: `/app/backend/scripts/setup-guacamole-oidc.sh` — configurable script for OIDC on the Guacamole server
+- **OIDC Config tab**: Shows all OIDC parameters, script download, claim→group mapping explanation
+- **App Catalog**: 9 apps across 5 categories (desktop, dev, productivity, admin, security) with install capability
+- **Auto-register in NeoVDI**: When LXD creates VM → auto-creates RDP connection; container → VNC connection
+- **NeoVault endpoint**: `/api/neovault/status` checking bastion.manager.kappa4.com
+- **Sync Zitadel → NeoVDI**: Button syncs Zitadel project roles as NeoVDI user groups
 
-### Portal 2: NeoConnect (`/market/neoconnect`)
-5-step wizard for TSplus customers:
-1. **Company info**: Org name, email, RFC, users
-2. **TSplus data**: Host/IP, port, license, LDAP → triggers auto-provisioning (Zitadel + NetBird)
-3. **Install connector**: 3 options — NetBird Agent (.exe/Linux), Docker Container, DNS Redirect (CNAME)
-4. **Register hosts**: Manual IP/hostname registration of Windows servers
-5. **Activate**: Finalize + go to workspaces
+### Previous Phases (1-10)
+- Full LXD/LXC REST API, Zitadel auto-provisioning, NeoConnect relay, Market wizards, Landing page Teleport-style
 
-### Market Selector (`/market`)
-Landing page with two portal cards + comparison table
-
-## What's Been Implemented
-
-### Phases 1-9 (Previous)
-- MVP, Market, Admin, Zitadel+NetBird, Enrollment, AI Neo, UX, SSO Fix, LXD
-
-### Phase 10 - Auto-Provisioning + NeoConnect + Guacamole (DONE)
-- Zitadel auto-provisioning (Project + Roles + OIDC App + User + Grant)
-- NeoConnect relay container deployment
-- Guacamole API integration
-- LXD Windows VM fix (TPM, device management)
-
-### Phase 11 - Two-Portal Wizard System (DONE - Apr 2026)
-- **MarketPage.jsx**: Redesigned as portal selector (NeoCloud vs NeoConnect)
-- **NeoCloudWizard.jsx**: 5-step wizard with 6 workspace types, resource config, plan selection
-- **NeoConnectWizard.jsx**: 5-step wizard with auto-provisioning, 3 connector options, host registration
-- Comparison table at bottom of market page
-
-## Key Files
-- `/app/frontend/src/pages/market/MarketPage.jsx` — Portal selector
-- `/app/frontend/src/pages/market/NeoCloudWizard.jsx` — Cloud wizard
-- `/app/frontend/src/pages/market/NeoConnectWizard.jsx` — TSplus wizard
+## Key API Endpoints (New)
+- GET `/api/guacamole/oidc-config` — OIDC configuration display
+- GET `/api/guacamole/oidc-script` — Download setup script
+- GET `/api/apps/catalog` — App catalog
+- POST `/api/apps/install/{app_id}` — Install app (LXD + NeoVDI auto-register)
+- GET `/api/neovault/status` — JumpServer status
+- POST `/api/guacamole/sync-zitadel-groups` — Sync roles → groups
 
 ## Prioritized Backlog
-
 ### P0
-- Configure GUACAMOLE_URL once deployed
+- Execute OIDC script on Guacamole server (user action)
+- Start JumpServer at bastion.manager.kappa4.com
 
 ### P1
-- Claims mapping Zitadel → NetBird → LXD
 - Stripe checkout + CFDI Mexico
-- NeoProxy (Pomerium) IAP
+- Claims mapping end-to-end: Zitadel → NetBird → LXD permissions
 
 ### P2
-- Ansible/WinRM post-provisioning
-- NeoVault PAM
-- Refactor server.py into APIRouters
+- Refactor server.py into APIRouters (3400+ lines)
+- Session recording via NeoVault
