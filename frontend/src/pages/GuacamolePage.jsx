@@ -77,10 +77,15 @@ export default function GuacamolePage() {
     try { const res = await axios.get(`${API}/guacamole/connections/${id}/detail`, { headers }); setConnDetail(res.data); } catch { /* */ }
   };
 
-  const openConnection = async (id, name = '') => {
-    // Open via our wrapper page — handles disconnect redirect
-    const connName = name || connections.find(c => c.id === id)?.name || `Connection-${id}`;
-    window.open(`/connect?id=${id}&name=${encodeURIComponent(connName)}`, '_blank');
+  const openConnection = async (id, name = '', url = '') => {
+    if (url) {
+      // Direct web URL — open in wrapper
+      window.open(`/connect?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}&proto=web`, '_blank');
+    } else {
+      // Guacamole connection — open via wrapper with fresh token
+      const connName = name || connections.find(c => c.id === id)?.name || `Connection-${id}`;
+      window.open(`/connect?id=${id}&name=${encodeURIComponent(connName)}`, '_blank');
+    }
   };
 
   const createConnection = async () => {
@@ -107,10 +112,17 @@ export default function GuacamolePage() {
   };
 
   const installApp = async (appId) => {
+    const app = apps.find(a => a.id === appId);
+    if (!app) return;
+    // External apps with URL — open in connection wrapper
+    if (app.type === 'external' && app.url) {
+      openConnection(null, app.name, app.url);
+      return;
+    }
     setInstalling(appId);
     try {
       const res = await axios.post(`${API}/apps/install/${appId}`, {}, { headers });
-      if (res.data.ok) { res.data.type === 'external' ? window.open(res.data.url, '_blank') : toast.success(`Instalada: ${res.data.container}`); loadData(); }
+      if (res.data.ok) { toast.success(`Instalada: ${res.data.container || 'OK'}`); loadData(); }
       else toast.error(res.data.error || 'Error');
     } catch (err) { toast.error(err.response?.data?.detail || 'Error'); }
     setInstalling(null);
@@ -426,19 +438,25 @@ export default function GuacamolePage() {
                           <div className="flex items-center justify-between gap-1">
                             <Badge variant="outline" className="text-[8px]">{app.type}</Badge>
                             <div className="flex gap-1">
-                              {!assigned && (
+                              {app.url && app.type === 'external' && (
+                                <Button size="sm" onClick={() => openConnection(null, app.name, app.url)}
+                                  className="h-5 text-[9px] bg-blue-600/80 hover:bg-blue-500 gap-0.5 px-1.5">
+                                  <Play className="w-2.5 h-2.5" /> Abrir
+                                </Button>
+                              )}
+                              {!assigned && !app.url && (
                                 <Button size="sm" onClick={() => openAssignModal(app.id, app.name, app.type, [app.protocol], '', app.port)}
                                   className="h-5 text-[9px] bg-cyan-600/80 hover:bg-cyan-500 gap-0.5 px-1.5" data-testid={`assign-app-${app.id}`}>
                                   <Plus className="w-2.5 h-2.5" /> WS
                                 </Button>
                               )}
                               {assigned && <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-[8px]">Asignada</Badge>}
-                              {!installed ? (
+                              {!installed && !app.url ? (
                                 <Button size="sm" onClick={() => installApp(app.id)} disabled={installing === app.id}
                                   className="h-5 text-[9px] bg-emerald-600/80 hover:bg-emerald-500 gap-0.5 px-1.5">
                                   {installing === app.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Zap className="w-2.5 h-2.5" />} Instalar
                                 </Button>
-                              ) : <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[8px]">OK</Badge>}
+                              ) : installed ? <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[8px]">OK</Badge> : null}
                             </div>
                           </div>
                         </div>
