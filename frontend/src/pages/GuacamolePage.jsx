@@ -12,7 +12,7 @@ import {
   Server, Wifi, CheckCircle2, Container, Users, Shield,
   ChevronRight, ChevronDown, Lock, Copy, Play,
   Globe, Terminal, FileCode, Layout, Database, FileText,
-  Zap, Settings, UserCheck, UserX
+  Zap, Settings, UserCheck, UserX, X
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -77,9 +77,10 @@ export default function GuacamolePage() {
     try { const res = await axios.get(`${API}/guacamole/connections/${id}/detail`, { headers }); setConnDetail(res.data); } catch { /* */ }
   };
 
-  const openConnection = async (id) => {
-    try { const res = await axios.get(`${API}/guacamole/connections/${id}/link`, { headers }); if (res.data.ok) window.open(res.data.url, '_blank'); }
-    catch { toast.error('Error'); }
+  const openConnection = async (id, name = '') => {
+    // Open via our wrapper page — handles disconnect redirect
+    const connName = name || connections.find(c => c.id === id)?.name || `Connection-${id}`;
+    window.open(`/connect?id=${id}&name=${encodeURIComponent(connName)}`, '_blank');
   };
 
   const createConnection = async () => {
@@ -378,7 +379,7 @@ export default function GuacamolePage() {
                         <Button size="sm" variant="ghost" onClick={e => { e.stopPropagation(); openAssignModal(conn.id, conn.name, 'guacamole', [conn.protocol || 'rdp']); }}
                           className="h-7 text-xs gap-1 text-cyan-400" data-testid={`assign-conn-${conn.id}`}><Plus className="w-3 h-3" /> Workspace</Button>
                       )}
-                      <Button size="sm" variant="ghost" onClick={e => {e.stopPropagation(); openConnection(conn.id);}} className="h-7 text-xs gap-1 text-blue-400"><Play className="w-3 h-3" /></Button>
+                      <Button size="sm" variant="ghost" onClick={e => {e.stopPropagation(); openConnection(conn.id, conn.name);}} className="h-7 text-xs gap-1 text-blue-400"><Play className="w-3 h-3" /></Button>
                       <Button size="sm" variant="ghost" onClick={e => {e.stopPropagation(); deleteConnection(conn.id);}} className="h-7 text-xs text-red-400"><Trash2 className="w-3 h-3" /></Button>
                       {expandedConn === conn.id ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
                     </div>
@@ -391,7 +392,7 @@ export default function GuacamolePage() {
                         <div className="rounded-lg bg-card border border-border p-2"><div className="text-[9px] text-muted-foreground">Activas</div><div className="text-xs font-bold text-green-400">{connDetail.activeConnections}</div></div>
                         <div className="rounded-lg bg-card border border-border p-2"><div className="text-[9px] text-muted-foreground">guacd</div><div className="text-[10px] font-mono">{connDetail.attributes?.['guacd-hostname']||'default'}</div></div>
                       </div>
-                      <Button size="sm" onClick={() => openConnection(conn.id)} className="bg-blue-600 hover:bg-blue-500 gap-1 h-7 text-xs"><ExternalLink className="w-3 h-3" /> Abrir HTML5</Button>
+                      <Button size="sm" onClick={() => openConnection(conn.id, conn.name)} className="bg-blue-600 hover:bg-blue-500 gap-1 h-7 text-xs"><ExternalLink className="w-3 h-3" /> Abrir HTML5</Button>
                     </div>
                   )}
                 </div>
@@ -560,6 +561,22 @@ export default function GuacamolePage() {
                 ))}
                 {oidcConfig.extensions && <div className="flex flex-wrap gap-1 pt-1">{oidcConfig.extensions.map(e => <Badge key={e} variant="outline" className="text-[8px]">{e}</Badge>)}</div>}
               </div>
+
+              {/* Session disconnect config */}
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5 space-y-3">
+                <h4 className="font-bold text-sm flex items-center gap-2"><X className="w-4 h-4 text-red-400" /> Disconnect Redirect</h4>
+                <p className="text-[11px] text-muted-foreground">Para que al cerrar una sesion VNC/RDP/SSH se redirija automaticamente a NeoSC Workspaces, agrega estas variables Docker:</p>
+                <div className="relative">
+                  <pre className="p-3 rounded-lg bg-black/40 text-[10px] text-green-400 font-mono overflow-x-auto whitespace-pre">{`# docker-compose.yml → guacamole → environment:
+WEBAPP_EXIT_URL: "${window.location.origin}/workspaces"
+WEBAPP_RECONNECT_ENABLED: "false"`}</pre>
+                  <button onClick={() => copyText(`WEBAPP_EXIT_URL: "${window.location.origin}/workspaces"\nWEBAPP_RECONNECT_ENABLED: "false"`)}
+                    className="absolute top-2 right-2 p-1 rounded bg-white/10 hover:bg-white/20"><Copy className="w-3 h-3 text-white" /></button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Despues ejecuta: <code className="text-cyan-400">docker compose down && docker compose up -d</code></p>
+              </div>
+
+              {/* Zitadel Action */}
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
                 <h4 className="font-bold text-sm flex items-center gap-2"><Zap className="w-4 h-4 text-amber-400" /> Zitadel Action: groups claim</h4>
                 <pre className="p-3 rounded-lg bg-black/40 text-[10px] text-green-400 font-mono overflow-x-auto whitespace-pre">{`function addGroupsClaim(ctx, api) {

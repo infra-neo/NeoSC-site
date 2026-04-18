@@ -1,103 +1,84 @@
 #!/bin/bash
 # ============================================================================
-# NeoVDI — Guacamole OIDC + Zitadel Configuration Reference
+# NeoVDI — Guacamole Docker Config para Disconnect Redirect + OIDC
 # ============================================================================
 #
-# Tu Guacamole ya está configurado via Docker environment variables.
-# Este archivo documenta la configuración actual y los pasos para
-# completar la integración Zitadel → Guacamole groups.
+# Agrega estas variables al docker-compose.yml de Guacamole:
 #
 # ============================================================================
 
 cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════════════════╗
-║                    NeoVDI — OIDC Configuration                         ║
+║              NeoVDI — Guacamole Docker Configuration                   ║
 ╠══════════════════════════════════════════════════════════════════════════╣
 ║                                                                        ║
-║  ✅ Guacamole OIDC ya configurado via Docker env vars                  ║
+║  AGREGA estas variables al servicio guacamole en docker-compose.yml:   ║
 ║                                                                        ║
-║  Docker Compose environment:                                           ║
-║  ─────────────────────────────────────────────────────────────────────  ║
-║  OPENID_AUTHORIZATION_ENDPOINT:                                        ║
-║    https://beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/authorize     ║
-║  OPENID_JWKS_ENDPOINT:                                                 ║
-║    https://beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/keys          ║
-║  OPENID_ISSUER:                                                        ║
-║    https://beyondcloud-nxm7ab.us1.zitadel.cloud                        ║
-║  OPENID_CLIENT_ID: 368660070466141146                                  ║
-║  OPENID_REDIRECT_URI: https://149.56.241.64:9443/                      ║
-║  OPENID_USERNAME_CLAIM_TYPE: preferred_username                        ║
-║  OPENID_GROUPS_CLAIM_TYPE: groups                                      ║
-║  OPENID_SCOPE: openid profile email groups                             ║
-║  OPENID_MAX_TOKEN_VALIDITY: 720                                        ║
+║  environment:                                                          ║
+║    # === DISCONNECT / SESSION CLOSE BEHAVIOR ===                       ║
+║    # Redirect when user closes session or connection drops             ║
+║    WEBAPP_EXIT_URL: "https://TU_DOMINIO_NEOSC/workspaces"             ║
 ║                                                                        ║
-║  Extensions: auth-sso-openid, auth-ldap, auth-duo, auth-totp,         ║
-║              auth-sso-saml, display-statistics, recording-*            ║
+║    # Disable reconnect attempts (go straight to exit URL)              ║
+║    WEBAPP_RECONNECT_ENABLED: "false"                                   ║
 ║                                                                        ║
-╠══════════════════════════════════════════════════════════════════════════╣
+║    # === OIDC (Zitadel) ===                                            ║
+║    OPENID_AUTHORIZATION_ENDPOINT: 'https://beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/authorize'
+║    OPENID_JWKS_ENDPOINT: 'https://beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/keys'
+║    OPENID_ISSUER: 'https://beyondcloud-nxm7ab.us1.zitadel.cloud'      ║
+║    OPENID_CLIENT_ID: '368660070466141146'                              ║
+║    OPENID_REDIRECT_URI: 'https://149.56.241.64:9443/'                  ║
+║    OPENID_USERNAME_CLAIM_TYPE: "preferred_username"                     ║
+║    OPENID_GROUPS_CLAIM_TYPE: "groups"                                   ║
+║    OPENID_SCOPE: "openid profile email groups"                         ║
+║    OPENID_MAX_TOKEN_VALIDITY: "720"                                    ║
 ║                                                                        ║
-║  PASO 1: Zitadel Action para inyectar "groups" en el ID token          ║
-║  ─────────────────────────────────────────────────────────────────────  ║
-║                                                                        ║
-║  Guacamole espera un claim "groups" (array de strings) en el token.    ║
-║  Zitadel no lo incluye por defecto. Necesitas crear una Action:        ║
-║                                                                        ║
-║  1. Ir a Zitadel Console → Actions → New Action                       ║
-║  2. Nombre: "addGroupsClaim"                                           ║
-║  3. Script:                                                            ║
-║                                                                        ║
-║     function addGroupsClaim(ctx, api) {                                ║
-║       if (ctx.v1.user && ctx.v1.user.grants) {                        ║
-║         var groups = [];                                               ║
-║         ctx.v1.user.grants.grants.forEach(function(grant) {           ║
-║           grant.roles.forEach(function(role) {                        ║
-║             groups.push(role);                                         ║
-║           });                                                          ║
-║         });                                                            ║
-║         api.v1.claims.setClaim("groups", groups);                     ║
-║       }                                                                ║
-║     }                                                                  ║
-║                                                                        ║
-║  4. Ir a Actions → Flows → "Complement Token"                         ║
-║  5. Trigger: "Pre Access Token Creation"                               ║
-║  6. Asignar la acción "addGroupsClaim"                                 ║
-║                                                                        ║
-║  Esto hará que cada token OIDC incluya:                                ║
-║  { "groups": ["admin", "user", "viewer", ...] }                       ║
+║  Después de actualizar, ejecuta:                                       ║
+║    docker compose down && docker compose up -d                         ║
 ║                                                                        ║
 ╠══════════════════════════════════════════════════════════════════════════╣
 ║                                                                        ║
-║  PASO 2: Crear grupos en Guacamole que coincidan con roles Zitadel     ║
-║  ─────────────────────────────────────────────────────────────────────  ║
+║  ¿QUÉ HACE WEBAPP_EXIT_URL?                                           ║
+║  Cuando una sesión VNC/RDP/SSH se desconecta o el usuario la cierra:   ║
+║  - Guacamole NO muestra "Reconectando en X seconds..."                 ║
+║  - Redirige automáticamente a la URL configurada                       ║
+║  - La sesión Guacamole se destruye                                     ║
 ║                                                                        ║
-║  Opción A: Desde NeoSC Portal → NeoVDI → "Sync Zitadel"              ║
-║  Opción B: Desde Guacamole Admin → User Groups → crear manualmente    ║
-║                                                                        ║
-║  Los grupos deben coincidir exactamente con los valores que la         ║
-║  Zitadel Action inyecta en "groups". Ejemplo:                          ║
-║    Zitadel role "admin" → Guacamole group "admin"                     ║
-║    Zitadel role "user"  → Guacamole group "user"                      ║
-║                                                                        ║
-╠══════════════════════════════════════════════════════════════════════════╣
-║                                                                        ║
-║  PASO 3: Asignar permisos de conexión a cada grupo                     ║
-║  ─────────────────────────────────────────────────────────────────────  ║
-║                                                                        ║
-║  En Guacamole Admin → User Groups → seleccionar grupo                  ║
-║  → Connections → marcar las conexiones que puede ver ese grupo         ║
-║                                                                        ║
-║  O desde NeoSC: POST /api/guacamole/groups/{gid}/grant/{conn_id}      ║
-║                                                                        ║
-╠══════════════════════════════════════════════════════════════════════════╣
-║                                                                        ║
-║  PASO 4: Logout redirect a NeoSC Workspaces                           ║
-║  ─────────────────────────────────────────────────────────────────────  ║
-║                                                                        ║
-║  Configurar en Zitadel → App OIDC → Post Logout Redirect URIs:        ║
-║    https://action-steps-4.preview.emergentagent.com/workspaces         ║
-║                                                                        ║
-║  Cuando el usuario cierra sesión en Guacamole → Zitadel →             ║
-║  redirect a la página de Workspaces de NeoSC.                          ║
+║  WEBAPP_RECONNECT_ENABLED=false:                                       ║
+║  - Desactiva el intento de reconexión automática                       ║
+║  - Si la conexión se pierde, va directo al exit URL                    ║
 ║                                                                        ║
 ╚══════════════════════════════════════════════════════════════════════════╝
+
+EJEMPLO docker-compose.yml completo:
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: postgres
+      POSTGRESQL_DATABASE: guacamole_db
+      POSTGRESQL_USER: guacamole_user
+      POSTGRESQL_PASSWORD: your_password
+      
+      # Session behavior
+      WEBAPP_EXIT_URL: "https://action-steps-4.preview.emergentagent.com/workspaces"
+      WEBAPP_RECONNECT_ENABLED: "false"
+      
+      # OIDC
+      OPENID_AUTHORIZATION_ENDPOINT: 'https://beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/authorize'
+      OPENID_JWKS_ENDPOINT: 'https://beyondcloud-nxm7ab.us1.zitadel.cloud/oauth/v2/keys'
+      OPENID_ISSUER: 'https://beyondcloud-nxm7ab.us1.zitadel.cloud'
+      OPENID_CLIENT_ID: '368660070466141146'
+      OPENID_REDIRECT_URI: 'https://149.56.241.64:9443/'
+      OPENID_USERNAME_CLAIM_TYPE: "preferred_username"
+      OPENID_GROUPS_CLAIM_TYPE: "groups"
+      OPENID_SCOPE: "openid profile email groups"
+      OPENID_MAX_TOKEN_VALIDITY: "720"
+      
+      # Extensions
+      EXTENSIONS: "auth-ldap,auth-duo,auth-sso-openid,auth-totp,auth-sso-saml,display-statistics,recording-filename-suffix,recording-rename-on-connect,recording-rename-on-disconnect"
+    ports:
+      - "9443:8080"
+
 EOF

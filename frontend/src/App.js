@@ -23,6 +23,7 @@ import EnrollTenantPage from "@/pages/EnrollTenantPage";
 import LxdAdminPage from "@/pages/LxdAdminPage";
 import GuacamolePage from "@/pages/GuacamolePage";
 import ClaimsMapPage from "@/pages/ClaimsMapPage";
+import ConnectionPage from "@/pages/ConnectionPage";
 import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
@@ -90,6 +91,11 @@ function App() {
               <Route path="/dashboard" element={
                 <ProtectedRoute>
                   <DashboardPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/connect" element={
+                <ProtectedRoute>
+                  <ConnectionPage />
                 </ProtectedRoute>
               } />
               <Route path="/workspaces" element={
