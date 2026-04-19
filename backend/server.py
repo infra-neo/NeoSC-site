@@ -22,6 +22,7 @@ import lxd_client
 import guacamole_client
 from tsplus_manager import tsplus_manager
 from notifications_hub import hub as notifications_hub, sse_generator
+import html as html_escape_mod
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -1291,6 +1292,9 @@ async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_u
         await db.users.insert_one(user_doc)
 
         invite_url = f"{origin}/login?invite={invite_token}&email={email}"
+        safe_welcome = html_escape_mod.escape(body.welcome_message) if body.welcome_message else ""
+        safe_tenant = html_escape_mod.escape(tenant_org)
+        safe_inviter = html_escape_mod.escape(user['email'])
         html = f"""
         <!DOCTYPE html>
         <html><body style='font-family:system-ui,-apple-system,Inter,sans-serif;background:#0a0e17;color:#fff;padding:32px;'>
@@ -1299,11 +1303,11 @@ async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_u
                 <div style='width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#06b6d4,#a855f7);display:flex;align-items:center;justify-content:center;font-weight:800;'>N</div>
                 <h1 style='margin:0;font-size:18px;'>NeoSC</h1>
               </div>
-              <h2 style='color:#06b6d4;margin:0 0 8px;'>Te invitaron a {tenant_org}</h2>
+              <h2 style='color:#06b6d4;margin:0 0 8px;'>Te invitaron a {safe_tenant}</h2>
               <p style='color:#94a3b8;font-size:14px;line-height:1.6;'>
-                {user['email']} te ha invitado a acceder a los workspaces remotos de <b style='color:#fff'>{tenant_org}</b> en NeoSC — el portal HTML5 Zero Trust de cloud desktops.
+                {safe_inviter} te ha invitado a acceder a los workspaces remotos de <b style='color:#fff'>{safe_tenant}</b> en NeoSC — el portal HTML5 Zero Trust de cloud desktops.
               </p>
-              {f"<p style='color:#94a3b8;font-size:13px;border-left:3px solid #06b6d4;padding-left:12px;margin:16px 0;'>{body.welcome_message}</p>" if body.welcome_message else ""}
+              {f"<p style='color:#94a3b8;font-size:13px;border-left:3px solid #06b6d4;padding-left:12px;margin:16px 0;'>{safe_welcome}</p>" if safe_welcome else ""}
               <a href='{invite_url}' style='display:inline-block;background:#06b6d4;color:#000;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px;'>Aceptar invitación</a>
               <p style='color:#64748b;font-size:11px;margin-top:24px;'>Link expira en 7 días. Si no esperabas esta invitación, ignora este correo.</p>
             </div>
