@@ -143,6 +143,11 @@ function App() {
                   <WorkspaceViewerPage />
                 </ProtectedRoute>
               } />
+              <Route path="/viewer/new/:workspaceId" element={
+                <ProtectedRoute>
+                  <WorkspaceViewerPage />
+                </ProtectedRoute>
+              } />
               <Route path="/admin" element={
                 <ProtectedRoute>
                   <AdminGlobalPage />

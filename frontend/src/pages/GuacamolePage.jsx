@@ -47,6 +47,12 @@ export default function GuacamolePage() {
   const [assignPort, setAssignPort] = useState(0);
   const [editingAccess, setEditingAccess] = useState(null); // assignment object
   const [form, setForm] = useState({ name: '', protocol: 'rdp', hostname: '', port: 3389, username: '', password: '' });
+  // TSplus
+  const [workspaces, setWorkspaces] = useState([]);
+  const [tsplusSessions, setTsplusSessions] = useState([]);
+  const [tsplusStatus, setTsplusStatus] = useState(null);
+  const [editingRdp, setEditingRdp] = useState(null); // { id, rdp_username, rdp_password, rdp_domain, rdp_application_path, launch_mode }
+  const [savingRdp, setSavingRdp] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -70,6 +76,29 @@ export default function GuacamolePage() {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  // Load TSplus data when switching to the TSplus tab
+  useEffect(() => {
+    if (activeTab !== 'tsplus') return;
+    (async () => {
+      try {
+        const wsRes = await axios.get(`${API}/workspaces`, { headers }).catch(() => ({ data: [] }));
+        setWorkspaces(Array.isArray(wsRes.data) ? wsRes.data : []);
+        const sessRes = await axios.get(`${API}/admin/tsplus/sessions`, { headers }).catch(() => ({ data: { sessions: [] } }));
+        setTsplusSessions(sessRes.data?.sessions || []);
+        const statRes = await axios.get(`${API}/admin/tsplus/status`, { headers }).catch(() => ({ data: null }));
+        setTsplusStatus(statRes.data);
+      } catch { /* */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'oidc') {
+      axios.get(`${API}/guacamole/oidc-config`, { headers }).then(r => setOidcConfig(r.data)).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const loadConnDetail = async (id) => {
     if (expandedConn === id) { setExpandedConn(null); setConnDetail(null); return; }
@@ -196,10 +225,61 @@ export default function GuacamolePage() {
   const copyText = (t) => { navigator.clipboard.writeText(t); toast.success('Copiado'); };
   const isAssigned = (resId) => assignments.some(a => a.resource_id === resId);
 
+  // ─── TSplus Remote Action Engine (helpers — load is in useEffect) ────────
+  const refreshTsplus = async () => {
+    try {
+      const [wsRes, sessRes, statRes] = await Promise.all([
+        axios.get(`${API}/workspaces`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API}/admin/tsplus/sessions`, { headers }).catch(() => ({ data: { sessions: [] } })),
+        axios.get(`${API}/admin/tsplus/status`, { headers }).catch(() => ({ data: null })),
+      ]);
+      setWorkspaces(Array.isArray(wsRes.data) ? wsRes.data : []);
+      setTsplusSessions(sessRes.data?.sessions || []);
+      setTsplusStatus(statRes.data);
+    } catch { /* */ }
+  };
+
+  const openRdpEditor = (ws) => {
+    setEditingRdp({
+      id: ws.id,
+      name: ws.name,
+      rdp_username: ws.rdp_username || '',
+      rdp_password: '', // never prefilled; empty means keep unchanged
+      rdp_domain: ws.rdp_domain || '',
+      rdp_application_path: ws.rdp_application_path || '',
+      launch_mode: ws.launch_mode || 'iframe',
+      password_set: !!ws.rdp_password_set,
+    });
+  };
+
+  const saveRdp = async () => {
+    if (!editingRdp) return;
+    setSavingRdp(true);
+    try {
+      const payload = {
+        rdp_username: editingRdp.rdp_username || null,
+        rdp_domain: editingRdp.rdp_domain || null,
+        rdp_application_path: editingRdp.rdp_application_path || null,
+        launch_mode: editingRdp.launch_mode || null,
+      };
+      if (editingRdp.rdp_password && editingRdp.rdp_password.length > 0) {
+        payload.rdp_password = editingRdp.rdp_password;
+      }
+      await axios.put(`${API}/workspaces/${editingRdp.id}`, payload, { headers });
+      toast.success('Credenciales RDP actualizadas');
+      setEditingRdp(null);
+      refreshTsplus();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error');
+    }
+    setSavingRdp(false);
+  };
+
   const tabs = [
     { id: 'connections', label: 'Conexiones', icon: Monitor, count: connections.length },
     { id: 'apps', label: 'Apps', icon: Container, count: apps.length },
     { id: 'access', label: 'Acceso', icon: Shield, count: assignments.length },
+    { id: 'tsplus', label: 'TSplus', icon: Zap, count: tsplusSessions.length },
     { id: 'users', label: 'Usuarios', icon: Users, count: users.length },
     { id: 'groups', label: 'Grupos', icon: Lock, count: groups.length },
     { id: 'oidc', label: 'OIDC', icon: Lock, count: null },
@@ -247,7 +327,7 @@ export default function GuacamolePage() {
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
-                <button key={tab.id} onClick={() => { setActiveTab(tab.id); if (tab.id === 'oidc') { axios.get(`${API}/guacamole/oidc-config`, { headers }).then(r => setOidcConfig(r.data)).catch(() => {}); } }}
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-3 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
                     activeTab === tab.id ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
                   <Icon className="w-3.5 h-3.5" /> {tab.label}
@@ -565,6 +645,192 @@ export default function GuacamolePage() {
                   <div className="flex flex-wrap gap-1">{(g.members||[]).map(m => <Badge key={m} className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-[9px]">{m}</Badge>)}</div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ═══ TSPLUS TAB ═══ */}
+          {activeTab === 'tsplus' && (
+            <div className="space-y-5" data-testid="tsplus-tab">
+              {/* Farm Status */}
+              <div className="rounded-xl border border-border bg-card p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Zap className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <div className="font-bold text-sm">TSplus Farm Manager</div>
+                    <div className="text-xs text-muted-foreground font-mono">{tsplusStatus?.url || '—'}</div>
+                  </div>
+                </div>
+                {tsplusStatus?.connected
+                  ? <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">Conectado</Badge>
+                  : <Badge className="bg-red-500/10 text-red-400 border-red-500/30">Desconectado</Badge>}
+              </div>
+
+              {/* Workspaces with RDP credential editor */}
+              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-cyan-400" /> Workspaces RDP · Credential Injection
+                  </h3>
+                  <Button size="sm" variant="outline" onClick={refreshTsplus} className="h-7 gap-1">
+                    <RefreshCw className="w-3 h-3" /> Refresh
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Configura las credenciales RDP que TSplus Farm API usará para generar autologon tokens.
+                  El password se guarda cifrado en MongoDB y <strong>nunca</strong> se expone en el frontend.
+                </p>
+                {workspaces.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground text-xs">No hay workspaces</div>
+                ) : (
+                  <div className="space-y-2">
+                    {workspaces.map(ws => (
+                      <div key={ws.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border bg-muted/20" data-testid={`ws-rdp-${ws.id}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-sm truncate">{ws.name}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {ws.type} · {ws.rdp_username ? `user: ${ws.rdp_username}` : 'sin usuario configurado'}
+                            {ws.rdp_domain ? ` · dom: ${ws.rdp_domain}` : ''}
+                          </div>
+                        </div>
+                        {ws.rdp_username && ws.rdp_password_set ? (
+                          <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">CREDS OK</Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[9px]">SIN CREDS</Badge>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openRdpEditor(ws)}
+                          className="h-7 gap-1 text-xs"
+                          data-testid={`edit-rdp-${ws.id}`}
+                        >
+                          <Settings className="w-3 h-3" /> RDP
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Active TSplus sessions */}
+              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <h3 className="font-bold text-sm flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-emerald-400" /> Sesiones activas en TSplus
+                  <Badge variant="secondary" className="text-[9px] h-4 px-1">{tsplusSessions.length}</Badge>
+                </h3>
+                {tsplusSessions.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground text-xs">No hay sesiones activas</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {tsplusSessions.map((s, i) => (
+                      <div key={s.SessionId || s.Id || i} className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-muted/20 text-xs" data-testid={`tsplus-session-${i}`}>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <code className="text-cyan-400 font-mono">{s.UserName || '—'}</code>
+                        <span className="text-muted-foreground">sid: {s.SessionId || s.Id || '—'}</span>
+                        <span className="flex-1" />
+                        <span className="text-muted-foreground">{s.State || s.Status || ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* RDP Credential Editor Modal */}
+          {editingRdp && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setEditingRdp(null)}>
+              <div className="bg-card border border-border rounded-2xl max-w-md w-full p-5 space-y-4" onClick={e => e.stopPropagation()} data-testid="rdp-editor-modal">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-cyan-400" /> RDP · {editingRdp.name}
+                  </h3>
+                  <button onClick={() => setEditingRdp(null)} className="text-muted-foreground hover:text-foreground">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-[10px]">Usuario RDP *</Label>
+                    <Input
+                      value={editingRdp.rdp_username}
+                      onChange={e => setEditingRdp({ ...editingRdp, rdp_username: e.target.value })}
+                      className="h-8 text-xs font-mono"
+                      placeholder="user01"
+                      data-testid="rdp-username-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">
+                      Password {editingRdp.password_set && <span className="text-emerald-400">(configurado — deja vacío para mantener)</span>}
+                    </Label>
+                    <Input
+                      type="password"
+                      value={editingRdp.rdp_password}
+                      onChange={e => setEditingRdp({ ...editingRdp, rdp_password: e.target.value })}
+                      className="h-8 text-xs font-mono"
+                      placeholder={editingRdp.password_set ? '••••••••' : 'nuevo password'}
+                      data-testid="rdp-password-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Dominio (opcional)</Label>
+                    <Input
+                      value={editingRdp.rdp_domain}
+                      onChange={e => setEditingRdp({ ...editingRdp, rdp_domain: e.target.value })}
+                      className="h-8 text-xs font-mono"
+                      placeholder="WORKGROUP"
+                      data-testid="rdp-domain-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Application Path (opcional, RemoteApp)</Label>
+                    <Input
+                      value={editingRdp.rdp_application_path}
+                      onChange={e => setEditingRdp({ ...editingRdp, rdp_application_path: e.target.value })}
+                      className="h-8 text-xs font-mono"
+                      placeholder="C:\Program Files\App\app.exe"
+                      data-testid="rdp-app-path-input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Launch Mode</Label>
+                    <select
+                      value={editingRdp.launch_mode}
+                      onChange={e => setEditingRdp({ ...editingRdp, launch_mode: e.target.value })}
+                      className="w-full h-8 rounded-md border border-border bg-background px-2 text-xs"
+                      data-testid="rdp-launch-mode"
+                    >
+                      <option value="iframe">iframe (embebido en NeoSC)</option>
+                      <option value="new_tab">new_tab (pestaña nueva)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end pt-2">
+                  <Button size="sm" variant="ghost" onClick={() => setEditingRdp(null)}>Cancelar</Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { window.open(`/viewer/new/${editingRdp.id}`, '_blank'); }}
+                    disabled={!editingRdp.password_set && !editingRdp.rdp_password}
+                    className="gap-1 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                    data-testid="test-autologon-btn"
+                    title="Abre /viewer/new/{id} para probar autologon"
+                  >
+                    <Play className="w-3 h-3" /> Test Autologon
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={saveRdp}
+                    disabled={savingRdp || !editingRdp.rdp_username}
+                    className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1"
+                    data-testid="save-rdp-btn"
+                  >
+                    {savingRdp ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                    Guardar
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -722,6 +722,11 @@ async def get_workspaces(user: dict = Depends(get_current_user)):
         for ws in DEFAULT_WORKSPACES:
             await db.workspaces.insert_one(ws.copy())
         workspaces = DEFAULT_WORKSPACES
+    # Never expose rdp_password. Add a boolean hint for admins to know if it's set.
+    for w in workspaces:
+        pwd = w.pop("rdp_password", None)
+        if user.get("role") == "admin":
+            w["rdp_password_set"] = bool(pwd)
     return workspaces
 
 class WorkspaceCreate(BaseModel):
@@ -738,6 +743,11 @@ class WorkspaceCreate(BaseModel):
     storage: str = "50 GB"
     image_url: str = ""
     icon: str = "default"
+    # TSplus Remote Action Engine — credential injection
+    rdp_username: Optional[str] = None
+    rdp_password: Optional[str] = None
+    rdp_domain: Optional[str] = None
+    rdp_application_path: Optional[str] = None
 
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
@@ -753,6 +763,11 @@ class WorkspaceUpdate(BaseModel):
     image_url: Optional[str] = None
     icon: Optional[str] = None
     status: Optional[str] = None
+    # TSplus Remote Action Engine — credential injection
+    rdp_username: Optional[str] = None
+    rdp_password: Optional[str] = None
+    rdp_domain: Optional[str] = None
+    rdp_application_path: Optional[str] = None
 
 @api_router.post("/workspaces")
 async def create_workspace(workspace: WorkspaceCreate, user: dict = Depends(get_current_user)):
@@ -783,9 +798,15 @@ async def update_workspace(workspace_id: str, update: WorkspaceUpdate, user: dic
     
     if update_data:
         await db.workspaces.update_one({"id": workspace_id}, {"$set": update_data})
-        await create_audit_log(user['id'], user['email'], "update_workspace", f"workspace:{workspace_id}", f"Updated workspace: {update_data}")
+        # Sanitize audit: never log credentials
+        safe_log = {k: ("***" if k == "rdp_password" else v) for k, v in update_data.items()}
+        await create_audit_log(user['id'], user['email'], "update_workspace", f"workspace:{workspace_id}", f"Updated workspace: {safe_log}")
     
     updated = await db.workspaces.find_one({"id": workspace_id}, {"_id": 0})
+    # Strip password from response (admin can see if it's set via the flag)
+    if updated:
+        pwd = updated.pop("rdp_password", None)
+        updated["rdp_password_set"] = bool(pwd)
     return {"message": "Workspace updated", "workspace": updated}
 
 @api_router.delete("/workspaces/{workspace_id}")
@@ -898,7 +919,7 @@ async def launch_workspace(workspace_id: str, user: dict = Depends(get_current_u
     
     return {
         "session_id": session.id,
-        "workspace": workspace,
+        "workspace": {k: v for k, v in workspace.items() if k != "rdp_password"},
         "connection_url": connection_url,
         "launch_mode": launch_mode,
         "clientless": is_clientless,
@@ -988,8 +1009,11 @@ async def launch_workspace_autologon(workspace_id: str, user: dict = Depends(get
 
     await create_audit_log(user["id"], user["email"], "launch_workspace_autologon",
                            f"workspace:{workspace_id}", f"Autologon: {workspace['name']}")
+    # Strip password from workspace response
+    ws_safe = {k: v for k, v in workspace.items() if k != "rdp_password"}
+    ws_safe["rdp_password_set"] = bool(workspace.get("rdp_password"))
     return {
-        "session_id": session.id, "workspace": workspace,
+        "session_id": session.id, "workspace": ws_safe,
         "connection_url": connection_url,
         "launch_mode": workspace.get("launch_mode", "iframe"),
         "autologon": tsplus_token is not None, "clientless": True,
