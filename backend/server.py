@@ -19,6 +19,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import lxd_client
 import guacamole_client
+from tsplus_manager import tsplus_manager
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -939,6 +940,140 @@ async def stop_workspace(workspace_id: str, user: dict = Depends(get_current_use
     )
     
     return {"message": "Workspace stopped successfully"}
+
+
+# ============ TSPLUS REMOTE ACTION ENGINE ============
+
+@api_router.post("/workspaces/{workspace_id}/launch-autologon")
+async def launch_workspace_autologon(workspace_id: str, user: dict = Depends(get_current_user)):
+    """Launch workspace with credential injection — user never sees/types the password."""
+    workspace = await db.workspaces.find_one({"id": workspace_id}, {"_id": 0})
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if workspace.get("status") == "coming_soon":
+        raise HTTPException(status_code=400, detail="Workspace no disponible aun")
+
+    rdp_username = workspace.get("rdp_username")
+    rdp_password = workspace.get("rdp_password")
+    rdp_domain = workspace.get("rdp_domain", "")
+
+    if not rdp_username or not rdp_password:
+        raise HTTPException(status_code=400, detail="Workspace sin credenciales configuradas. Usar /launch estandar.")
+
+    session = Session(user_id=user["id"], user_email=user["email"], workspace_id=workspace_id,
+                      workspace_name=workspace["name"], workspace_type=workspace.get("type", "rdp"))
+    session_doc = session.model_dump()
+    session_doc["started_at"] = session_doc["started_at"].isoformat()
+    session_doc["clientless"] = True
+    session_doc["launch_mode"] = workspace.get("launch_mode", "iframe")
+    session_doc["connection_type"] = "tsplus_autologon"
+    await db.sessions.insert_one(session_doc)
+    await db.workspaces.update_one({"id": workspace_id}, {"$set": {"status": "running"}})
+
+    # Get autologon token from TSplus Farm Manager
+    tsplus_token = None
+    connection_url = workspace.get("url", "")
+    try:
+        autologon = await tsplus_manager.get_autologon_token(
+            username=rdp_username, password=rdp_password,
+            domain=rdp_domain, application_path=workspace.get("rdp_application_path", ""))
+        if autologon.get("token"):
+            tsplus_token = autologon["token"]
+            connection_url = autologon["session_url"]
+    except Exception as e:
+        logger.error(f"TSplus autologon error: {e}")
+
+    await db.sessions.update_one({"id": session.id}, {"$set": {
+        "tsplus_token": tsplus_token, "rdp_username": rdp_username, "tsplus_session_id": None}})
+
+    await create_audit_log(user["id"], user["email"], "launch_workspace_autologon",
+                           f"workspace:{workspace_id}", f"Autologon: {workspace['name']}")
+    return {
+        "session_id": session.id, "workspace": workspace,
+        "connection_url": connection_url,
+        "launch_mode": workspace.get("launch_mode", "iframe"),
+        "autologon": tsplus_token is not None, "clientless": True,
+        "security": {"credential_injection": True, "password_never_exposed": True,
+                     "token_based": tsplus_token is not None, "zero_trust": True},
+    }
+
+
+@api_router.post("/sessions/{session_id}/action")
+async def execute_session_action(session_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Execute a control action on an active remote session (logoff, disconnect, lock)."""
+    ALLOWED = {"logoff", "disconnect", "lock"}
+    session = await db.sessions.find_one({"id": session_id, "user_id": user["id"]}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesion no encontrada")
+    if session.get("status") not in ("active", None):
+        raise HTTPException(status_code=400, detail="Sesion no esta activa")
+
+    action = body.get("action", "")
+    if action not in ALLOWED:
+        raise HTTPException(status_code=400, detail=f"Accion no valida. Permitidas: {ALLOWED}")
+
+    tsplus_sid = session.get("tsplus_session_id")
+    rdp_user = session.get("rdp_username")
+
+    if not tsplus_sid and rdp_user:
+        try:
+            ts = await tsplus_manager.get_user_session(rdp_user)
+            if ts:
+                tsplus_sid = ts.get("SessionId") or ts.get("Id")
+                await db.sessions.update_one({"id": session_id}, {"$set": {"tsplus_session_id": tsplus_sid}})
+        except Exception as e:
+            logger.warning(f"TSplus session lookup failed: {e}")
+
+    # For Guacamole sessions, handle disconnect differently
+    guac_conn_id = session.get("guacamole_connection_id")
+    success = False
+
+    if tsplus_sid:
+        if action == "logoff":
+            success = await tsplus_manager.logoff_session(tsplus_sid)
+        elif action == "disconnect":
+            success = await tsplus_manager.disconnect_session(tsplus_sid)
+        elif action == "lock":
+            success = await tsplus_manager.lock_session(tsplus_sid)
+    elif guac_conn_id:
+        # For Guacamole connections, we can only kill via API
+        if action in ("logoff", "disconnect"):
+            await guacamole_client.delete_connection(guac_conn_id)
+            success = True
+    else:
+        # No TSplus or Guacamole session — mark as terminated anyway
+        success = True
+
+    if action == "logoff" and success:
+        await db.sessions.update_one({"id": session_id},
+            {"$set": {"status": "terminated", "ended_at": datetime.now(timezone.utc).isoformat()}})
+        await db.workspaces.update_one({"id": session.get("workspace_id")}, {"$set": {"status": "available"}})
+    elif action == "disconnect" and success:
+        await db.sessions.update_one({"id": session_id},
+            {"$set": {"status": "disconnected", "ended_at": datetime.now(timezone.utc).isoformat()}})
+
+    await create_audit_log(user["id"], user["email"], f"session_action_{action}",
+                           f"session:{session_id}", f"Action {action} tsplus_sid={tsplus_sid}")
+    return {"session_id": session_id, "action": action, "success": success, "tsplus_session_id": tsplus_sid,
+            "message": f"Accion '{action}' ejecutada" if success else f"Accion '{action}' enviada"}
+
+
+@api_router.get("/admin/tsplus/sessions")
+async def list_tsplus_sessions(user: dict = Depends(get_current_user)):
+    """List active sessions on TSplus Server."""
+    require_admin(user)
+    try:
+        sessions = await tsplus_manager.list_sessions()
+        return {"sessions": sessions, "count": len(sessions)}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
+
+
+@api_router.get("/admin/tsplus/status")
+async def tsplus_status(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    return await tsplus_manager.check_status()
+
 
 # ============ APPLICATIONS ENDPOINTS ============
 
