@@ -24,6 +24,7 @@ import LxdAdminPage from "@/pages/LxdAdminPage";
 import GuacamolePage from "@/pages/GuacamolePage";
 import ClaimsMapPage from "@/pages/ClaimsMapPage";
 import ConnectionPage from "@/pages/ConnectionPage";
+import WelcomePage from "@/pages/WelcomePage";
 import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
@@ -35,6 +36,7 @@ import ProvisionProgressPage from "@/pages/market/ProvisionProgressPage";
 
 // Auth Context
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { NotificationsProvider } from "@/context/NotificationsContext";
 // Language Context
 import { LanguageProvider } from "@/i18n/LanguageContext";
 
@@ -63,9 +65,10 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <AuthProvider>
-      <LanguageProvider>
-        <div className="App">
-          <BrowserRouter>
+      <NotificationsProvider>
+        <LanguageProvider>
+          <div className="App">
+            <BrowserRouter>
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<LandingPage />} />
@@ -148,6 +151,11 @@ function App() {
                   <WorkspaceViewerPage />
                 </ProtectedRoute>
               } />
+              <Route path="/welcome" element={
+                <ProtectedRoute>
+                  <WelcomePage />
+                </ProtectedRoute>
+              } />
               <Route path="/admin" element={
                 <ProtectedRoute>
                   <AdminGlobalPage />
@@ -196,8 +204,9 @@ function App() {
               },
             }}
           />
-        </div>
-      </LanguageProvider>
+          </div>
+        </LanguageProvider>
+      </NotificationsProvider>
     </AuthProvider>
   );
 }

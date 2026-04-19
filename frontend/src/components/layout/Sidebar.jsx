@@ -20,6 +20,7 @@ import {
   Server,
   Container,
   Link2,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +34,7 @@ const userMenuItems = [
 
 const adminMenuItems = [
   { icon: Gauge, label: 'Panel Global', path: '/admin' },
+  { icon: Sparkles, label: 'Bienvenida', path: '/welcome' },
   { icon: Users, label: 'Enrolar Tenant', path: '/admin/enroll-tenant' },
   { icon: Server, label: 'NeoCloud LXD', path: '/admin/lxd' },
   { icon: Container, label: 'NeoVDI', path: '/admin/neovdi' },

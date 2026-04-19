@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Request
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -20,6 +21,7 @@ load_dotenv(ROOT_DIR / '.env')
 import lxd_client
 import guacamole_client
 from tsplus_manager import tsplus_manager
+from notifications_hub import hub as notifications_hub, sse_generator
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -1097,6 +1099,247 @@ async def list_tsplus_sessions(user: dict = Depends(get_current_user)):
 async def tsplus_status(user: dict = Depends(get_current_user)):
     require_admin(user)
     return await tsplus_manager.check_status()
+
+
+# ============ REAL-TIME NOTIFICATIONS (SSE) ============
+
+@api_router.get("/notifications/stream")
+async def notifications_stream(request: Request, token: str = ""):
+    """SSE stream. Auth via ?token= query param (EventSource can't set headers)."""
+    if not token or token not in active_tokens:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = active_tokens[token]
+    user_id = user["id"]
+    q = await notifications_hub.subscribe(user_id)
+
+    async def event_stream():
+        try:
+            async for chunk in sse_generator(q):
+                if await request.is_disconnected():
+                    break
+                yield chunk
+        finally:
+            await notifications_hub.unsubscribe(user_id, q)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@api_router.post("/notifications/test")
+async def notifications_test(body: dict, user: dict = Depends(get_current_user)):
+    """Admin-only: send a test notification to a user (or self)."""
+    require_admin(user)
+    target = body.get("user_id") or user["id"]
+    await notifications_hub.publish(target, {
+        "type": body.get("type", "info"),
+        "title": body.get("title", "Notificación de prueba"),
+        "message": body.get("message", "Hola desde NeoSC"),
+        "source": "admin_test",
+    })
+    return {"ok": True, "target": target}
+
+
+@api_router.post("/admin/sessions/{session_id}/action")
+async def admin_session_action(session_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Admin forces an action on ANY user's session and notifies them in real-time."""
+    require_admin(user)
+    ALLOWED = {"logoff", "disconnect", "lock"}
+    action = body.get("action", "")
+    if action not in ALLOWED:
+        raise HTTPException(status_code=400, detail=f"Accion no valida. Permitidas: {ALLOWED}")
+
+    session = await db.sessions.find_one({"id": session_id}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesion no encontrada")
+
+    target_user_id = session.get("user_id")
+    target_email = session.get("user_email")
+    tsplus_sid = session.get("tsplus_session_id")
+    rdp_user = session.get("rdp_username")
+    guac_conn_id = session.get("guacamole_connection_id")
+
+    if not tsplus_sid and rdp_user:
+        try:
+            ts = await tsplus_manager.get_user_session(rdp_user)
+            if ts:
+                tsplus_sid = ts.get("SessionId") or ts.get("Id")
+                await db.sessions.update_one({"id": session_id}, {"$set": {"tsplus_session_id": tsplus_sid}})
+        except Exception as e:
+            logger.warning(f"TSplus session lookup failed: {e}")
+
+    success = False
+    if tsplus_sid:
+        if action == "logoff":
+            success = await tsplus_manager.logoff_session(tsplus_sid)
+        elif action == "disconnect":
+            success = await tsplus_manager.disconnect_session(tsplus_sid)
+        elif action == "lock":
+            success = await tsplus_manager.lock_session(tsplus_sid)
+    elif guac_conn_id and action in ("logoff", "disconnect"):
+        await guacamole_client.delete_connection(guac_conn_id)
+        success = True
+    else:
+        success = True
+
+    if action == "logoff" and success:
+        await db.sessions.update_one({"id": session_id},
+            {"$set": {"status": "terminated", "ended_at": datetime.now(timezone.utc).isoformat(),
+                      "terminated_by": user["email"]}})
+        await db.workspaces.update_one({"id": session.get("workspace_id")}, {"$set": {"status": "available"}})
+    elif action == "disconnect" and success:
+        await db.sessions.update_one({"id": session_id},
+            {"$set": {"status": "disconnected", "ended_at": datetime.now(timezone.utc).isoformat(),
+                      "terminated_by": user["email"]}})
+
+    # Notify the target user in real time
+    labels = {"logoff": "cerrada", "disconnect": "desconectada", "lock": "bloqueada"}
+    await notifications_hub.publish(target_user_id, {
+        "type": f"session.{action}",
+        "title": f"Sesión {labels.get(action, action)} por el administrador",
+        "message": f"Tu sesión en {session.get('workspace_name', 'workspace')} fue {labels.get(action, action)} por {user['email']}.",
+        "session_id": session_id,
+        "action": action,
+        "admin_email": user["email"],
+        "severity": "warning" if action == "lock" else "error",
+    })
+
+    await create_audit_log(user["id"], user["email"], f"admin_session_action_{action}",
+                           f"session:{session_id}",
+                           f"Admin {user['email']} forced {action} on session of {target_email}")
+    return {"session_id": session_id, "action": action, "success": success,
+            "target_user": target_email, "notified": True}
+
+
+# ============ EMAIL NOTIFICATIONS (MOCK) ============
+
+async def send_mock_email(to: str, subject: str, body_html: str, category: str = "general") -> str:
+    """Store a 'sent' email in MongoDB and log it. Returns the email id."""
+    email_id = str(uuid.uuid4())
+    doc = {
+        "id": email_id,
+        "to": to,
+        "subject": subject,
+        "body_html": body_html,
+        "category": category,
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+        "delivery": "mock",
+    }
+    await db.mock_emails.insert_one(doc.copy())
+    logger.info(f"[MOCK EMAIL] to={to} subject={subject} id={email_id}")
+    return email_id
+
+
+@api_router.get("/admin/emails")
+async def list_mock_emails(user: dict = Depends(get_current_user)):
+    """List recent mock emails (admin only)."""
+    require_admin(user)
+    emails = await db.mock_emails.find({}, {"_id": 0, "body_html": 0}).sort("sent_at", -1).to_list(100)
+    return {"emails": emails, "count": len(emails)}
+
+
+@api_router.get("/admin/emails/{email_id}")
+async def get_mock_email(email_id: str, user: dict = Depends(get_current_user)):
+    """Preview a mock email HTML body (admin only)."""
+    require_admin(user)
+    email = await db.mock_emails.find_one({"id": email_id}, {"_id": 0})
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return email
+
+
+# ============ TENANT USER INVITATIONS (B2B Flow) ============
+
+class InviteUsersBody(BaseModel):
+    emails: List[str]
+    role: str = "user"
+    welcome_message: str = ""
+
+
+@api_router.post("/tenants/invite-users")
+async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_user)):
+    """Admin invites end users — creates user record + mock email with magic link."""
+    require_admin(user)
+    tenant_org = user.get("organization", "NeoSC Tenant")
+    origin = os.environ.get("WEBAPP_PUBLIC_URL", "https://neosc.local")
+    results = []
+
+    for email in body.emails:
+        email = email.strip().lower()
+        if not email or "@" not in email:
+            results.append({"email": email, "status": "invalid"})
+            continue
+        existing = await db.users.find_one({"email": email}, {"_id": 0})
+        if existing:
+            results.append({"email": email, "status": "already_exists", "user_id": existing.get("id")})
+            continue
+
+        # Create a local user with a one-time invite token
+        invite_token = generate_token()
+        new_user = User(email=email, name=email.split("@")[0], organization=tenant_org, role=body.role)
+        user_doc = new_user.model_dump()
+        user_doc["created_at"] = user_doc["created_at"].isoformat()
+        user_doc["invite_token"] = invite_token
+        user_doc["invited_by"] = user["email"]
+        user_doc["invite_status"] = "pending"
+        await db.users.insert_one(user_doc)
+
+        invite_url = f"{origin}/login?invite={invite_token}&email={email}"
+        html = f"""
+        <!DOCTYPE html>
+        <html><body style='font-family:system-ui,-apple-system,Inter,sans-serif;background:#0a0e17;color:#fff;padding:32px;'>
+            <div style='max-width:560px;margin:0 auto;background:#111827;border:1px solid #1e293b;border-radius:16px;padding:32px;'>
+              <div style='display:flex;align-items:center;gap:12px;margin-bottom:20px;'>
+                <div style='width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#06b6d4,#a855f7);display:flex;align-items:center;justify-content:center;font-weight:800;'>N</div>
+                <h1 style='margin:0;font-size:18px;'>NeoSC</h1>
+              </div>
+              <h2 style='color:#06b6d4;margin:0 0 8px;'>Te invitaron a {tenant_org}</h2>
+              <p style='color:#94a3b8;font-size:14px;line-height:1.6;'>
+                {user['email']} te ha invitado a acceder a los workspaces remotos de <b style='color:#fff'>{tenant_org}</b> en NeoSC — el portal HTML5 Zero Trust de cloud desktops.
+              </p>
+              {f"<p style='color:#94a3b8;font-size:13px;border-left:3px solid #06b6d4;padding-left:12px;margin:16px 0;'>{body.welcome_message}</p>" if body.welcome_message else ""}
+              <a href='{invite_url}' style='display:inline-block;background:#06b6d4;color:#000;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px;'>Aceptar invitación</a>
+              <p style='color:#64748b;font-size:11px;margin-top:24px;'>Link expira en 7 días. Si no esperabas esta invitación, ignora este correo.</p>
+            </div>
+        </body></html>
+        """
+        email_id = await send_mock_email(
+            to=email,
+            subject=f"Te invitaron a {tenant_org} en NeoSC",
+            body_html=html,
+            category="user_invite",
+        )
+        results.append({"email": email, "status": "invited", "user_id": new_user.id, "email_id": email_id})
+
+        # Real-time toast to the inviter
+        await notifications_hub.publish(user["id"], {
+            "type": "user.invited",
+            "title": "Invitación enviada",
+            "message": f"Email enviado a {email}",
+            "severity": "success",
+        })
+
+    await create_audit_log(user["id"], user["email"], "invite_users",
+                           "users", f"Invited {len(body.emails)} emails. Success: {sum(1 for r in results if r['status']=='invited')}")
+
+    return {"ok": True, "results": results, "total": len(body.emails)}
+
+
+@api_router.get("/tenants/invited-users")
+async def list_invited_users(user: dict = Depends(get_current_user)):
+    """List users invited by current admin (or all, if super-admin)."""
+    require_admin(user)
+    users = await db.users.find(
+        {"invited_by": {"$exists": True}},
+        {"_id": 0, "password_hash": 0, "invite_token": 0}
+    ).sort("created_at", -1).to_list(200)
+    return {"users": users, "count": len(users)}
 
 
 # ============ APPLICATIONS ENDPOINTS ============

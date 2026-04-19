@@ -41,6 +41,20 @@ export default function WorkspaceViewerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramSessionId, workspaceId]);
 
+  // React to real-time admin kill events
+  useEffect(() => {
+    const onTerm = (e) => {
+      const evt = e.detail || {};
+      if (!sessionId || evt.session_id !== sessionId) return;
+      // 'lock' doesn't kill the session, just show a warning
+      if (evt.action === 'lock') return;
+      handleTerminated(evt.action || 'disconnect');
+    };
+    window.addEventListener('neosc:session-terminated', onTerm);
+    return () => window.removeEventListener('neosc:session-terminated', onTerm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
   const launchAutologon = async () => {
     try {
       const res = await axios.post(
