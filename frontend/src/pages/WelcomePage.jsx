@@ -29,15 +29,18 @@ export default function WelcomePage() {
   const [invited, setInvited] = useState([]);
   const [recentEmails, setRecentEmails] = useState([]);
   const [previewEmail, setPreviewEmail] = useState(null);
+  const [myOrg, setMyOrg] = useState(null);
 
   const loadInvited = async () => {
     try {
-      const [invRes, emailsRes] = await Promise.all([
+      const [invRes, emailsRes, orgRes] = await Promise.all([
         axios.get(`${API}/tenants/invited-users`, { headers }).catch(() => ({ data: { users: [] } })),
         axios.get(`${API}/admin/emails`, { headers }).catch(() => ({ data: { emails: [] } })),
+        axios.get(`${API}/zitadel/my-org`, { headers }).catch(() => ({ data: null })),
       ]);
       setInvited(invRes.data.users || []);
       setRecentEmails(emailsRes.data.emails || []);
+      setMyOrg(orgRes.data);
     } catch { /* */ }
   };
 
@@ -167,28 +170,98 @@ export default function WelcomePage() {
                 </div>
               </div>
 
-              {/* Enrollment info */}
-              <div className="rounded-xl border border-border bg-card p-5 space-y-2">
-                <h3 className="font-bold text-sm flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Enrolamiento completo
-                </h3>
+              {/* Enrollment info — REAL Zitadel data */}
+              <div className="rounded-xl border border-border bg-card p-5 space-y-3" data-testid="enrollment-info">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Enrolamiento completo
+                  </h3>
+                  {myOrg && (
+                    <Badge className={`text-[9px] ${
+                      myOrg.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : myOrg.status === 'not_configured' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : 'bg-red-500/10 text-red-400 border-red-500/30'
+                    }`}>
+                      Zitadel {myOrg.status === 'connected' ? 'conectado' : myOrg.status}
+                    </Badge>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20">
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-org-name">
                     <span className="text-muted-foreground">Organización</span>
-                    <span className="font-mono text-cyan-400">{user?.organization || '—'}</span>
+                    <span className="font-mono text-cyan-400 truncate ml-2">{myOrg?.org_name || user?.organization || '—'}</span>
                   </div>
-                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20">
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-admin-email">
                     <span className="text-muted-foreground">Admin</span>
-                    <span className="font-mono text-cyan-400">{user?.email || '—'}</span>
+                    <span className="font-mono text-cyan-400 truncate ml-2">{user?.email || '—'}</span>
                   </div>
-                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20">
-                    <span className="text-muted-foreground">Zitadel Tenant</span>
-                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">PROVISIONADO</Badge>
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-org-id">
+                    <span className="text-muted-foreground">Org ID</span>
+                    <span className="font-mono text-[10px] text-cyan-400 truncate ml-2">{myOrg?.org_id || '—'}</span>
                   </div>
-                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20">
-                    <span className="text-muted-foreground">Role</span>
-                    <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-[9px] uppercase">{user?.role || 'user'}</Badge>
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-project-id">
+                    <span className="text-muted-foreground">Project ID</span>
+                    <span className="font-mono text-[10px] text-cyan-400 truncate ml-2">{myOrg?.project_id || '—'}</span>
                   </div>
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-app-client">
+                    <span className="text-muted-foreground">App Client ID</span>
+                    <span className="font-mono text-[10px] text-cyan-400 truncate ml-2">{myOrg?.app_client_id || '—'}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-neovdi-client">
+                    <span className="text-muted-foreground">NeoVDI Client ID</span>
+                    <span className="font-mono text-[10px] text-cyan-400 truncate ml-2">{myOrg?.neovdi_client_id || '—'}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-primary-domain">
+                    <span className="text-muted-foreground">Dominio principal</span>
+                    <span className="font-mono text-cyan-400 truncate ml-2">{myOrg?.primary_domain || myOrg?.domain || '—'}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-user-count">
+                    <span className="text-muted-foreground">Usuarios en Zitadel</span>
+                    <span className="font-mono text-cyan-400">{myOrg?.user_count ?? '—'}</span>
+                  </div>
+                </div>
+
+                {myOrg?.roles?.length > 0 && (
+                  <div className="pt-2 border-t border-border">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Roles del proyecto</div>
+                    <div className="flex flex-wrap gap-1">
+                      {myOrg.roles.map(r => (
+                        <Badge key={r.key} className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-[9px]">
+                          {r.display_name || r.key}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-border flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate('/admin/zitadel')}
+                    className="h-7 gap-1 text-xs"
+                    data-testid="goto-zitadel-btn"
+                  >
+                    <ShieldCheck className="w-3 h-3" /> Gestionar Zitadel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate('/admin/neovdi?tab=access')}
+                    className="h-7 gap-1 text-xs"
+                    data-testid="goto-access-btn"
+                  >
+                    <Server className="w-3 h-3" /> Configurar accesos (Recurso → Grupo → Usuario)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate('/admin/claims-map')}
+                    className="h-7 gap-1 text-xs"
+                    data-testid="goto-claims-btn"
+                  >
+                    <Network className="w-3 h-3" /> Ver claims map
+                  </Button>
                 </div>
               </div>
             </div>

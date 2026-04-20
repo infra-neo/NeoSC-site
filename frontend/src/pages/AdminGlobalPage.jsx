@@ -73,6 +73,47 @@ export default function AdminGlobalPage() {
     } catch { toast.error('Error al activar tenant'); }
   };
 
+  const [workspaces, setWorkspaces] = useState([]);
+
+  useEffect(() => {
+    axios.get(`${API}/workspaces`, { headers: getAuthHeader() })
+      .then(r => setWorkspaces(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {});
+  }, [getAuthHeader]);
+
+  const retryOrder = async (orderId) => {
+    if (!orderId) { toast.error('Selecciona una orden'); return; }
+    try {
+      const res = await axios.post(`${API}/admin/orders/${orderId}/retry`, {}, { headers: getAuthHeader() });
+      toast.success(`Retry ejecutado (retry #${res.data.retry_count})`);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error ejecutando retry');
+    }
+  };
+
+  const suspendWorkspace = async (wsId) => {
+    if (!wsId) return;
+    if (!window.confirm('¿Suspender este workspace? Se terminarán las sesiones activas.')) return;
+    try {
+      const res = await axios.post(`${API}/admin/workspaces/${wsId}/suspend`, {}, { headers: getAuthHeader() });
+      toast.success(`Workspace suspendido · ${res.data.killed_sessions} sesión(es) terminada(s)`);
+      load();
+      axios.get(`${API}/workspaces`, { headers: getAuthHeader() })
+        .then(r => setWorkspaces(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al suspender workspace');
+    }
+  };
+
+  const lockdownFirstActive = () => {
+    const candidate = (tenants || []).find(t => t.status !== 'suspended');
+    if (!candidate) { toast.warning('No hay tenants para bloquear'); return; }
+    if (window.confirm(`Lockdown del tenant "${candidate.name}"?`)) {
+      lockdownTenant(candidate.id);
+    }
+  };
+
   const planColor = (plan) => {
     if (plan === 'Enterprise') return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
     if (plan === 'Business') return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
@@ -162,7 +203,14 @@ export default function AdminGlobalPage() {
           )}
 
           {activeTab === 'orchestrator' && orchestrator && (
-            <OrchestratorPanel orchestrator={orchestrator} />
+            <OrchestratorPanel
+              orchestrator={orchestrator}
+              onRetry={retryOrder}
+              onSuspend={suspendWorkspace}
+              onLockdownFirst={lockdownFirstActive}
+              tenants={tenants}
+              workspaces={workspaces}
+            />
           )}
 
           {activeTab === 'logs' && (
@@ -244,7 +292,10 @@ function TenantsTable({ tenants, planColor, statusColor, onLockdown, onActivate 
   );
 }
 
-function OrchestratorPanel({ orchestrator }) {
+function OrchestratorPanel({ orchestrator, onRetry, onSuspend, onLockdownFirst, tenants, workspaces }) {
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedWs, setSelectedWs] = useState('');
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Active Orders Queue */}
@@ -256,42 +307,87 @@ function OrchestratorPanel({ orchestrator }) {
         </h3>
         <div className="space-y-3">
           {orchestrator.queue.map((item, i) => (
-            <div key={i} className="rounded-lg bg-muted/20 border border-border p-3.5">
+            <button
+              key={i}
+              onClick={() => setSelectedOrder(item.order_id)}
+              className={`w-full text-left rounded-lg border p-3.5 transition-all ${
+                selectedOrder === item.order_id ? 'bg-cyan-500/10 border-cyan-500/40' : 'bg-muted/20 border-border hover:bg-muted/30'
+              }`}
+              data-testid={`order-${item.order_id}`}
+            >
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <span className="font-bold text-xs font-mono">{item.order_id}</span>
                   <span className="text-xs text-muted-foreground ml-2">{item.tenant} · {item.plan}</span>
+                  {item.is_demo && <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[8px] ml-1.5">DEMO</Badge>}
                 </div>
                 <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px]">
                   {item.status}
                 </Badge>
               </div>
-              {/* Progress bar */}
               <div className="w-full h-1.5 bg-muted/50 rounded-full overflow-hidden mb-1.5">
                 <div
                   className="h-full bg-amber-400 rounded-full transition-all duration-500"
-                  style={{ width: `${(item.step / item.total_steps) * 100}%` }}
+                  style={{ width: `${Math.min(100, (item.step / (item.total_steps || 12)) * 100)}%` }}
                 />
               </div>
               <div className="text-[10px] text-muted-foreground font-mono">
                 <RefreshCw className="w-2.5 h-2.5 inline mr-1 animate-spin" />
                 {item.current_action} — paso {item.step}/{item.total_steps}
               </div>
-            </div>
+            </button>
           ))}
+          {orchestrator.queue.length === 0 && (
+            <div className="text-center text-xs text-muted-foreground py-6">No hay órdenes activas</div>
+          )}
         </div>
 
-        {/* Emergency Controls */}
+        {/* Emergency Controls (ahora funcionales) */}
         <div className="mt-4 pt-3 border-t border-border">
           <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Controles de emergencia</div>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="h-7 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1"
+              onClick={onLockdownFirst}
+              disabled={!tenants || tenants.length === 0}
+              data-testid="orch-lockdown-btn"
+            >
               <Lock className="w-3 h-3" /> Lockdown tenant
             </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs gap-1">
-              <Pause className="w-3 h-3" /> Suspender VM
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs gap-1">
+            <div className="flex gap-1 items-center">
+              <select
+                value={selectedWs}
+                onChange={e => setSelectedWs(e.target.value)}
+                className="h-7 text-[11px] rounded-md border border-border bg-background px-2 max-w-[160px]"
+                data-testid="orch-ws-select"
+              >
+                <option value="">Workspace…</option>
+                {(workspaces || []).filter(w => w.status !== 'suspended').map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                disabled={!selectedWs}
+                onClick={() => { onSuspend(selectedWs); setSelectedWs(''); }}
+                data-testid="orch-suspend-btn"
+              >
+                <Pause className="w-3 h-3" /> Suspender VM
+              </Button>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1"
+              disabled={!selectedOrder || selectedOrder.startsWith('DEMO-')}
+              onClick={() => onRetry(selectedOrder)}
+              data-testid="orch-retry-btn"
+              title={selectedOrder ? `Retry ${selectedOrder}` : 'Selecciona una orden arriba'}
+            >
               <RotateCcw className="w-3 h-3" /> Retry step
             </Button>
           </div>
@@ -306,33 +402,48 @@ function OrchestratorPanel({ orchestrator }) {
         </h3>
         <div className="space-y-2">
           {orchestrator.workers.map((w, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-muted/20 font-mono text-xs">
-              <span className="text-foreground">{w.name}</span>
-              <div className="flex items-center gap-3">
-                <Badge className={`text-[10px] ${
-                  w.status === 'activo' ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30'
-                }`}>
-                  {w.status}
-                </Badge>
-                <span className="text-muted-foreground">
-                  {w.tasks > 0 ? (
-                    <span className="text-amber-400">{w.tasks} tarea{w.tasks > 1 ? 's' : ''}</span>
-                  ) : 'idle'}
-                </span>
+            <div key={i} className="px-3 py-2 rounded-lg bg-muted/20">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs text-foreground truncate">{w.name}</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge className={`text-[10px] ${
+                    w.status === 'activo' ? 'bg-green-500/10 text-green-400 border-green-500/30' :
+                    w.status === 'idle' ? 'bg-muted text-muted-foreground border-border' :
+                    'bg-red-500/10 text-red-400 border-red-500/30'
+                  }`}>
+                    {w.status}
+                  </Badge>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {w.tasks > 0 ? <span className="text-amber-400">{w.tasks} {w.tasks > 1 ? 'tareas' : 'tarea'}</span> : 'idle'}
+                  </span>
+                </div>
               </div>
+              {w.current_task && (
+                <div className="text-[10px] text-cyan-400/70 font-mono mt-1 truncate">↳ {w.current_task}</div>
+              )}
+              {w.description && (
+                <div className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">{w.description}</div>
+              )}
             </div>
           ))}
         </div>
 
-        {/* Stats */}
-        <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-3">
+        <div className="mt-4 pt-3 border-t border-border grid grid-cols-4 gap-2">
           <div className="text-center p-2 rounded-lg bg-muted/20">
-            <div className="text-lg font-bold text-green-400">{orchestrator.completed_today}</div>
-            <div className="text-[10px] text-muted-foreground uppercase">Completadas hoy</div>
+            <div className="text-base font-bold text-green-400">{orchestrator.completed_today ?? 0}</div>
+            <div className="text-[9px] text-muted-foreground uppercase">Hoy</div>
           </div>
           <div className="text-center p-2 rounded-lg bg-muted/20">
-            <div className="text-lg font-bold text-amber-400">{orchestrator.active_count}</div>
-            <div className="text-[10px] text-muted-foreground uppercase">En proceso</div>
+            <div className="text-base font-bold text-amber-400">{orchestrator.active_count ?? 0}</div>
+            <div className="text-[9px] text-muted-foreground uppercase">Proc.</div>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-muted/20">
+            <div className="text-base font-bold text-cyan-400">{orchestrator.active_sessions ?? 0}</div>
+            <div className="text-[9px] text-muted-foreground uppercase">Sesión</div>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-muted/20">
+            <div className="text-base font-bold text-purple-400">{orchestrator.pending_invites ?? 0}</div>
+            <div className="text-[9px] text-muted-foreground uppercase">Invit.</div>
           </div>
         </div>
       </div>

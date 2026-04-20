@@ -38,6 +38,7 @@ const adminMenuItems = [
   { icon: Users, label: 'Enrolar Tenant', path: '/admin/enroll-tenant' },
   { icon: Server, label: 'NeoCloud LXD', path: '/admin/lxd' },
   { icon: Container, label: 'NeoVDI', path: '/admin/neovdi' },
+  { icon: Shield, label: 'Accesos & Grupos', path: '/admin/neovdi?tab=access' },
   { icon: Link2, label: 'Claims Map', path: '/admin/claims-map' },
   { icon: Shield, label: 'NeoGuard SSO', path: '/admin/zitadel' },
   { icon: Wifi, label: 'NeoMesh VPN', path: '/admin/netbird' },
@@ -56,7 +57,12 @@ export const Sidebar = () => {
   };
 
   const NavLink = ({ item }) => {
-    const isActive = location.pathname === item.path;
+    const [itemPath, itemQuery] = item.path.split('?');
+    const qs = new URLSearchParams(location.search);
+    const wantedTab = new URLSearchParams(itemQuery || '').get('tab');
+    const currentTab = qs.get('tab') || '';
+    const isActive = location.pathname === itemPath &&
+      (wantedTab ? wantedTab === currentTab : !currentTab || currentTab === '');
     return (
       <Link
         to={item.path}

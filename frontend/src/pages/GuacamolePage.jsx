@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,11 @@ export default function GuacamolePage() {
   const [syncing, setSyncing] = useState(false);
   const [installing, setInstalling] = useState(null);
   const [activeTab, setActiveTab] = useState('connections');
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(t);
+  }, [searchParams]);
   const [showCreate, setShowCreate] = useState(false);
   const [expandedConn, setExpandedConn] = useState(null);
   const [connDetail, setConnDetail] = useState(null);

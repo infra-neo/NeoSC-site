@@ -1748,55 +1748,181 @@ async def admin_activate_tenant(tenant_id: str, user: dict = Depends(get_current
 @api_router.get("/admin/orchestrator")
 async def admin_orchestrator(user: dict = Depends(get_current_user)):
     require_admin(user)
-    # Get active/recent orders with provisioning status
+    # Real provisioning orders
     active_orders = await db.market_orders.find(
         {"status": {"$in": ["pending", "provisioning", "completed"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(20)
 
-    # Simulated workers (in production this would query Celery)
+    # Real active sessions count (for winrm-style live workers)
+    active_sessions = await db.sessions.count_documents({"status": {"$in": ["active", None]}})
+    pending_invites = await db.users.count_documents({"invite_status": "pending"})
+    active_workspaces = await db.workspaces.count_documents({"status": "running"})
+
+    # Real workers — derived from active async tasks in DB
     workers = [
-        {"name": "provision@worker-1", "status": "activo", "tasks": 1, "current_task": "windows_bootstrap"},
-        {"name": "provision@worker-2", "status": "activo", "tasks": 0, "current_task": None},
-        {"name": "winrm@worker-1", "status": "activo", "tasks": 1, "current_task": "install_tsplus"},
-        {"name": "notify@worker-1", "status": "activo", "tasks": 0, "current_task": None},
-        {"name": "backup@worker-1", "status": "activo", "tasks": 0, "current_task": None},
+        {"name": "provision@worker-1", "status": "activo",
+         "tasks": len([o for o in active_orders if o.get("status") == "provisioning"]),
+         "current_task": next((o.get("current_action") for o in active_orders if o.get("status") == "provisioning"), None),
+         "description": "VM bootstrap (LXD + Windows + NetBird)"},
+        {"name": "tsplus@worker-1", "status": "activo" if active_sessions > 0 else "idle",
+         "tasks": active_sessions,
+         "current_task": f"serving {active_sessions} session(s)" if active_sessions else None,
+         "description": "TSplus Farm + session control"},
+        {"name": "notify@worker-1", "status": "activo",
+         "tasks": pending_invites,
+         "current_task": f"{pending_invites} pending invite(s)" if pending_invites else None,
+         "description": "Mock email delivery + SSE notifications"},
+        {"name": "workspace@worker-1", "status": "activo" if active_workspaces else "idle",
+         "tasks": active_workspaces,
+         "current_task": f"{active_workspaces} workspace(s) running" if active_workspaces else None,
+         "description": "LXD workspace monitor"},
+        {"name": "backup@worker-1", "status": "idle", "tasks": 0, "current_task": None,
+         "description": "Scheduled snapshots (off-hours)"},
     ]
 
-    # Simulated provisioning queue
+    # Real provisioning queue from market_orders
     queue = []
     for order in active_orders:
-        if order.get("status") == "provisioning":
+        if order.get("status") in ("provisioning", "pending"):
             queue.append({
                 "order_id": order.get("id", "")[:10],
-                "tenant": order.get("organization", "Unknown"),
-                "plan": order.get("neosc_plan", "Starter"),
-                "status": "provisioning",
-                "step": order.get("current_step", 3),
-                "total_steps": 12,
-                "current_action": order.get("current_action", "windows_bootstrap"),
+                "tenant": order.get("organization") or order.get("customer_email", "Unknown"),
+                "plan": order.get("neosc_plan") or order.get("plan", "Starter"),
+                "status": order.get("status"),
+                "step": order.get("current_step", 1),
+                "total_steps": order.get("total_steps", 12),
+                "current_action": order.get("current_action", "init"),
+                "started_at": order.get("created_at"),
             })
 
-    # Add demo entries if queue is empty
+    # Fallback demo when no real orders (clearly labeled)
     if not queue:
         queue = [
-            {"order_id": "ORD-9B2F1A", "tenant": "Logística Rápida", "plan": "Starter",
-             "status": "provisioning", "step": 5, "total_steps": 12, "current_action": "install_tsplus"},
-            {"order_id": "ORD-7C3D2E", "tenant": "FinTech Alpha", "plan": "Business",
-             "status": "provisioning", "step": 11, "total_steps": 12, "current_action": "netbird_mesh"},
+            {"order_id": "DEMO-9B2F1A", "tenant": "Logística Rápida (demo)", "plan": "Starter",
+             "status": "provisioning", "step": 5, "total_steps": 12, "current_action": "install_tsplus",
+             "started_at": datetime.now(timezone.utc).isoformat(), "is_demo": True},
+            {"order_id": "DEMO-7C3D2E", "tenant": "FinTech Alpha (demo)", "plan": "Business",
+             "status": "provisioning", "step": 11, "total_steps": 12, "current_action": "netbird_mesh",
+             "started_at": datetime.now(timezone.utc).isoformat(), "is_demo": True},
         ]
+
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    completed_today = await db.market_orders.count_documents({
+        "status": "completed",
+        "created_at": {"$gte": today_start}
+    })
 
     return {
         "workers": workers,
         "queue": queue,
         "active_count": len([o for o in active_orders if o.get("status") == "provisioning"]),
-        "completed_today": len([o for o in active_orders if o.get("status") == "completed"]),
+        "completed_today": completed_today,
+        "active_sessions": active_sessions,
+        "pending_invites": pending_invites,
+        "active_workspaces": active_workspaces,
     }
+
+
+@api_router.post("/admin/orders/{order_id}/retry")
+async def admin_order_retry(order_id: str, user: dict = Depends(get_current_user)):
+    """Retry a failed/stuck provisioning step (re-enqueues the current step)."""
+    require_admin(user)
+    order = await db.market_orders.find_one({"id": order_id}, {"_id": 0}) \
+        or await db.market_orders.find_one({"id": {"$regex": f"^{order_id}"}}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    # Reset to provisioning + advance step marker so the background task picks it up
+    await db.market_orders.update_one(
+        {"id": order["id"]},
+        {"$set": {"status": "provisioning", "retry_count": order.get("retry_count", 0) + 1,
+                  "last_retry_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await create_audit_log(user["id"], user["email"], "order_retry",
+                           f"order:{order['id']}",
+                           f"Retry step {order.get('current_step', '?')}/{order.get('total_steps', 12)} for {order.get('organization', order.get('customer_email', '?'))}")
+    await notifications_hub.publish(user["id"], {
+        "type": "order.retry", "severity": "info",
+        "title": "Retry ejecutado", "message": f"Reintentando orden {order['id'][:10]}",
+    })
+    return {"ok": True, "order_id": order["id"], "retry_count": order.get("retry_count", 0) + 1}
+
+
+@api_router.post("/admin/workspaces/{workspace_id}/suspend")
+async def admin_workspace_suspend(workspace_id: str, user: dict = Depends(get_current_user)):
+    """Suspend a running workspace (VM)."""
+    require_admin(user)
+    ws = await db.workspaces.find_one({"id": workspace_id}, {"_id": 0})
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await db.workspaces.update_one({"id": workspace_id}, {"$set": {"status": "suspended"}})
+    # Also kill any active sessions on it
+    sessions = await db.sessions.find({"workspace_id": workspace_id, "status": {"$in": ["active", None]}}, {"_id": 0}).to_list(10)
+    for s in sessions:
+        await db.sessions.update_one({"id": s["id"]},
+            {"$set": {"status": "terminated", "terminated_by": user["email"],
+                      "ended_at": datetime.now(timezone.utc).isoformat()}})
+        await notifications_hub.publish(s.get("user_id", ""), {
+            "type": "session.logoff", "severity": "error",
+            "title": "Workspace suspendido", "message": f"Tu sesión en {ws['name']} fue terminada por un administrador.",
+            "session_id": s["id"], "action": "logoff",
+        })
+    await create_audit_log(user["id"], user["email"], "workspace_suspend",
+                           f"workspace:{workspace_id}", f"Suspended {ws['name']} · killed {len(sessions)} sessions")
+    return {"ok": True, "workspace_id": workspace_id, "killed_sessions": len(sessions)}
 
 @api_router.get("/admin/system-logs")
 async def admin_system_logs(user: dict = Depends(get_current_user)):
     require_admin(user)
-    logs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(50)
+    raw = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(200)
+
+    # Map action keyword → source + level
+    def classify(action: str, success: bool):
+        a = (action or "").lower()
+        if "error" in a or "fail" in a or not success:
+            level = "error"
+        elif "warn" in a or "timeout" in a or "retry" in a:
+            level = "warn"
+        else:
+            level = "info"
+        if "zitadel" in a or "sso" in a or "oidc" in a:
+            source = "zitadel"
+        elif "netbird" in a or "policy" in a or "peer" in a:
+            source = "netbird"
+        elif "lxd" in a or "container" in a or "vm" in a:
+            source = "lxd"
+        elif "guac" in a or "neovdi" in a:
+            source = "neovdi"
+        elif "tsplus" in a or "session_action" in a:
+            source = "tsplus"
+        elif "invite" in a or "email" in a or "tenant" in a:
+            source = "tenant"
+        elif "workspace" in a or "launch" in a:
+            source = "workspace"
+        elif "login" in a or "logout" in a or "register" in a or "auth" in a:
+            source = "auth"
+        elif "market" in a or "order" in a or "payment" in a or "stripe" in a:
+            source = "payment"
+        else:
+            source = "orchestrator"
+        return level, source
+
+    logs = []
+    for r in raw:
+        level, source = classify(r.get("action", ""), r.get("success", True))
+        msg = r.get("details") or r.get("action") or "-"
+        if r.get("user_email"):
+            msg = f"[{r['user_email']}] {msg}"
+        logs.append({
+            "timestamp": r.get("timestamp"),
+            "level": level,
+            "source": source,
+            "message": msg,
+            "action": r.get("action"),
+            "resource": r.get("resource"),
+            "success": r.get("success", True),
+        })
+
     if not logs:
         logs = [
             {"timestamp": "2026-02-07T10:15:00Z", "level": "info", "source": "orchestrator",
@@ -1902,6 +2028,82 @@ async def zitadel_list_grants(user: dict = Depends(get_current_user)):
         if r.status_code >= 400:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
+
+
+@api_router.get("/zitadel/my-org")
+async def zitadel_my_org(user: dict = Depends(get_current_user)):
+    """Returns the current user's Zitadel organization + project + app + roles (from env config)."""
+    oidc_app_client_id = os.environ.get("ZITADEL_CLIENT_ID", "")
+    oidc_project_id = os.environ.get("ZITADEL_PROJECT_ID", ZITADEL_PROJECT_ID)
+    neovdi_client_id = os.environ.get("ZITADEL_NEOVDI_CLIENT_ID", "368658584004778169")
+
+    result = {
+        "org_id": ZITADEL_ORG_ID,
+        "org_name": None,
+        "domain": ZITADEL_DOMAIN,
+        "project_id": oidc_project_id,
+        "project_name": None,
+        "app_client_id": oidc_app_client_id,
+        "neovdi_client_id": neovdi_client_id,
+        "roles": [],
+        "user_count": 0,
+        "user_email": user.get("email"),
+        "user_role": user.get("role"),
+        "status": "unknown",
+    }
+
+    if not ZITADEL_DOMAIN or not ZITADEL_PAT:
+        result["status"] = "not_configured"
+        return result
+
+    async with httpx.AsyncClient(timeout=10) as c:
+        # Org metadata
+        try:
+            r = await c.get(
+                f"{ZITADEL_DOMAIN}/management/v1/orgs/me",
+                headers=zitadel_headers(org_id=ZITADEL_ORG_ID),
+            )
+            if r.status_code < 400:
+                d = r.json().get("org", {})
+                result["org_name"] = d.get("name")
+                result["primary_domain"] = d.get("primaryDomain")
+                result["status"] = "connected"
+        except Exception as e:
+            logger.warning(f"zitadel my-org fetch error: {e}")
+            result["status"] = "error"
+            result["error"] = str(e)[:120]
+
+        # Project roles
+        if oidc_project_id:
+            try:
+                r = await c.post(
+                    f"{ZITADEL_DOMAIN}/management/v1/projects/{oidc_project_id}/roles/_search",
+                    headers=zitadel_headers(org_id=ZITADEL_ORG_ID),
+                    json={"queries": []},
+                )
+                if r.status_code < 400:
+                    roles = r.json().get("result", []) or []
+                    result["roles"] = [
+                        {"key": x.get("key"), "display_name": x.get("displayName"), "group": x.get("group")}
+                        for x in roles
+                    ]
+            except Exception as e:
+                logger.warning(f"zitadel project roles fetch error: {e}")
+
+        # User count
+        try:
+            r = await c.post(
+                f"{ZITADEL_DOMAIN}/v2/users",
+                headers=zitadel_headers(org_id=ZITADEL_ORG_ID),
+                json={"queries": [{"organizationIdQuery": {"organizationId": ZITADEL_ORG_ID}}], "limit": 1},
+            )
+            if r.status_code < 400:
+                details = r.json().get("details", {}) or {}
+                result["user_count"] = int(details.get("totalResult", 0) or 0)
+        except Exception:
+            pass
+
+    return result
 
 
 # ============ NETBIRD API PROXY ============
