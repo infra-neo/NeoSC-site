@@ -1,70 +1,59 @@
 # WinDesk Market (NeoSC) — PRD
 
 ## Original Problem Statement
-Transform a WinDesk Cloud MVP into the "NeoSC" platform — a full SaaS for self-service provisioning of cloud desktops with NeoVDI (HTML5 RDP/VNC), NeoMesh (NetBird Zero Trust), and NeoGuard (Zitadel SSO). Integrate real third-party SaaS APIs (Zitadel, NetBird, LXD, Guacamole, TSplus, JumpServer) and AI (Claude 4.5 via emergentintegrations). Add real-time notifications and a B2B onboarding flow for existing TSplus companies.
+Transform WinDesk Cloud MVP → NeoSC platform: self-service cloud desktops (NeoVDI HTML5 RDP/VNC), Zero-Trust VPN (NeoMesh NetBird), SSO (NeoGuard Zitadel OIDC), LXD container/VM management (NeoCloud), TSplus bridge (NeoConnect), JumpServer PAM (NeoVault). Real-time notifications, B2B onboarding for TSplus companies, AI chatbot (Claude 4.5). Current month: Feb 2026.
 
 ## Tech Stack
-React 19 + FastAPI + MongoDB + Tailwind CSS + Shadcn/UI + framer-motion + sonner. Auth: JWT + Zitadel OIDC PKCE. Real-time: Server-Sent Events (SSE) with per-user asyncio queues.
-
-## NeoSC Product Suite
-- **NeoGuard** = Zitadel SSO/MFA
-- **NeoMesh** = NetBird Zero Trust VPN
-- **NeoVDI** = HTML5 Desktop Gateway (Guacamole backend, rebranded)
-- **NeoCloud** = LXD/LXC VM & Container management
-- **NeoConnect** = NetBird relay bridging NeoSC ↔ Client infrastructure
-- **NeoVault** = JumpServer PAM
+React 19 + FastAPI + MongoDB + Tailwind + Shadcn/UI + framer-motion + sonner. JWT + Zitadel OIDC PKCE. SSE real-time. emergentintegrations for Claude.
 
 ## What's Implemented
 
-### Phase 13 — Real-time Notifications + B2B Onboarding (Apr 2026) ✅
-- **SSE NotificationHub** (`backend/notifications_hub.py`) — per-user asyncio queues, broadcast support, heartbeat every 20s.
-- **`GET /api/notifications/stream?token=`** — SSE endpoint (EventSource-compatible, token via query param).
-- **`NotificationsProvider`** (`frontend/src/context/NotificationsContext.jsx`) — wraps app, subscribes to SSE, emits sonner toasts with severity mapping.
-- **`POST /api/admin/sessions/{id}/action`** — admin forces action (lock/disconnect/logoff) on ANY user's session → backend calls TSplus/Guacamole + updates DB + publishes SSE event with `type=session.{action}` to target user_id.
-- **WorkspaceViewerPage** listens for `neosc:session-terminated` custom event → auto-redirects when admin kills session.
-- **Mock email system**: `db.mock_emails` collection + `GET /api/admin/emails[/{id}]` for preview. XSS-escaped welcome message.
-- **`POST /api/tenants/invite-users`** — bulk invite by email list, creates User docs with `invite_token`, sends mock email with magic link.
-- **`WelcomePage` `/welcome`** — 2-step wizard: (1) Bienvenida con branding NeoSC + 4 product badges + enrollment info, (2) Invitar equipo con textarea multi-email + role select + welcome message + sent-invites list with email preview modal.
-- **Sidebar**: new "Bienvenida" entry under Administración.
+### Phase 14 — Admin UX Fixes (Apr 2026) ✅
+- **System Logs** real data — transforms `audit_logs` mapping `action→source`, `details→message`, `success→level`.
+- **Orquestador** real data — workers derived from DB (tsplus sessions, pending invites, running workspaces). Queue from real market_orders (+ demo fallback labeled).
+- **Emergency controls functional**: `POST /api/admin/orders/{id}/retry` (409 if completed), `POST /api/admin/workspaces/{id}/suspend` (kills sessions + SSE notify), Lockdown tenant.
+- **`GET /api/zitadel/my-org`** — Org Name, Org ID, Project ID, App Client ID, NeoVDI Client ID, Domain, User Count, Project Roles.
+- **WelcomePage** shows 8 real Zitadel fields + status badge + 3 shortcut buttons.
+- **Sidebar**: "Accesos & Grupos" → `/admin/neovdi?tab=access` with NavLink query-aware active state.
+
+### Phase 13 — Real-time Notifications + B2B Onboarding
+SSE NotificationHub, `/api/notifications/stream`, admin_session_action with SSE notify, WelcomePage 2-step wizard, mock email + XSS-escaped `invite-users`.
 
 ### Phase 12 — TSplus Remote Action Engine
-Credential Injection (autologon), Session Control (lock/disconnect/logoff), admin UI in NeoVDI panel, WorkspaceViewerPage with SessionToolbar, password sanitization across all responses.
+Credential Injection autologon, Session Control, TSplus admin tab, SessionToolbar, password sanitization.
 
 ### Phase 11 — NeoVDI + OIDC + Apps Catalog
-NeoVDI rebrand, Zitadel OIDC integration with groups claim, App Catalog, Workspace Assignments auto-syncing NetBird policies.
+NeoVDI rebrand, Zitadel OIDC groups claim, App Catalog, Workspace Assignments NetBird sync.
 
 ### Previous Phases (1-10)
-Full LXD/LXC REST API, Zitadel auto-provisioning, NeoConnect relay, Market wizards (NeoCloud/NeoConnect), Landing page framer-motion, Claims mapping, Guacamole iframe performance fixes.
+LXD/LXC REST API, Zitadel auto-provisioning, NeoConnect relay, Market wizards, Landing framer-motion, Claims mapping, Guacamole iframe fixes.
 
-## Key API Endpoints (New in Phase 13)
-- `GET /api/notifications/stream?token=` — SSE.
-- `POST /api/notifications/test` — admin only.
-- `POST /api/admin/sessions/{id}/action` — admin-forced session action + SSE notify.
-- `POST /api/tenants/invite-users` — bulk invite.
-- `GET /api/tenants/invited-users` — list invites.
-- `GET /api/admin/emails` / `GET /api/admin/emails/{id}` — mock email preview.
+## Key API Endpoints (new in Phase 14)
+- `POST /api/admin/orders/{id}/retry`
+- `POST /api/admin/workspaces/{id}/suspend`
+- `GET /api/zitadel/my-org`
 
-## Data Model (new collections/fields)
-- `users`: +`invite_token`, `invited_by`, `invite_status` (pending/accepted).
-- `mock_emails`: {id, to, subject, body_html, category, sent_at, delivery:"mock"}.
-- `sessions`: +`terminated_by` when admin force-kills.
+## Data Model
+- `market_orders`: +`retry_count`, `last_retry_at`.
+- `audit_logs`: transformed on-the-fly for system-logs.
 
 ## Prioritized Backlog
 
 ### P0
-- Refactor server.py (~4300 lines) into APIRouter files: auth/workspaces/tsplus/guacamole/lxd/zitadel/netbird/notifications/tenants.
+- **Zitadel B2C invite flow real**: createHumanUser in Zitadel with send_email_verification=true → password setup on Zitadel portal → redirect back to NeoSC login → OIDC claims with tenant_id / groups / resources.
+- Refactor server.py (~4400 lines) into APIRouter files.
 
 ### P1
-- Invite activation flow: `/activate?invite=token` page that sets user password → completes onboarding.
-- Real email delivery (Resend or SendGrid — require API key).
-- Deploy Connector + Node Discovery steps of B2B wizard (image steps 3-5).
-- Stripe checkout + CFDI México invoicing.
-- Session recording via NeoVault (JumpServer).
+- Invite activation (`/activate?invite=token`).
+- Deploy Connector + Node Discovery (sketch steps 3-5).
+- Stripe checkout + CFDI México.
+- Session recording via NeoVault.
+- Real email (Resend / SendGrid).
 
 ### P2
-- Ansible / WinRM / OpenSSH post-provisioning scripts.
-- End-to-end validation against real TSplus Farm Manager.
+- Ansible/WinRM/OpenSSH post-provisioning.
+- TSplus Farm real E2E.
+- `suspend` integrate `lxd_client.stop_instance` for real resource release.
 
 ## Testing
-- pytest suite: `/app/backend/tests/` — 30+ tests covering LXD, Zitadel/Netbird, enrollment, TSplus Remote Action Engine, SSE notifications + invites.
-- Latest validation: `iteration_11.json` — 16/16 backend + full frontend flows OK.
+- `/app/backend/tests/` — 40+ pytest tests. Latest `iteration_12.json`: 13/13 passing.

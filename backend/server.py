@@ -1832,6 +1832,8 @@ async def admin_order_retry(order_id: str, user: dict = Depends(get_current_user
         or await db.market_orders.find_one({"id": {"$regex": f"^{order_id}"}}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("status") == "completed":
+        raise HTTPException(status_code=409, detail="Order already completed — nothing to retry")
     # Reset to provisioning + advance step marker so the background task picks it up
     await db.market_orders.update_one(
         {"id": order["id"]},
@@ -1881,7 +1883,7 @@ async def admin_system_logs(user: dict = Depends(get_current_user)):
         a = (action or "").lower()
         if "error" in a or "fail" in a or not success:
             level = "error"
-        elif "warn" in a or "timeout" in a or "retry" in a:
+        elif "warn" in a or "timeout" in a or "retry_failed" in a:
             level = "warn"
         else:
             level = "info"
