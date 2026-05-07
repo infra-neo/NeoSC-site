@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { ZITADEL_CLOUD_CONFIG } from '@/config/zitadel';
@@ -32,10 +32,17 @@ const QUICK_ACCOUNTS = [
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(null);
 
   const from = searchParams.get('from') || '/dashboard';
+
+  // If already authenticated, skip the login picker entirely
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate(from, { replace: true });
+    }
+  }, [authLoading, user, navigate, from]);
 
   const handleQuickLogin = async (account) => {
     setLoading(account.email);

@@ -30,6 +30,11 @@ export default function WelcomePage() {
   const [recentEmails, setRecentEmails] = useState([]);
   const [previewEmail, setPreviewEmail] = useState(null);
   const [myOrg, setMyOrg] = useState(null);
+  const [dismissedTasks, setDismissedTasks] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('neosc:qs-dismissed') || '{}');
+    } catch { return {}; }
+  });
 
   const loadInvited = async () => {
     try {
@@ -544,8 +549,7 @@ export default function WelcomePage() {
                         </div>
                         <div className="space-y-2">
                           {gTasks.map(t => {
-                            const dismissedKey = `neosc:qs-dismissed:${t.id}`;
-                            const dismissed = localStorage.getItem(dismissedKey) === '1';
+                            const dismissed = !!dismissedTasks[t.id];
                             if (dismissed && !t.done) return null;
                             return (
                               <div
@@ -589,7 +593,11 @@ export default function WelcomePage() {
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      onClick={() => { localStorage.setItem(dismissedKey, '1'); window.location.reload(); }}
+                                      onClick={() => {
+                                        const next = { ...dismissedTasks, [t.id]: 1 };
+                                        setDismissedTasks(next);
+                                        localStorage.setItem('neosc:qs-dismissed', JSON.stringify(next));
+                                      }}
                                       className="h-7 text-[10px] text-muted-foreground hover:text-amber-400"
                                       title="No haré esta tarea (ocultar)"
                                       data-testid={`quickstart-dismiss-${t.id}`}
@@ -612,8 +620,10 @@ export default function WelcomePage() {
                   <Button
                     variant="outline"
                     onClick={() => {
+                      setDismissedTasks({});
+                      localStorage.removeItem('neosc:qs-dismissed');
+                      // Also clear legacy per-task keys (from previous version)
                       tasks.forEach(t => localStorage.removeItem(`neosc:qs-dismissed:${t.id}`));
-                      window.location.reload();
                     }}
                     className="text-xs ml-auto"
                     data-testid="quickstart-reset-btn"
