@@ -234,7 +234,7 @@ export default function LxdAdminPage() {
   };
 
   const ADDONS = [
-    { id: 'netbird', label: 'NetBird Relay', icon: Network, color: 'text-green-400', desc: 'VPN mesh Zero Trust' },
+    { id: 'netbird', label: 'NeoMesh Relay', icon: Network, color: 'text-green-400', desc: 'VPN mesh Zero Trust' },
     { id: 'docker', label: 'Docker', icon: Box, color: 'text-blue-400', desc: 'Container runtime' },
     { id: 'cockpit', label: 'Cockpit', icon: Shield, color: 'text-purple-400', desc: 'Web admin panel :9090' },
   ];
@@ -403,7 +403,7 @@ export default function LxdAdminPage() {
                 </div>
                 {(createForm.addons.includes('netbird') || createForm.netbird_setup_key) && (
                   <div className="mt-2">
-                    <Label className="text-xs">NetBird Setup Key</Label>
+                    <Label className="text-xs">NeoMesh Setup Key</Label>
                     <Input value={createForm.netbird_setup_key} onChange={e => setCreateForm({...createForm, netbird_setup_key: e.target.value})} placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" className="h-8 text-xs font-mono" data-testid="netbird-setup-key" />
                   </div>
                 )}

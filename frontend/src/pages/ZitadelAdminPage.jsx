@@ -65,7 +65,7 @@ export default function ZitadelAdminPage() {
           }
         }
       }, { headers });
-      toast.success('Usuario creado en Zitadel');
+      toast.success('Usuario creado en NeoGuard');
       setShowCreateUser(false);
       setNewUser({ email: '', firstName: '', lastName: '', password: '' });
       load();
@@ -75,7 +75,7 @@ export default function ZitadelAdminPage() {
   };
 
   const deleteUser = async (userId) => {
-    if (!confirm('¿Eliminar este usuario de Zitadel?')) return;
+    if (!confirm('¿Eliminar este usuario de NeoGuard?')) return;
     try {
       await axios.delete(`${API}/admin/zitadel/users/${userId}`, { headers });
       toast.success('Usuario eliminado');
@@ -121,7 +121,7 @@ export default function ZitadelAdminPage() {
                 <Shield className="w-5 h-5 text-purple-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold" data-testid="zitadel-admin-title">NeoSC SSO (Zitadel)</h1>
+                <h1 className="text-2xl font-bold" data-testid="zitadel-admin-title">NeoGuard SSO</h1>
                 <p className="text-muted-foreground text-sm">Gestión de identidad y acceso</p>
               </div>
             </div>
@@ -171,7 +171,7 @@ export default function ZitadelAdminPage() {
 
               {showCreateUser && (
                 <div className="rounded-xl border border-purple-500/30 bg-card p-4 space-y-3" data-testid="create-user-form">
-                  <h3 className="font-bold text-sm">Nuevo usuario Zitadel</h3>
+                  <h3 className="font-bold text-sm">Nuevo usuario NeoGuard</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label className="text-xs">Nombre</Label><Input value={newUser.firstName} onChange={e => setNewUser({...newUser, firstName: e.target.value})} placeholder="Juan" /></div>
                     <div><Label className="text-xs">Apellido</Label><Input value={newUser.lastName} onChange={e => setNewUser({...newUser, lastName: e.target.value})} placeholder="Pérez" /></div>

@@ -67,7 +67,8 @@ export default function WelcomePage() {
       const invited = res.data.results.filter(r => r.status === 'invited').length;
       const exists = res.data.results.filter(r => r.status === 'already_exists').length;
       const invalid = res.data.results.filter(r => r.status === 'invalid').length;
-      toast.success(`Invitaciones enviadas: ${invited}`, {
+      const delivery = res.data.delivery_mode || 'mock';
+      toast.success(`${invited} invitación(es) enviadas vía ${delivery === 'neoguard' ? 'NeoGuard (email nativo)' : 'mock email'}`, {
         description: `${exists} ya existían · ${invalid} inválidos`,
       });
       setEmailsText('');
@@ -89,7 +90,86 @@ export default function WelcomePage() {
   const stepperItems = [
     { id: 1, label: 'Bienvenida', icon: Sparkles },
     { id: 2, label: 'Invita a tu equipo', icon: Mail },
+    { id: 3, label: 'Quick Start', icon: Rocket },
   ];
+
+  // Tasks for the Quick Start checklist
+  const tasks = [
+    {
+      id: 'provision-tenant',
+      group: 'Onboarding',
+      title: 'Tenant provisionado',
+      desc: 'Org + Project + App OIDC creados automáticamente en NeoGuard',
+      done: !!(myOrg?.org_name && myOrg?.status === 'connected'),
+      action: null,
+    },
+    {
+      id: 'invite-users',
+      group: 'Onboarding',
+      title: 'Invita a tu equipo',
+      desc: `${invited.length} invitación(es) enviada(s)`,
+      done: invited.length > 0,
+      action: () => setStep(2),
+      actionLabel: 'Invitar',
+    },
+    {
+      id: 'configure-gateway',
+      group: 'NeoMesh Gateway',
+      title: 'Configurar Gateway NeoMesh',
+      desc: 'Despliega el agente NeoMesh para acceso just-in-time sin VPN',
+      done: false,
+      sub: '0/2 tareas',
+      action: () => navigate('/admin/enroll-tenant'),
+      actionLabel: 'How-to',
+    },
+    {
+      id: 'configure-neovdi',
+      group: 'NeoVDI Workspaces',
+      title: 'Vincular conexiones NeoVDI',
+      desc: 'Asocia workspaces a conexiones HTML5 (RDP/VNC/SSH)',
+      done: false,
+      sub: '0/4 tareas',
+      action: () => navigate('/admin/neovdi'),
+      actionLabel: 'Configurar',
+    },
+    {
+      id: 'configure-access',
+      group: 'NeoVDI Workspaces',
+      title: 'Configurar accesos por grupo',
+      desc: 'Recurso → Grupo NeoGuard → Usuarios con protocolos permitidos',
+      done: false,
+      sub: '0/3 tareas',
+      action: () => navigate('/admin/neovdi?tab=access'),
+      actionLabel: 'Acceso',
+    },
+    {
+      id: 'first-workspace',
+      group: 'NeoCloud',
+      title: 'Crear tu primer workspace',
+      desc: 'Lanza una VM Windows o Container Linux desde NeoCloud',
+      done: false,
+      sub: '0/3 tareas',
+      action: () => navigate('/admin/lxd'),
+      actionLabel: 'Crear',
+    },
+    {
+      id: 'view-claims',
+      group: 'Observabilidad',
+      title: 'Visualizar claims map',
+      desc: 'Validar mapeo NeoGuard → NeoMesh → NeoVDI → NeoCloud',
+      done: false,
+      action: () => navigate('/admin/claims-map'),
+      actionLabel: 'Ver mapa',
+    },
+  ];
+
+  const groupedTasks = tasks.reduce((acc, t) => {
+    (acc[t.group] = acc[t.group] || []).push(t);
+    return acc;
+  }, {});
+
+  const totalDone = tasks.filter(t => t.done).length;
+  const overallPct = Math.round((totalDone / tasks.length) * 100);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -135,7 +215,7 @@ export default function WelcomePage() {
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-                  Ya tienes un tenant Zitadel provisionado automáticamente. En el próximo paso invitas a tu equipo —
+                  Ya tienes un tenant NeoGuard (SSO) provisionado automáticamente. En el próximo paso invitas a tu equipo —
                   tus usuarios acceden por navegador con SSO, sin VPN, sin cliente, sobre tu TSplus actual o VMs nuevas.
                 </p>
                 <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -162,6 +242,14 @@ export default function WelcomePage() {
                   </Button>
                   <Button
                     variant="outline"
+                    onClick={() => setStep(3)}
+                    className="gap-2"
+                    data-testid="welcome-quickstart-btn"
+                  >
+                    <Rocket className="w-4 h-4" /> Quick Start
+                  </Button>
+                  <Button
+                    variant="outline"
                     onClick={() => navigate('/admin/neovdi')}
                     className="gap-2"
                   >
@@ -170,7 +258,7 @@ export default function WelcomePage() {
                 </div>
               </div>
 
-              {/* Enrollment info — REAL Zitadel data */}
+              {/* Enrollment info — REAL NeoGuard data */}
               <div className="rounded-xl border border-border bg-card p-5 space-y-3" data-testid="enrollment-info">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-sm flex items-center gap-2">
@@ -182,7 +270,7 @@ export default function WelcomePage() {
                       : myOrg.status === 'not_configured' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                       : 'bg-red-500/10 text-red-400 border-red-500/30'
                     }`}>
-                      Zitadel {myOrg.status === 'connected' ? 'conectado' : myOrg.status}
+                      NeoGuard {myOrg.status === 'connected' ? 'conectado' : myOrg.status}
                     </Badge>
                   )}
                 </div>
@@ -216,7 +304,7 @@ export default function WelcomePage() {
                     <span className="font-mono text-cyan-400 truncate ml-2">{myOrg?.primary_domain || myOrg?.domain || '—'}</span>
                   </div>
                   <div className="flex justify-between px-3 py-2 rounded-lg bg-muted/20" data-testid="info-user-count">
-                    <span className="text-muted-foreground">Usuarios en Zitadel</span>
+                    <span className="text-muted-foreground">Usuarios en NeoGuard</span>
                     <span className="font-mono text-cyan-400">{myOrg?.user_count ?? '—'}</span>
                   </div>
                 </div>
@@ -242,7 +330,7 @@ export default function WelcomePage() {
                     className="h-7 gap-1 text-xs"
                     data-testid="goto-zitadel-btn"
                   >
-                    <ShieldCheck className="w-3 h-3" /> Gestionar Zitadel
+                    <ShieldCheck className="w-3 h-3" /> Gestionar NeoGuard SSO
                   </Button>
                   <Button
                     size="sm"
@@ -277,7 +365,7 @@ export default function WelcomePage() {
                   </div>
                   <div>
                     <h2 className="text-lg font-bold">Invita a tu equipo</h2>
-                    <p className="text-xs text-muted-foreground">Cada invitado recibe un email con un link mágico para unirse a NeoSC.</p>
+                    <p className="text-xs text-muted-foreground">Cada invitado recibe un email de <b>NeoGuard</b> con link para verificar email, setear password y acceder automáticamente.</p>
                   </div>
                 </div>
 
@@ -325,9 +413,9 @@ export default function WelcomePage() {
                         className="w-full h-9 rounded-md border border-border bg-background px-2 text-xs"
                         data-testid="invite-role-select"
                       >
-                        <option value="user">user</option>
-                        <option value="admin">admin</option>
-                        <option value="viewer">viewer</option>
+                        {(myOrg?.roles?.length ? myOrg.roles : [{key:'user',display_name:'user'},{key:'admin',display_name:'admin'},{key:'viewer',display_name:'viewer'}]).map(r => (
+                          <option key={r.key} value={r.key}>{r.display_name || r.key}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -372,6 +460,7 @@ export default function WelcomePage() {
                   <div className="space-y-1.5">
                     {invited.slice(0, 20).map(u => {
                       const matchedEmail = recentEmails.find(e => e.to === u.email && e.category === 'user_invite');
+                      const isNeoGuard = u.sso_provider === 'neoguard' || u.delivery === 'neoguard';
                       return (
                         <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/20 text-xs" data-testid={`invited-${u.id}`}>
                           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center text-[10px] font-bold">
@@ -379,6 +468,11 @@ export default function WelcomePage() {
                           </div>
                           <span className="font-mono text-xs flex-1 truncate">{u.email}</span>
                           <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-[9px] uppercase">{u.role}</Badge>
+                          {isNeoGuard && (
+                            <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-[9px]" title="Usuario creado en NeoGuard con email nativo de verificación">
+                              NeoGuard
+                            </Badge>
+                          )}
                           <Badge
                             className={`text-[9px] ${u.invite_status === 'accepted'
                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
@@ -386,7 +480,7 @@ export default function WelcomePage() {
                           >
                             {u.invite_status || 'pending'}
                           </Badge>
-                          {matchedEmail && (
+                          {matchedEmail && !isNeoGuard && (
                             <button
                               onClick={() => loadPreview(matchedEmail.id)}
                               className="p-1 rounded hover:bg-muted"
@@ -410,6 +504,124 @@ export default function WelcomePage() {
               >
                 ← Volver
               </Button>
+            </div>
+          )}
+
+          {/* Step 3 — Quick Start Checklist (inspired by Devolutions Quick Start) */}
+          {step === 3 && (
+            <div className="space-y-5" data-testid="welcome-step-3-content">
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
+                    <Rocket className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-xl font-black tracking-tight">Quick Start</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Lista de tareas para configurar NeoSC end-to-end. Marca tareas completas, abre guías "How-to", o ignora con "No haré esto".
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-black text-cyan-400" data-testid="quickstart-progress">{overallPct}%</div>
+                    <div className="text-[10px] text-muted-foreground">{totalDone}/{tasks.length}</div>
+                  </div>
+                </div>
+
+                {/* Overall progress */}
+                <div className="w-full h-1.5 bg-muted/40 rounded-full overflow-hidden mb-6">
+                  <div className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-500" style={{ width: `${overallPct}%` }} />
+                </div>
+
+                {/* Grouped tasks */}
+                <div className="space-y-5">
+                  {Object.entries(groupedTasks).map(([group, gTasks]) => {
+                    const gDone = gTasks.filter(t => t.done).length;
+                    return (
+                      <div key={group} data-testid={`quickstart-group-${group.toLowerCase().replace(/\s/g,'-')}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider">{group}</h3>
+                          <span className="text-[10px] text-muted-foreground">{gDone}/{gTasks.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {gTasks.map(t => {
+                            const dismissedKey = `neosc:qs-dismissed:${t.id}`;
+                            const dismissed = localStorage.getItem(dismissedKey) === '1';
+                            if (dismissed && !t.done) return null;
+                            return (
+                              <div
+                                key={t.id}
+                                className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                                  t.done
+                                    ? 'bg-emerald-500/5 border-emerald-500/20'
+                                    : 'bg-muted/20 border-border hover:border-cyan-500/30'
+                                }`}
+                                data-testid={`quickstart-task-${t.id}`}
+                              >
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                  t.done ? 'bg-emerald-500 text-black' : 'border border-border bg-background'
+                                }`}>
+                                  {t.done && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-bold ${t.done ? 'text-foreground line-through opacity-60' : 'text-foreground'}`}>
+                                      {t.title}
+                                    </span>
+                                    {t.sub && !t.done && (
+                                      <Badge variant="secondary" className="text-[9px] h-4 px-1.5">{t.sub}</Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground truncate">{t.desc}</p>
+                                </div>
+                                {!t.done && (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {t.action && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={t.action}
+                                        className="h-7 text-[11px] gap-1"
+                                        data-testid={`quickstart-action-${t.id}`}
+                                      >
+                                        {t.actionLabel || 'How-to'} <ArrowRight className="w-3 h-3" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => { localStorage.setItem(dismissedKey, '1'); window.location.reload(); }}
+                                      className="h-7 text-[10px] text-muted-foreground hover:text-amber-400"
+                                      title="No haré esta tarea (ocultar)"
+                                      data-testid={`quickstart-dismiss-${t.id}`}
+                                    >
+                                      No haré esto
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-border flex gap-2">
+                  <Button variant="ghost" onClick={() => setStep(1)} className="text-xs">← Volver al inicio</Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      tasks.forEach(t => localStorage.removeItem(`neosc:qs-dismissed:${t.id}`));
+                      window.location.reload();
+                    }}
+                    className="text-xs ml-auto"
+                    data-testid="quickstart-reset-btn"
+                  >
+                    Restaurar tareas ocultas
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 

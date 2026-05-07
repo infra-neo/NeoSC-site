@@ -254,6 +254,7 @@ export default function GuacamolePage() {
       rdp_domain: ws.rdp_domain || '',
       rdp_application_path: ws.rdp_application_path || '',
       launch_mode: ws.launch_mode || 'iframe',
+      guacamole_connection_id: ws.guacamole_connection_id || '',
       password_set: !!ws.rdp_password_set,
     });
   };
@@ -267,6 +268,7 @@ export default function GuacamolePage() {
         rdp_domain: editingRdp.rdp_domain || null,
         rdp_application_path: editingRdp.rdp_application_path || null,
         launch_mode: editingRdp.launch_mode || null,
+        guacamole_connection_id: editingRdp.guacamole_connection_id || null,
       };
       if (editingRdp.rdp_password && editingRdp.rdp_password.length > 0) {
         payload.rdp_password = editingRdp.rdp_password;
@@ -309,7 +311,7 @@ export default function GuacamolePage() {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={loadData} className="gap-1"><RefreshCw className="w-3 h-3" /></Button>
               <Button size="sm" onClick={syncZitadel} disabled={syncing} className="bg-purple-600 hover:bg-purple-500 gap-1">
-                {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3" />} Sync Zitadel
+                {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3" />} Sync NeoGuard
               </Button>
               <Button size="sm" onClick={() => setShowCreate(!showCreate)} className="bg-cyan-600 hover:bg-cyan-500 gap-1">
                 <Plus className="w-3 h-3" /> Nueva conexion
@@ -566,7 +568,7 @@ export default function GuacamolePage() {
                       loadData();
                     } catch { toast.error('Error sync all'); }
                   }} className="bg-green-600 hover:bg-green-500 gap-1 text-xs" data-testid="sync-all-netbird">
-                    <Wifi className="w-3 h-3" /> Sync All NetBird
+                    <Wifi className="w-3 h-3" /> Sync All NeoMesh
                   </Button>
                 </div>
               )}
@@ -585,7 +587,7 @@ export default function GuacamolePage() {
                         <div className="text-[10px] text-muted-foreground">
                           {a.resource_type} → Grupo: <span className="text-cyan-400">{a.group_id}</span>
                           {a.guacamole_connection_id && <span className="ml-1 text-purple-400">| NeoVDI #{a.guacamole_connection_id}</span>}
-                          {a.netbird_policy_id && <span className="ml-1 text-green-400">| NetBird: {a.netbird_policy_id.slice(0,12)}</span>}
+                          {a.netbird_policy_id && <span className="ml-1 text-green-400">| NeoMesh: {a.netbird_policy_id.slice(0,12)}</span>}
                         </div>
                       </div>
                     </div>
@@ -596,11 +598,11 @@ export default function GuacamolePage() {
                       <Button size="sm" variant="ghost" onClick={async () => {
                         try {
                           const res = await axios.post(`${API}/workspace-assignments/${a.id}/sync-netbird`, {}, { headers });
-                          if (res.data.ok) { toast.success(`NetBird policy: ${res.data.policy_name} | ports: ${res.data.ports?.join(', ')}`); loadData(); }
+                          if (res.data.ok) { toast.success(`NeoMesh policy: ${res.data.policy_name} | ports: ${res.data.ports?.join(', ')}`); loadData(); }
                           else toast.error(res.data.error || 'Error');
                         } catch (err) { toast.error(err.response?.data?.detail || 'Error sync'); }
                       }} className="h-7 text-xs gap-1 text-green-400" data-testid={`sync-nb-${a.id}`}>
-                        <Wifi className="w-3 h-3" /> NetBird
+                        <Wifi className="w-3 h-3" /> NeoMesh
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => deleteAssignment(a.id)} className="h-7 text-xs text-red-400"><Trash2 className="w-3 h-3" /></Button>
                     </div>
@@ -811,6 +813,25 @@ export default function GuacamolePage() {
                       <option value="new_tab">new_tab (pestaña nueva)</option>
                     </select>
                   </div>
+                  <div>
+                    <Label className="text-[10px]">Conexión NeoVDI vinculada (opcional)</Label>
+                    <select
+                      value={editingRdp.guacamole_connection_id || ''}
+                      onChange={e => setEditingRdp({ ...editingRdp, guacamole_connection_id: e.target.value })}
+                      className="w-full h-8 rounded-md border border-border bg-background px-2 text-xs"
+                      data-testid="rdp-neovdi-link"
+                    >
+                      <option value="">— Sin vincular (usa URL del workspace) —</option>
+                      {connections.map(c => (
+                        <option key={c.id} value={c.id}>
+                          #{c.id} · {c.name} ({c.protocol})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Si se vincula, al abrir irá directo al cliente remoto en lugar de a la home.
+                    </p>
+                  </div>
                 </div>
                 <div className="flex gap-2 justify-end pt-2">
                   <Button size="sm" variant="ghost" onClick={() => setEditingRdp(null)}>Cancelar</Button>
@@ -844,7 +865,7 @@ export default function GuacamolePage() {
           {activeTab === 'oidc' && oidcConfig && (
             <div className="space-y-4">
               <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5 space-y-3">
-                <h3 className="font-bold text-sm flex items-center gap-2"><Lock className="w-4 h-4 text-purple-400" /> NeoVDI OIDC — Zitadel</h3>
+                <h3 className="font-bold text-sm flex items-center gap-2"><Lock className="w-4 h-4 text-purple-400" /> NeoVDI OIDC — NeoGuard</h3>
                 {[['Client ID', oidcConfig.client_id], ['Groups Claim', oidcConfig.groups_claim], ['Scopes', oidcConfig.scopes], ['Post-logout', oidcConfig.post_logout_redirect]].map(([l,v]) => (
                   <div key={l} className="flex items-center gap-2 text-xs"><span className="text-muted-foreground w-28">{l}:</span><code className="text-cyan-400 font-mono">{v}</code>
                     <button onClick={() => copyText(v)} className="p-0.5 rounded hover:bg-muted"><Copy className="w-2.5 h-2.5 text-muted-foreground" /></button></div>
@@ -868,7 +889,7 @@ WEBAPP_RECONNECT_ENABLED: "false"`}</pre>
 
               {/* Zitadel Action */}
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
-                <h4 className="font-bold text-sm flex items-center gap-2"><Zap className="w-4 h-4 text-amber-400" /> Zitadel Action: groups claim</h4>
+                <h4 className="font-bold text-sm flex items-center gap-2"><Zap className="w-4 h-4 text-amber-400" /> NeoGuard Action: groups claim</h4>
                 <pre className="p-3 rounded-lg bg-black/40 text-[10px] text-green-400 font-mono overflow-x-auto whitespace-pre">{`function addGroupsClaim(ctx, api) {
   if (ctx.v1.user && ctx.v1.user.grants) {
     var groups = [];

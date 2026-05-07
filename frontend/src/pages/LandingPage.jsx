@@ -18,10 +18,10 @@ const categories = [
     { icon: Lock, label: 'NeoGuard SSO (OIDC)' }, { icon: Key, label: 'Multi-Factor Authentication' }, { icon: Users, label: 'AD / LDAP Federation' }
   ], defaultOpen: true },
   { icon: Wifi, title: 'Zero Trust Access', items: [
-    { icon: Globe, label: 'NeoMesh VPN (NetBird)' }, { icon: Container, label: 'NeoConnect Relay' }, { icon: Lock, label: 'NeoProxy IAP' }
+    { icon: Globe, label: 'NeoMesh Zero-Trust VPN' }, { icon: Container, label: 'NeoConnect Relay' }, { icon: Lock, label: 'NeoProxy IAP' }
   ] },
   { icon: Monitor, title: 'Remote Desktops & Apps', items: [
-    { icon: Globe, label: 'NeoVDI HTML5 (Guacamole)' }, { icon: Layout, label: 'NeoDesk+ TSplus HTML5' }, { icon: Terminal, label: 'Ubuntu Desktop / Kiosk' }, { icon: Monitor, label: 'Windows VMs on LXD' }
+    { icon: Globe, label: 'NeoVDI HTML5 Gateway' }, { icon: Layout, label: 'NeoDesk+ TSplus HTML5' }, { icon: Terminal, label: 'Ubuntu Desktop / Kiosk' }, { icon: Monitor, label: 'Windows VMs on NeoCloud' }
   ], defaultOpen: true },
   { icon: Eye, title: 'Identity Governance', items: [
     { icon: Lock, label: 'NeoVault PAM (JumpServer)' }, { icon: Play, label: 'Session Recording' }, { icon: Shield, label: 'Audit Logs & Compliance' }

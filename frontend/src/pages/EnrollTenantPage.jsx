@@ -23,7 +23,7 @@ const STEPS = [
   { key: 'netbird_group', label: 'NeoMesh Grupo', desc: 'Grupo aislado en NetBird', icon: Wifi, color: 'text-green-400' },
   { key: 'netbird_setup_key', label: 'NeoMesh Key', desc: 'Setup key para nodo relay', icon: Key, color: 'text-green-400' },
   { key: 'netbird_policy', label: 'NeoMesh Policy', desc: 'Regla de acceso intra-grupo', icon: Lock, color: 'text-green-400' },
-  { key: 'deploy_relay', label: 'NeoConnect Relay', desc: 'Container Linux con NetBird como puente', icon: Container, color: 'text-blue-400' },
+  { key: 'deploy_relay', label: 'NeoConnect Relay', desc: 'Container Linux con agente NeoMesh como puente', icon: Container, color: 'text-blue-400' },
   { key: 'register_infra', label: 'Conectar TSplus', desc: 'Registrar host/IP del cliente', icon: Server, color: 'text-cyan-400' },
   { key: 'finalize', label: 'Activar Tenant', desc: 'Crear workspace y activar', icon: CheckCircle2, color: 'text-emerald-400' },
 ];
@@ -169,10 +169,10 @@ export default function EnrollTenantPage() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
                 {[
-                  { num: '1', color: 'purple', icon: Shield, title: 'NeoGuard SSO', desc: 'Proyecto Zitadel + Roles + OIDC App automatico' },
-                  { num: '2', color: 'green', icon: Wifi, title: 'NeoMesh VPN', desc: 'NetBird grupo + setup key + policy automatico' },
-                  { num: '3', color: 'blue', icon: Container, title: 'Relay Container', desc: 'Container Linux LXD con NetBird como puente' },
-                  { num: '4', color: 'cyan', icon: Monitor, title: 'Acceso HTML5', desc: 'Guacamole RDP/VNC o TSplus via navegador' },
+                  { num: '1', color: 'purple', icon: Shield, title: 'NeoGuard SSO', desc: 'Proyecto SSO + Roles + OIDC App automatico' },
+                  { num: '2', color: 'green', icon: Wifi, title: 'NeoMesh VPN', desc: 'Grupo Zero-Trust + setup key + policy automatico' },
+                  { num: '3', color: 'blue', icon: Container, title: 'Relay Container', desc: 'Container Linux LXD con agente NeoMesh como puente' },
+                  { num: '4', color: 'cyan', icon: Monitor, title: 'Acceso HTML5', desc: 'NeoVDI RDP/VNC o NeoConnect TSplus via navegador' },
                 ].map(item => (
                   <div key={item.num} className="flex items-start gap-2">
                     <div className={`w-6 h-6 rounded-full bg-${item.color}-500/20 flex items-center justify-center flex-shrink-0 mt-0.5`}>
@@ -226,7 +226,7 @@ export default function EnrollTenantPage() {
                 <Server className="w-4 h-4 text-cyan-400" /> Tu infraestructura TSplus
               </h2>
               <p className="text-xs text-muted-foreground">
-                Ingresa los datos de tu servidor TSplus. NeoSC se conectara via NetBird relay sin abrir puertos.
+                Ingresa los datos de tu servidor TSplus. NeoSC se conectara via NeoMesh relay sin abrir puertos.
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -470,7 +470,7 @@ function NeoConnectPanel({ info, onCopy }) {
         {activeTab === 'windows' && (
           <>
             <div className="text-xs text-muted-foreground">
-              Descarga el instalador de NetBird para Windows y ejecuta el siguiente comando:
+              Descarga el instalador del agente NeoMesh para Windows y ejecuta el siguiente comando:
             </div>
             <a
               href={info.downloads?.windows?.exe_url}
@@ -479,7 +479,7 @@ function NeoConnectPanel({ info, onCopy }) {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all"
               data-testid="download-windows"
             >
-              <Download className="w-3 h-3" /> Descargar NetBird.exe
+              <Download className="w-3 h-3" /> Descargar agente NeoMesh
               <ExternalLink className="w-3 h-3" />
             </a>
             <div className="relative">
@@ -512,7 +512,7 @@ function NeoConnectPanel({ info, onCopy }) {
         {activeTab === 'docker' && (
           <>
             <div className="text-xs text-muted-foreground">
-              Despliega NetBird como contenedor Docker:
+              Despliega el agente NeoMesh como contenedor Docker:
             </div>
             <div className="relative">
               <pre className="p-3 rounded-lg bg-black/40 text-[11px] text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">

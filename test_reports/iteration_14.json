@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 14 — Validated FRESH_TENANT_MODE backend, Welcome Quick Start UI, dismiss/restore, action-button navigation, and ConnectionPage postMessage logout handler. Found 1 backend serialization bug (fixed) and 1 pre-existing CRITICAL auth-persistence bug that blocks the /login redirect fix from working end-to-end. 3/3 pytest pass. Frontend Quick Start checklist fully functional (7 tasks across 5 groups, 29% progress matches 2/7 done). ConnectionPage postMessage listener verified — invalid sessionId routes user to /workspaces (not Guacamole portal).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/workspaces", "issue": "Before fix: returned 500 because pymongo mutates ws_dict with ObjectId('_id') after insert_one — FastAPI cannot serialize. FIXED in this iteration by popping _id and rdp_password from ws_dict before return."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Auth persistence across hard page reloads",
+        "issue": "PRE-EXISTING CRITICAL: After local bypass-card login, GET /api/auth/me returns 401 and NO session cookie is set (only cf_clearance, __cf_bm, posthog cookies exist). Consequently, hard-navigating to /login from an authenticated session does NOT trigger the useEffect redirect — checkAuth() fails → user=false → Login page remains visible. The Login.js useEffect fix is code-correct, but it depends on server-side cookie auth that is currently not wired. Backend /api/auth/login returns {access_token, user} in body but sets no httpOnly cookie; frontend AuthContext calls axios with withCredentials:true but never stores/sends the bearer token. Root cause: either (a) backend should set an httpOnly session cookie on /api/auth/login, OR (b) frontend should persist access_token to localStorage and attach it as Authorization header on every axios call. This breaks the stated acceptance criterion ‘visiting /login after login redirects to /dashboard’.",
+        "affected_selectors": ["/api/auth/me", "/api/auth/login", "AuthContext.checkAuth"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "WelcomePage Quick Start", "issues": ["Dismiss and Restore buttons both use window.location.reload() which kicks the user back to step 1 — minor UX regression. Prefer React state for `dismissed` map so step 3 stays visible."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fresh_tenant_mode.py",
+    "/app/test_reports/pytest/fresh_tenant_mode.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Wire persistent auth. Option A — backend sets httpOnly session cookie on /api/auth/login (recommended, AuthContext already uses withCredentials:true). Option B — frontend stores access_token in localStorage and attaches Authorization: Bearer header in an axios interceptor. Without this, the /login redirect fix cannot function on page reload.",
+    "MINOR: Replace window.location.reload() in Quick Start dismiss/restore with React state update so user stays on step 3.",
+    "INFO: Quick Start sub-counters (0/2, 0/4, 0/3) are currently static placeholders — if dynamic progress is desired, add /api/onboarding/progress endpoint."
+  ],
+  "critical_code_review_comments": [
+    "server.py POST /api/workspaces had a latent ObjectId serialization bug (now fixed). Similar pattern exists in other POST endpoints that return the inserted dict — audit: check every `insert_one(d); return ... d ...` path and ensure `_id` is stripped.",
+    "AuthContext.js relies exclusively on cookie auth via axios withCredentials:true, but the login endpoint appears to return the token in the response body without setting a cookie. This architectural mismatch means the admin’s session does not survive hard refresh or direct URL navigation — this is the root cause of the reported ‘login redirect loop’ because on /login the checkAuth() always fails, the Login component never sees user, and the useEffect redirect never fires.",
+    "WelcomePage Quick Start: full-page reload on dismiss/restore is heavy-handed and resets stepper state. Consider storing dismissed[] in component state + syncing to localStorage.",
+    "FRESH_TENANT_MODE default value is 'true' both in env and in the `os.environ.get('FRESH_TENANT_MODE', 'true')` default — coherent, but document behavior so legacy tenants aren't broken when env var is missing. Ensure any /api/workspaces/reset endpoint (line 838) still seeds DEFAULT_WORKSPACES intentionally when an admin explicitly calls it.",
+    "ConnectionPage postMessage listener correctly restricts to same-origin + gateway origin — good. However it ONLY handles {type:'neosc:logout'} or raw 'logout' strings; ensure Guacamole’s actual logout emits exactly one of these (otherwise it remains best-effort)."
+  ],
+  "updated_files": [
+    "/app/backend/server.py",
+    "/app/backend/tests/test_fresh_tenant_mode.py"
+  ],
+  "success_rate": {
+    "backend": "100% (3/3 pytest, after ObjectId fix)",
+    "frontend": "86% (6/7 verified — Quick Start full flow PASS; /login redirect blocked by pre-existing auth-persistence bug)"
+  },
+  "test_credentials": "admin@windesk.cloud / Admin123! — via /login bypass-card (click on the card/email text). Login response key is access_token (not token).",
+  "seed_data_creation": "Created and deleted one ephemeral workspace (TEST_WS_<uuid>) via POST then DELETE /api/workspaces in test_fresh_tenant_mode.py — no residual seed data.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "FRESH_TENANT_MODE=true is set in /app/backend/.env and respected by both /api/workspaces and /api/applications. POST /api/workspaces ObjectId bug FIXED in server.py (strip _id + rdp_password before return). Quick Start data-testids all present and functional: welcome-quickstart-btn, welcome-step-3-content, quickstart-progress (%), quickstart-group-{slug} x5, quickstart-task-{id} x7, quickstart-action-{id}, quickstart-dismiss-{id}, quickstart-reset-btn. Confirmed progress = 29% (2/7 done: provision-tenant + invite-users). Navigation targets verified: first-workspace→/admin/lxd, view-claims→/admin/claims-map, configure-access→/admin/neovdi?tab=access. ConnectionPage /viewer/INVALID → routes to /workspaces (not Guacamole home) — postMessage handler exists and is origin-guarded. REMAINING BUG to retest after main agent fix: session persistence on hard reload (GET /api/auth/me returns 401 after login).",
+  "rca of the issue": "Login redirect loop RCA: The Login.js useEffect({ replace:true → /dashboard when user }) is implemented correctly. However AuthContext.checkAuth() calls GET /api/auth/me with withCredentials:true expecting an httpOnly cookie. Backend /api/auth/login returns {access_token, user} in JSON body but does not Set-Cookie any session/JWT cookie (verified — page.context.cookies() shows only cf_clearance, __cf_bm, posthog). On hard navigation/refresh, there is no cookie, /api/auth/me returns 401, user is set to false, and Login page renders normally. Only in-session (SPA) navigation works because AuthProvider keeps user in memory. Fix options: (a) backend sets an httpOnly cookie on /api/auth/login alongside the access_token, OR (b) frontend persists access_token in localStorage and uses an axios interceptor to send Authorization: Bearer on every request."
+}

@@ -47,7 +47,7 @@ export default function AuthCallbackPage() {
         const authority = sessionStorage.getItem('sso_authority');
         const clientId = sessionStorage.getItem('sso_client_id');
 
-        setStatus('Intercambiando token con Zitadel...');
+        setStatus('Intercambiando token SSO...');
 
         const tokenRes = await axios.post(`${API}/auth/token-exchange`, {
           code,

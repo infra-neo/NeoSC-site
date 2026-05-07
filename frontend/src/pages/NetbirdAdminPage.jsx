@@ -128,7 +128,7 @@ export default function NetbirdAdminPage() {
                 <Wifi className="w-5 h-5 text-green-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold" data-testid="netbird-admin-title">NetBird Zero Trust</h1>
+                <h1 className="text-2xl font-bold" data-testid="netbird-admin-title">NeoMesh Zero Trust</h1>
                 <p className="text-muted-foreground text-sm">Red mesh y gestión de peers</p>
               </div>
             </div>
@@ -222,7 +222,7 @@ export default function NetbirdAdminPage() {
               </div>
               {showCreateGroup && (
                 <div className="rounded-xl border border-green-500/30 bg-card p-4 space-y-3">
-                  <h3 className="font-bold text-sm">Nuevo grupo NetBird</h3>
+                  <h3 className="font-bold text-sm">Nuevo grupo NeoMesh</h3>
                   <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Nombre del grupo" />
                   <div className="flex gap-2 justify-end">
                     <Button size="sm" variant="ghost" onClick={() => setShowCreateGroup(false)}>Cancelar</Button>

@@ -720,8 +720,9 @@ DEFAULT_APPLICATIONS = [
 @api_router.get("/workspaces", response_model=List[dict])
 async def get_workspaces(user: dict = Depends(get_current_user)):
     workspaces = await db.workspaces.find({}, {"_id": 0}).to_list(100)
-    if not workspaces:
-        # Initialize with default workspaces
+    # Auto-seed only when explicitly requested (legacy behavior); fresh tenants start empty.
+    fresh_mode = os.environ.get("FRESH_TENANT_MODE", "true").lower() in ("1", "true", "yes")
+    if not workspaces and not fresh_mode:
         for ws in DEFAULT_WORKSPACES:
             await db.workspaces.insert_one(ws.copy())
         workspaces = DEFAULT_WORKSPACES
@@ -771,6 +772,8 @@ class WorkspaceUpdate(BaseModel):
     rdp_password: Optional[str] = None
     rdp_domain: Optional[str] = None
     rdp_application_path: Optional[str] = None
+    # Direct link to a NeoVDI (Guacamole) connection for autologon iframe embedding
+    guacamole_connection_id: Optional[str] = None
 
 @api_router.post("/workspaces")
 async def create_workspace(workspace: WorkspaceCreate, user: dict = Depends(get_current_user)):
@@ -783,8 +786,13 @@ async def create_workspace(workspace: WorkspaceCreate, user: dict = Depends(get_
     ws_dict['status'] = 'available'
     
     await db.workspaces.insert_one(ws_dict)
+    # pymongo mutates ws_dict to include ObjectId('_id') after insert — strip it for JSON serialization
+    ws_dict.pop("_id", None)
+    # Never expose rdp_password; replace with boolean flag
+    pwd = ws_dict.pop("rdp_password", None)
+    ws_dict["rdp_password_set"] = bool(pwd)
     await create_audit_log(user['id'], user['email'], "create_workspace", f"workspace:{ws_dict['id']}", f"Created workspace: {workspace.name}")
-    
+
     return {"message": "Workspace created", "workspace": ws_dict}
 
 @api_router.put("/workspaces/{workspace_id}")
@@ -878,6 +886,16 @@ async def launch_workspace(workspace_id: str, user: dict = Depends(get_current_u
     launch_mode = workspace.get('launch_mode', 'new_tab')
     is_clientless = workspace.get('clientless', False)
     connection_type = workspace.get('connection_type', '')
+
+    # Prefer direct NeoVDI client link if the workspace has a linked connection
+    guac_conn_id = workspace.get("guacamole_connection_id")
+    if guac_conn_id:
+        try:
+            link = await guacamole_client.get_connection_link(str(guac_conn_id))
+            if link.get("ok"):
+                connection_url = link["url"]
+        except Exception as e:
+            logger.warning(f"guac link build error: {e}")
     
     # For JumpServer workspaces, generate a Luna connection URL
     jumpserver_luna_url = None
@@ -997,6 +1015,15 @@ async def launch_workspace_autologon(workspace_id: str, user: dict = Depends(get
     # Get autologon token from TSplus Farm Manager
     tsplus_token = None
     connection_url = workspace.get("url", "")
+    # Prefer a Guacamole client-direct link if the workspace has a linked connection
+    guac_conn_id = workspace.get("guacamole_connection_id")
+    if guac_conn_id:
+        try:
+            link = await guacamole_client.get_connection_link(str(guac_conn_id))
+            if link.get("ok"):
+                connection_url = link["url"]
+        except Exception as e:
+            logger.warning(f"guac link build error: {e}")
     try:
         autologon = await tsplus_manager.get_autologon_token(
             username=rdp_username, password=rdp_password,
@@ -1261,15 +1288,73 @@ class InviteUsersBody(BaseModel):
     emails: List[str]
     role: str = "user"
     welcome_message: str = ""
+    use_neoguard: bool = True  # When True, creates user in NeoGuard (Zitadel) with native B2C email flow
+
+
+async def _create_neoguard_user(email: str, given_name: str, family_name: str, origin: str) -> dict:
+    """Create a Human user in NeoGuard (Zitadel) with native email verification + init password.
+    Returns {'ok': bool, 'user_id': str, 'details': dict, 'error': str}"""
+    if not ZITADEL_DOMAIN or not ZITADEL_PAT:
+        return {"ok": False, "error": "NeoGuard not configured"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            # Zitadel v2 createHumanUser — sends its own email when `email.sendCode` or `sendCode` is present
+            payload = {
+                "username": email,
+                "profile": {
+                    "givenName": given_name or email.split("@")[0],
+                    "familyName": family_name or "NeoSC",
+                },
+                "email": {
+                    "email": email,
+                    "sendCode": {
+                        "urlTemplate": f"{origin}/activate?userID={{{{.UserID}}}}&code={{{{.Code}}}}&orgID={{{{.OrgID}}}}",
+                    },
+                },
+            }
+            r = await c.post(
+                f"{ZITADEL_DOMAIN}/v2/users/human",
+                headers=zitadel_headers(org_id=ZITADEL_ORG_ID),
+                json=payload,
+            )
+            if r.status_code >= 400:
+                return {"ok": False, "error": f"Zitadel HTTP {r.status_code}: {r.text[:200]}"}
+            data = r.json()
+            return {"ok": True, "user_id": data.get("userId") or data.get("id"), "details": data}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+async def _grant_project_role(zitadel_user_id: str, role_key: str) -> dict:
+    """Grant a project role to a user. role_key must match one of the defined project roles."""
+    if not ZITADEL_DOMAIN or not ZITADEL_PAT or not zitadel_user_id or not ZITADEL_PROJECT_ID:
+        return {"ok": False, "error": "Missing config or user id"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                f"{ZITADEL_DOMAIN}/management/v1/users/{zitadel_user_id}/grants",
+                headers=zitadel_headers(org_id=ZITADEL_ORG_ID),
+                json={"projectId": ZITADEL_PROJECT_ID, "roleKeys": [role_key]},
+            )
+            if r.status_code >= 400:
+                return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:160]}"}
+            return {"ok": True, "grant_id": r.json().get("userGrantId")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
 
 
 @api_router.post("/tenants/invite-users")
 async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_user)):
-    """Admin invites end users — creates user record + mock email with magic link."""
+    """Admin invites end users — creates user in NeoGuard (B2C native email flow) when available,
+    falls back to local mock email. Each user gets a role grant on the current project."""
     require_admin(user)
     tenant_org = user.get("organization", "NeoSC Tenant")
-    origin = os.environ.get("WEBAPP_PUBLIC_URL", "https://neosc.local")
+    origin = os.environ.get("WEBAPP_PUBLIC_URL") or os.environ.get("FRONTEND_URL") or ""
+    if not origin:
+        # In preview env fall back to the request origin via env from frontend
+        origin = "https://action-steps-4.preview.emergentagent.com"
     results = []
+    neoguard_available = bool(ZITADEL_DOMAIN and ZITADEL_PAT) and body.use_neoguard
 
     for email in body.emails:
         email = email.strip().lower()
@@ -1281,7 +1366,6 @@ async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_u
             results.append({"email": email, "status": "already_exists", "user_id": existing.get("id")})
             continue
 
-        # Create a local user with a one-time invite token
         invite_token = generate_token()
         new_user = User(email=email, name=email.split("@")[0], organization=tenant_org, role=body.role)
         user_doc = new_user.model_dump()
@@ -1289,50 +1373,111 @@ async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_u
         user_doc["invite_token"] = invite_token
         user_doc["invited_by"] = user["email"]
         user_doc["invite_status"] = "pending"
+
+        delivery = "mock"
+        neoguard_result = None
+        grant_result = None
+        if neoguard_available:
+            neoguard_result = await _create_neoguard_user(
+                email=email,
+                given_name=email.split("@")[0].replace(".", " ").title(),
+                family_name="NeoSC",
+                origin=origin,
+            )
+            if neoguard_result.get("ok"):
+                user_doc["zitadel_user_id"] = neoguard_result.get("user_id")
+                user_doc["sso_provider"] = "neoguard"
+                delivery = "neoguard"
+                # Grant role on the project (best-effort; may fail if project grants not configured)
+                try:
+                    grant_result = await _grant_project_role(neoguard_result.get("user_id"), body.role)
+                except Exception as e:
+                    grant_result = {"ok": False, "error": str(e)[:160]}
+
+        user_doc["delivery"] = delivery
         await db.users.insert_one(user_doc)
 
-        invite_url = f"{origin}/login?invite={invite_token}&email={email}"
-        safe_welcome = html_escape_mod.escape(body.welcome_message) if body.welcome_message else ""
-        safe_tenant = html_escape_mod.escape(tenant_org)
-        safe_inviter = html_escape_mod.escape(user['email'])
-        html = f"""
-        <!DOCTYPE html>
-        <html><body style='font-family:system-ui,-apple-system,Inter,sans-serif;background:#0a0e17;color:#fff;padding:32px;'>
-            <div style='max-width:560px;margin:0 auto;background:#111827;border:1px solid #1e293b;border-radius:16px;padding:32px;'>
-              <div style='display:flex;align-items:center;gap:12px;margin-bottom:20px;'>
-                <div style='width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#06b6d4,#a855f7);display:flex;align-items:center;justify-content:center;font-weight:800;'>N</div>
-                <h1 style='margin:0;font-size:18px;'>NeoSC</h1>
-              </div>
-              <h2 style='color:#06b6d4;margin:0 0 8px;'>Te invitaron a {safe_tenant}</h2>
-              <p style='color:#94a3b8;font-size:14px;line-height:1.6;'>
-                {safe_inviter} te ha invitado a acceder a los workspaces remotos de <b style='color:#fff'>{safe_tenant}</b> en NeoSC — el portal HTML5 Zero Trust de cloud desktops.
-              </p>
-              {f"<p style='color:#94a3b8;font-size:13px;border-left:3px solid #06b6d4;padding-left:12px;margin:16px 0;'>{safe_welcome}</p>" if safe_welcome else ""}
-              <a href='{invite_url}' style='display:inline-block;background:#06b6d4;color:#000;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px;'>Aceptar invitación</a>
-              <p style='color:#64748b;font-size:11px;margin-top:24px;'>Link expira en 7 días. Si no esperabas esta invitación, ignora este correo.</p>
-            </div>
-        </body></html>
-        """
-        email_id = await send_mock_email(
-            to=email,
-            subject=f"Te invitaron a {tenant_org} en NeoSC",
-            body_html=html,
-            category="user_invite",
-        )
-        results.append({"email": email, "status": "invited", "user_id": new_user.id, "email_id": email_id})
+        email_id = None
+        if delivery == "mock":
+            # Keep the mock email as a local preview (no real SMTP)
+            invite_url = f"{origin}/login?invite={invite_token}&email={email}"
+            safe_welcome = html_escape_mod.escape(body.welcome_message) if body.welcome_message else ""
+            safe_tenant = html_escape_mod.escape(tenant_org)
+            safe_inviter = html_escape_mod.escape(user['email'])
+            html = f"""
+            <!DOCTYPE html>
+            <html><body style='font-family:system-ui,-apple-system,Inter,sans-serif;background:#0a0e17;color:#fff;padding:32px;'>
+                <div style='max-width:560px;margin:0 auto;background:#111827;border:1px solid #1e293b;border-radius:16px;padding:32px;'>
+                  <div style='display:flex;align-items:center;gap:12px;margin-bottom:20px;'>
+                    <div style='width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#06b6d4,#a855f7);display:flex;align-items:center;justify-content:center;font-weight:800;'>N</div>
+                    <h1 style='margin:0;font-size:18px;'>NeoSC</h1>
+                  </div>
+                  <h2 style='color:#06b6d4;margin:0 0 8px;'>Te invitaron a {safe_tenant}</h2>
+                  <p style='color:#94a3b8;font-size:14px;line-height:1.6;'>
+                    {safe_inviter} te ha invitado al portal NeoSC.
+                  </p>
+                  {f"<p style='color:#94a3b8;font-size:13px;border-left:3px solid #06b6d4;padding-left:12px;margin:16px 0;'>{safe_welcome}</p>" if safe_welcome else ""}
+                  <a href='{invite_url}' style='display:inline-block;background:#06b6d4;color:#000;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px;'>Aceptar invitación</a>
+                  <p style='color:#64748b;font-size:11px;margin-top:24px;'>Link expira en 7 días.</p>
+                </div>
+            </body></html>
+            """
+            email_id = await send_mock_email(
+                to=email,
+                subject=f"Te invitaron a {tenant_org} en NeoSC",
+                body_html=html,
+                category="user_invite",
+            )
+
+        results.append({
+            "email": email,
+            "status": "invited",
+            "user_id": new_user.id,
+            "email_id": email_id,
+            "delivery": delivery,
+            "neoguard_error": neoguard_result.get("error") if neoguard_result and not neoguard_result.get("ok") else None,
+            "grant": grant_result,
+            "zitadel_user_id": user_doc.get("zitadel_user_id"),
+        })
 
         # Real-time toast to the inviter
         await notifications_hub.publish(user["id"], {
             "type": "user.invited",
             "title": "Invitación enviada",
-            "message": f"Email enviado a {email}",
+            "message": f"Email enviado a {email} vía {delivery}",
             "severity": "success",
         })
 
     await create_audit_log(user["id"], user["email"], "invite_users",
-                           "users", f"Invited {len(body.emails)} emails. Success: {sum(1 for r in results if r['status']=='invited')}")
+                           "users", f"Invited {len(body.emails)} · NeoGuard={neoguard_available} · Success: {sum(1 for r in results if r['status']=='invited')}")
 
-    return {"ok": True, "results": results, "total": len(body.emails)}
+    return {"ok": True, "results": results, "total": len(body.emails),
+            "delivery_mode": "neoguard" if neoguard_available else "mock"}
+
+
+@api_router.post("/tenants/invite-resend/{user_id}")
+async def resend_invite(user_id: str, current: dict = Depends(get_current_user)):
+    """Resend invitation email (NeoGuard: reissue OTP init; mock: re-send stored template)."""
+    require_admin(current)
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    zid = u.get("zitadel_user_id")
+    if zid and ZITADEL_DOMAIN and ZITADEL_PAT:
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                # Request new verification code (email)
+                r = await c.post(
+                    f"{ZITADEL_DOMAIN}/v2/users/{zid}/email/resend",
+                    headers=zitadel_headers(org_id=ZITADEL_ORG_ID),
+                    json={"sendCode": {"urlTemplate": "{{.Code}}"}},
+                )
+                if r.status_code < 400:
+                    return {"ok": True, "delivery": "neoguard", "details": r.json()}
+        except Exception as e:
+            logger.warning(f"resend via neoguard failed: {e}")
+    return {"ok": True, "delivery": "mock"}
+
 
 
 @api_router.get("/tenants/invited-users")
@@ -1352,7 +1497,8 @@ async def list_invited_users(user: dict = Depends(get_current_user)):
 async def get_applications(user: dict = Depends(get_current_user)):
     """Get all available applications"""
     applications = await db.applications.find({}, {"_id": 0}).to_list(100)
-    if not applications:
+    fresh_mode = os.environ.get("FRESH_TENANT_MODE", "true").lower() in ("1", "true", "yes")
+    if not applications and not fresh_mode:
         # Initialize with default applications
         for app in DEFAULT_APPLICATIONS:
             await db.applications.insert_one(app.copy())

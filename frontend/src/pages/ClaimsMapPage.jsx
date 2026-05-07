@@ -64,7 +64,7 @@ export default function ClaimsMapPage() {
                 <Shield className="w-6 h-6 text-purple-400" /> Claims Mapping
               </h1>
               <p className="text-muted-foreground text-sm mt-1">
-                Zitadel Roles → NetBird Groups/Policies → NeoVDI Groups → LXD Projects
+                NeoGuard Roles → NeoMesh Groups/Policies → NeoVDI Groups → NeoCloud Projects
               </p>
             </div>
             <div className="flex gap-2">
@@ -80,13 +80,13 @@ export default function ClaimsMapPage() {
           <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5">
             <div className="flex items-center justify-center gap-2 flex-wrap">
               {[
-                { icon: Shield, label: 'Zitadel', sub: 'Roles + Grants', color: 'purple' },
+                { icon: Shield, label: 'NeoGuard', sub: 'Roles + Grants', color: 'purple' },
                 { icon: ChevronRight, label: '', color: 'muted' },
-                { icon: Wifi, label: 'NetBird', sub: 'Groups + Policies', color: 'green' },
+                { icon: Wifi, label: 'NeoMesh', sub: 'Groups + Policies', color: 'green' },
                 { icon: ChevronRight, label: '', color: 'muted' },
                 { icon: Monitor, label: 'NeoVDI', sub: 'User Groups', color: 'cyan' },
                 { icon: ChevronRight, label: '', color: 'muted' },
-                { icon: Server, label: 'LXD', sub: 'Project Access', color: 'amber' },
+                { icon: Server, label: 'NeoCloud', sub: 'Project Access', color: 'amber' },
               ].map((step, i) => {
                 const Icon = step.icon;
                 return step.label ? (
@@ -118,8 +118,8 @@ export default function ClaimsMapPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border text-muted-foreground">
-                    <th className="text-left py-2 px-4 font-medium">Zitadel Role</th>
-                    <th className="text-left py-2 px-4 font-medium">NetBird Ports</th>
+                    <th className="text-left py-2 px-4 font-medium">NeoGuard Role</th>
+                    <th className="text-left py-2 px-4 font-medium">NeoMesh Ports</th>
                     <th className="text-left py-2 px-4 font-medium">LXD Project</th>
                     <th className="text-center py-2 px-4 font-medium">Protocolos</th>
                   </tr>
@@ -174,8 +174,8 @@ export default function ClaimsMapPage() {
                   <thead>
                     <tr className="border-b border-border text-muted-foreground">
                       <th className="text-left py-2 px-4 font-medium">Usuario</th>
-                      <th className="text-left py-2 px-4 font-medium">Zitadel Roles</th>
-                      <th className="text-left py-2 px-4 font-medium">NetBird Groups</th>
+                      <th className="text-left py-2 px-4 font-medium">NeoGuard Roles</th>
+                      <th className="text-left py-2 px-4 font-medium">NeoMesh Groups</th>
                       <th className="text-left py-2 px-4 font-medium">LXD Projects</th>
                     </tr>
                   </thead>

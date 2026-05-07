@@ -75,7 +75,7 @@ export default function WorkspaceViewerPage() {
         launch_mode: data.launch_mode || 'iframe',
       });
       if (data.autologon) {
-        toast.success('Autologon iniciado — credenciales inyectadas vía TSplus');
+        toast.success('Autologon iniciado — credenciales inyectadas sin exponerse');
       } else {
         toast.info('Sesión lanzada sin autologon');
       }
@@ -122,7 +122,7 @@ export default function WorkspaceViewerPage() {
         <div className="text-center space-y-4">
           <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mx-auto" />
           <p className="text-sm text-zinc-400">
-            {isLaunch ? 'Inyectando credenciales vía TSplus Farm API...' : 'Cargando sesión...'}
+            {isLaunch ? 'Inyectando credenciales vía gateway seguro...' : 'Cargando sesión...'}
           </p>
         </div>
       </div>

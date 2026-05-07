@@ -58,7 +58,7 @@ export default function SettingsPage() {
               <Badge className={`text-xs ${
                 authMethod === 'zitadel' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
               }`}>
-                {authMethod === 'zitadel' ? 'Zitadel SSO' : 'Email / Password'}
+                {authMethod === 'zitadel' ? 'NeoGuard SSO' : 'Email / Password'}
               </Badge>
               {user?.mfa_enabled && (
                 <Badge className="bg-green-500/10 text-green-400 border-green-500/30 text-xs">MFA</Badge>

@@ -47,7 +47,7 @@ export default function SessionToolbar({ sessionId, workspaceName, autologon, au
       {autologon && (
         <span
           className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-semibold tracking-wide"
-          title="Credenciales inyectadas vía TSplus Farm API. El password nunca se expone al frontend."
+          title="Credenciales inyectadas sin exponer el password al frontend."
           data-testid="autologon-badge"
         >
           AUTOLOGON

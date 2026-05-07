@@ -103,6 +103,28 @@ export default function ConnectionPage() {
     }
   };
 
+  // Detect when the iframe navigates back to NeoVDI home (user logged out from inside the gateway)
+  // — we can't read iframe.contentDocument.location due to CORS, but we can poll iframe.src as best-effort
+  // and listen to postMessage events. Most importantly, we expose a `Cerrar sesión` toolbar button.
+  useEffect(() => {
+    if (!sessionUrl || disconnected) return;
+    const onMsg = (e) => {
+      // Accept only messages from same-origin or our gateway origin
+      const safeOrigins = [window.location.origin];
+      try {
+        const u = new URL(sessionUrl);
+        safeOrigins.push(u.origin);
+      } catch { /* */ }
+      if (!safeOrigins.includes(e.origin)) return;
+      if (e.data && (e.data.type === 'neosc:logout' || e.data === 'logout')) {
+        handleDisconnect();
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionUrl, disconnected]);
+
   // Loading screen with NeoSC animation
   if (loading) {
     return (
