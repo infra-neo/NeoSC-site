@@ -61,9 +61,31 @@ class User(BaseModel):
     email: str
     name: str
     organization: str = "Default Organization"
+    tenant_id: Optional[str] = None  # Multi-tenant: every user belongs to a tenant
     role: str = "user"
     mfa_enabled: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Tenant(BaseModel):
+    """A NeoSC tenant — typically one organization mapped to a NeoGuard org."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    slug: str
+    zitadel_org_id: Optional[str] = None
+    zitadel_project_id: Optional[str] = None
+    plan: str = "starter"  # starter, business, enterprise
+    status: str = "active"  # active, suspended, lockdown
+    branding: dict = Field(default_factory=lambda: {"primary_color": "#06b6d4", "logo_url": None})
+    fresh_mode: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class TenantCreate(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    plan: str = "starter"
 
 class UserCreate(BaseModel):
     email: str
@@ -170,6 +192,63 @@ def hash_password(password: str) -> str:
 
 def generate_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+# ────────────────────────────────────────────────────────────────────
+# MULTI-TENANT HELPERS
+# ────────────────────────────────────────────────────────────────────
+DEFAULT_TENANT_SLUG = "neogenesys"
+
+async def ensure_default_tenant() -> dict:
+    """Create the default tenant (first run) and migrate orphan documents."""
+    existing = await db.tenants.find_one({"slug": DEFAULT_TENANT_SLUG}, {"_id": 0})
+    if existing:
+        return existing
+    tenant = Tenant(
+        name="Neogenesys",
+        slug=DEFAULT_TENANT_SLUG,
+        zitadel_org_id=ZITADEL_ORG_ID,
+        zitadel_project_id=ZITADEL_PROJECT_ID,
+        plan="enterprise",
+        fresh_mode=False,
+    )
+    doc = tenant.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.tenants.insert_one(doc.copy())
+    # Backfill tenant_id on existing users / data
+    tid = tenant.id
+    for coll in ("users", "workspaces", "applications", "sessions", "market_orders",
+                 "audit_logs", "mock_emails", "workspace_assignments", "market_vms"):
+        await db[coll].update_many({"tenant_id": {"$exists": False}}, {"$set": {"tenant_id": tid}})
+    logger.info(f"Default tenant '{DEFAULT_TENANT_SLUG}' created (id={tid}) and existing data backfilled.")
+    return doc
+
+
+async def get_user_tenant(user: dict) -> dict:
+    """Returns the tenant document for the authenticated user.
+    Falls back to the default tenant if the user has no tenant_id (legacy)."""
+    tid = user.get("tenant_id")
+    if tid:
+        t = await db.tenants.find_one({"id": tid}, {"_id": 0})
+        if t:
+            return t
+    # Fallback: default tenant
+    default = await db.tenants.find_one({"slug": DEFAULT_TENANT_SLUG}, {"_id": 0})
+    if not default:
+        default = await ensure_default_tenant()
+    # Persist the binding so subsequent queries are O(1)
+    await db.users.update_one({"id": user["id"]}, {"$set": {"tenant_id": default["id"]}})
+    user["tenant_id"] = default["id"]
+    return default
+
+
+async def get_current_tenant_id(user: dict = None) -> str:
+    """FastAPI dependency-style helper. Use inline as `tid = await get_current_tenant_id(user)`."""
+    if user is None:
+        return (await ensure_default_tenant())["id"]
+    t = await get_user_tenant(user)
+    return t["id"]
+
 
 # Simple token store (in production, use Redis/JWT)
 active_tokens = {}
@@ -719,13 +798,16 @@ DEFAULT_APPLICATIONS = [
 
 @api_router.get("/workspaces", response_model=List[dict])
 async def get_workspaces(user: dict = Depends(get_current_user)):
-    workspaces = await db.workspaces.find({}, {"_id": 0}).to_list(100)
+    tid = await get_current_tenant_id(user)
+    workspaces = await db.workspaces.find({"tenant_id": tid}, {"_id": 0}).to_list(100)
     # Auto-seed only when explicitly requested (legacy behavior); fresh tenants start empty.
     fresh_mode = os.environ.get("FRESH_TENANT_MODE", "true").lower() in ("1", "true", "yes")
     if not workspaces and not fresh_mode:
         for ws in DEFAULT_WORKSPACES:
-            await db.workspaces.insert_one(ws.copy())
-        workspaces = DEFAULT_WORKSPACES
+            seed = ws.copy()
+            seed["tenant_id"] = tid
+            await db.workspaces.insert_one(seed)
+            workspaces.append({k: v for k, v in seed.items() if k != "_id"})
     # Never expose rdp_password. Add a boolean hint for admins to know if it's set.
     for w in workspaces:
         pwd = w.pop("rdp_password", None)
@@ -784,6 +866,7 @@ async def create_workspace(workspace: WorkspaceCreate, user: dict = Depends(get_
     ws_dict = workspace.model_dump()
     ws_dict['id'] = f"ws-{str(uuid.uuid4())[:8]}"
     ws_dict['status'] = 'available'
+    ws_dict['tenant_id'] = await get_current_tenant_id(user)
     
     await db.workspaces.insert_one(ws_dict)
     # pymongo mutates ws_dict to include ObjectId('_id') after insert — strip it for JSON serialization
@@ -801,7 +884,9 @@ async def update_workspace(workspace_id: str, update: WorkspaceUpdate, user: dic
     if user.get('role') != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    workspace = await db.workspaces.find_one({"id": workspace_id}, {"_id": 0})
+    tid = await get_current_tenant_id(user)
+    # Restrict to current tenant — admins of one tenant cannot edit other tenants' workspaces
+    workspace = await db.workspaces.find_one({"id": workspace_id, "$or": [{"tenant_id": tid}, {"tenant_id": {"$exists": False}}]}, {"_id": 0})
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
     
@@ -1496,13 +1581,16 @@ async def list_invited_users(user: dict = Depends(get_current_user)):
 @api_router.get("/applications", response_model=List[dict])
 async def get_applications(user: dict = Depends(get_current_user)):
     """Get all available applications"""
-    applications = await db.applications.find({}, {"_id": 0}).to_list(100)
+    tid = await get_current_tenant_id(user)
+    applications = await db.applications.find({"tenant_id": tid}, {"_id": 0}).to_list(100)
     fresh_mode = os.environ.get("FRESH_TENANT_MODE", "true").lower() in ("1", "true", "yes")
     if not applications and not fresh_mode:
         # Initialize with default applications
         for app in DEFAULT_APPLICATIONS:
-            await db.applications.insert_one(app.copy())
-        applications = DEFAULT_APPLICATIONS
+            seed = app.copy()
+            seed["tenant_id"] = tid
+            await db.applications.insert_one(seed)
+            applications.append({k: v for k, v in seed.items() if k != "_id"})
     return applications
 
 @api_router.post("/applications/{app_id}/launch")
@@ -4583,6 +4671,10 @@ async def lxd_fix_devices(name: str, project: Optional[str] = None, user: dict =
 @app.on_event("startup")
 async def seed_data():
     """Seed admin and demo users on startup."""
+    # Ensure default tenant exists & legacy data is backfilled with tenant_id
+    default_tenant = await ensure_default_tenant()
+    default_tid = default_tenant["id"]
+
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@windesk.cloud")
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
 
@@ -4592,6 +4684,7 @@ async def seed_data():
             email=admin_email,
             name="Platform Admin",
             organization="NeoSC Platform",
+            tenant_id=default_tid,
             role="admin",
             mfa_enabled=True,
         )
