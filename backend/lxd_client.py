@@ -208,10 +208,30 @@ async def create_instance(
     if profiles is None:
         profiles = ["default"]
 
-    # Source: fingerprint or alias
-    if len(image_alias) >= 12 and all(c in "0123456789abcdef" for c in image_alias.lower()):
+    # Build source — handle remote aliases (images:, ubuntu:, ubuntu-daily:),
+    # local fingerprints, local aliases, and ISO-only (no image) installs.
+    REMOTE_SERVERS = {
+        "images":        ("https://images.linuxcontainers.org", "simplestreams"),
+        "ubuntu":        ("https://cloud-images.ubuntu.com/releases", "simplestreams"),
+        "ubuntu-daily":  ("https://cloud-images.ubuntu.com/daily", "simplestreams"),
+    }
+    if not image_alias:
+        # ISO-only or blank — let LXD create an empty disk VM
+        source = {"type": "none"}
+    elif ":" in image_alias and image_alias.split(":")[0] in REMOTE_SERVERS:
+        remote_name, alias_part = image_alias.split(":", 1)
+        server_url, protocol = REMOTE_SERVERS[remote_name]
+        source = {
+            "type": "image",
+            "alias": alias_part,
+            "server": server_url,
+            "protocol": protocol,
+        }
+    elif len(image_alias) >= 12 and all(c in "0123456789abcdef" for c in image_alias.lower()):
+        # Local image fingerprint (short or full)
         source = {"type": "image", "fingerprint": image_alias}
     else:
+        # Local image alias
         source = {"type": "image", "alias": image_alias}
 
     config = {
@@ -266,17 +286,34 @@ async def create_instance(
         "description": description,
     }
 
+    logger.info(
+        f"LXD create_instance: name={name} type={instance_type} "
+        f"source={source} project={project or LXD_PROJECT}"
+    )
     try:
         async with _get_client() as client:
             r = await client.post("/1.0/instances", json=payload, params=_p(project))
             data = r.json()
+            logger.debug(f"LXD create response HTTP {r.status_code}: {data}")
             if r.status_code in (200, 202) and data.get("type") != "error":
                 op_url = data.get("operation")
                 if op_url:
-                    await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "180"}, timeout=190.0)
+                    wait_r = await client.get(
+                        f"{op_url}/wait",
+                        params={**_p(project), "timeout": "180"},
+                        timeout=190.0,
+                    )
+                    wait_data = wait_r.json()
+                    if wait_data.get("type") == "error":
+                        err = wait_data.get("error", "Operation failed")
+                        logger.error(f"LXD operation failed for {name}: {err}")
+                        return {"ok": False, "error": err, "error_code": wait_data.get("error_code")}
                 return {"ok": True, "name": name, "operation": op_url}
-            return {"ok": False, "error": data.get("error", r.text), "error_code": data.get("error_code")}
+            err = data.get("error", r.text)
+            logger.error(f"LXD create_instance rejected for {name}: {err} (HTTP {r.status_code})")
+            return {"ok": False, "error": err, "error_code": data.get("error_code")}
     except Exception as e:
+        logger.error(f"LXD create_instance exception for {name}: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -397,8 +434,6 @@ async def exec_command(name: str, command: list, project: Optional[str] = None) 
                     wait_data = wait_r.json()
                     meta = wait_data.get("metadata", {}).get("metadata", {})
                     return_code = meta.get("return", -1)
-
-                    # Try to fetch stdout/stderr from log files
                     output = meta.get("output", {})
                     stdout_url = output.get("1", "")
                     stderr_url = output.get("2", "")
@@ -412,7 +447,6 @@ async def exec_command(name: str, command: list, project: Optional[str] = None) 
                         sr = await client.get(stderr_url, params=_p(project))
                         if sr.status_code == 200:
                             stderr_text = sr.text
-
                     return {
                         "ok": True,
                         "return_code": return_code,
