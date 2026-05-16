@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 15 (test for iter-16 features) — Verified LXD trust + multi-tenant backend + TenantsPage UI end-to-end. 11/11 backend pytest pass (LXD status trusted, /lxd/instances returns list from default project, /tenants/me with counters, /tenants list, POST create + 409 dup, PUT update + 404 + 400, POST lockdown, workspaces tenant isolation, /admin/system-logs filtered, /admin/orchestrator scoped, invite inherits tenant_id). 7/7 UI flows pass: my-tenant-card renders with all 5 counters, sidebar 'Tenants' link present, create modal works, new tenant appears in 'Todos los tenants (N)' list, Lockdown button changes status to LOCKDOWN, Suspender/Activar toggle works on other tenants, own-tenant lockdown button correctly hidden.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "TenantsPage create modal", "issues": ["Plan select uses browser-native <select> instead of shadcn Select component — inconsistent with the rest of the app's dark theme styling. Functional, but the dropdown popup is white on Chrome/Linux."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_multitenant_lxd.py",
+    "/app/test_reports/pytest/multitenant_lxd.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Replace native <select> in tenant create modal with shadcn Select to match theme.",
+    "INFO: data-testids in TenantsPage are slug-based (tenant-row-<slug>, tenant-suspend-<slug>, tenant-lockdown-<slug>, tenant-activate-<slug>) NOT 'action-steps-4' as the review prompt suggested — main agent's prompt template had a placeholder substitution issue. Code is fine; just clarifying for next iteration.",
+    "INFO: Test tenants accumulate in DB across iterations (test-t-*, uitest*). Consider adding DELETE /api/tenants/{id} endpoint or test-data cleanup fixture if this grows."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 4867 lines — split into modules (tenants.py, lxd.py, sessions.py, audit.py, auth.py) per <700-line guideline. Was deferred this iteration per user note.",
+    "POST /api/tenants creates tenant with `created_at` as datetime → manually converted to isoformat. Use Pydantic JSON encoder or store as ISO string from the start to avoid repeating this pattern (also seen at lines 1791, 1897).",
+    "PUT /api/tenants/{id} allows updating `status` to any string — should validate against enum {active, suspended, lockdown}.",
+    "lockdown_tenant_v2 publishes SSE per-user inside a per-session loop with await — fine for small N, but for tenants with many sessions consider batching/asyncio.gather.",
+    "get_user_tenant has a side-effect (updates user.tenant_id in DB on fallback). Fine but undocumented — add docstring note.",
+    "Workspaces isolation uses `$or: [{tenant_id: tid}, {tenant_id: {$exists: false}}]` on PUT but only `{tenant_id: tid}` on GET — slight inconsistency that allows admins to mutate orphan workspaces but not see them. Decide: backfill once then enforce strict equality.",
+    "Tenants list endpoint /api/tenants returns ALL tenants to ANY admin — fine for super-admin scenarios, but with true multi-tenant isolation, an admin of tenant A shouldn't see tenant B's name. Document this is 'platform-admin' view."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_multitenant_lxd.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 pytest)",
+    "frontend": "100% (7/7 verified flows)"
+  },
+  "test_credentials": "admin@windesk.cloud / Admin123! via /login bypass card. Login returns access_token in body (NOT cookie).",
+  "seed_data_creation": "Created tenants via pytest: 'test-t-<uuid8>' (plan=trial→pro, status=lockdown) — remains in DB. Created via UI: 'uitest<6digits>' (plan=business, status=lockdown). Invited user 'TEST_inv_<6hex>@windesk.cloud'. No teardown — see action_items.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-16 LXD+multi-tenant features fully working. Backend test suite at /app/backend/tests/test_multitenant_lxd.py (11 tests, all pass). LXD now trusted on project=default — /api/lxd/status returns auth='trusted', /api/lxd/instances returns list. Tenants endpoints: GET /api/tenants/me (counters: users,workspaces,applications,active_sessions,audit_logs), GET /api/tenants (list+counters), POST /api/tenants (slug auto-generated from name via re.sub(r'[^a-z0-9-]+','-',...), 409 on dup, allowed plans: starter/business/enterprise/trial/pro — backend accepts any string), PUT /api/tenants/{id} (allowed fields: name,plan,status,branding,fresh_mode; 404/400 working), POST /api/tenants/{id}/lockdown (kills sessions, suspends workspaces, sets status='lockdown', publishes SSE session.logoff). Tenant_id is injected on register/invite/workspace/session/audit creates. Frontend TenantsPage testids: my-tenant-card, tenants-create-btn, tenant-create-modal, tenant-name-input, tenant-plan-select (native <select>, options: starter/business/enterprise), tenant-create-submit, tenant-row-<slug>, tenant-suspend-<slug>, tenant-activate-<slug>, tenant-lockdown-<slug>, tenants-refresh. Own-tenant cannot be lockdowned (button hidden). Note: still pending — refactor server.py into modules (deferred). The pre-existing auth-persistence bug from iter-14 (no httpOnly cookie set on /auth/login) is still present but doesn't block this iteration's tests because Playwright runs inside same SPA session.",
+  "rca of the issue": "N/A — no bugs found in iter-16 scope. All 11 backend endpoints + 7 UI flows pass on first run after fixing my own test script issues (slug sanitation expects [a-z0-9-] only — underscores get converted to hyphens; invite endpoint lowercases emails; module-level state for pytest cross-class fixture)."
+}

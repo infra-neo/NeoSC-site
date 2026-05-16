@@ -25,6 +25,7 @@ import GuacamolePage from "@/pages/GuacamolePage";
 import ClaimsMapPage from "@/pages/ClaimsMapPage";
 import ConnectionPage from "@/pages/ConnectionPage";
 import WelcomePage from "@/pages/WelcomePage";
+import TenantsPage from "@/pages/TenantsPage";
 import NeoChat from "@/components/NeoChat";
 
 // Market — Windows VDI self-service
@@ -154,6 +155,11 @@ function App() {
               <Route path="/welcome" element={
                 <ProtectedRoute>
                   <WelcomePage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/tenants" element={
+                <ProtectedRoute>
+                  <TenantsPage />
                 </ProtectedRoute>
               } />
               <Route path="/admin" element={

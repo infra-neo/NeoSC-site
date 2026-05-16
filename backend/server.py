@@ -272,10 +272,17 @@ async def register(user_data: UserCreate):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # Resolve tenant: by organization slug or default
+    org_name = user_data.organization or "Default Organization"
+    tenant = await db.tenants.find_one({"name": org_name}, {"_id": 0})
+    if not tenant:
+        tenant = await ensure_default_tenant()
+
     user = User(
         email=user_data.email,
         name=user_data.name,
-        organization=user_data.organization or "Default Organization"
+        organization=org_name,
+        tenant_id=tenant["id"],
     )
     
     user_doc = user.model_dump()
@@ -954,6 +961,7 @@ async def launch_workspace(workspace_id: str, user: dict = Depends(get_current_u
     session_doc['started_at'] = session_doc['started_at'].isoformat()
     session_doc['clientless'] = workspace.get('clientless', False)
     session_doc['launch_mode'] = workspace.get('launch_mode', 'new_tab')
+    session_doc['tenant_id'] = await get_current_tenant_id(user)
     
     await db.sessions.insert_one(session_doc)
     
@@ -1094,6 +1102,7 @@ async def launch_workspace_autologon(workspace_id: str, user: dict = Depends(get
     session_doc["clientless"] = True
     session_doc["launch_mode"] = workspace.get("launch_mode", "iframe")
     session_doc["connection_type"] = "tsplus_autologon"
+    session_doc["tenant_id"] = await get_current_tenant_id(user)
     await db.sessions.insert_one(session_doc)
     await db.workspaces.update_one({"id": workspace_id}, {"$set": {"status": "running"}})
 
@@ -1458,6 +1467,8 @@ async def invite_users(body: InviteUsersBody, user: dict = Depends(get_current_u
         user_doc["invite_token"] = invite_token
         user_doc["invited_by"] = user["email"]
         user_doc["invite_status"] = "pending"
+        # Inject tenant_id from inviter
+        user_doc["tenant_id"] = user.get("tenant_id") or (await ensure_default_tenant())["id"]
 
         delivery = "mock"
         neoguard_result = None
@@ -1616,6 +1627,7 @@ async def launch_application(app_id: str, user: dict = Depends(get_current_user)
     session_doc['started_at'] = session_doc['started_at'].isoformat()
     session_doc['is_application'] = True
     session_doc['allows_iframe'] = app.get('allows_iframe', False)
+    session_doc['tenant_id'] = await get_current_tenant_id(user)
     
     await db.sessions.insert_one(session_doc)
     
@@ -1731,6 +1743,106 @@ async def get_sessions(user: dict = Depends(get_current_user)):
     sessions = await db.sessions.find({"user_id": user['id']}, {"_id": 0}).to_list(100)
     return sessions
 
+# ============ TENANTS ENDPOINTS (multi-tenant) ============
+
+@api_router.get("/tenants/me")
+async def get_my_tenant(user: dict = Depends(get_current_user)):
+    """Returns the tenant the current user belongs to."""
+    tenant = await get_user_tenant(user)
+    # Add live counters scoped to this tenant
+    tid = tenant["id"]
+    counters = {
+        "users": await db.users.count_documents({"tenant_id": tid}),
+        "workspaces": await db.workspaces.count_documents({"tenant_id": tid}),
+        "applications": await db.applications.count_documents({"tenant_id": tid}),
+        "active_sessions": await db.sessions.count_documents({"tenant_id": tid, "status": {"$in": ["active", None]}}),
+        "audit_logs": await db.audit_logs.count_documents({"tenant_id": tid}),
+    }
+    return {**tenant, "counters": counters}
+
+
+@api_router.get("/tenants")
+async def list_tenants(user: dict = Depends(get_current_user)):
+    """List all tenants. Admins of any tenant can list (but data inside each is isolated)."""
+    require_admin(user)
+    tenants = await db.tenants.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    # Attach quick counters
+    for t in tenants:
+        tid = t["id"]
+        t["counters"] = {
+            "users": await db.users.count_documents({"tenant_id": tid}),
+            "workspaces": await db.workspaces.count_documents({"tenant_id": tid}),
+        }
+    return {"tenants": tenants, "count": len(tenants)}
+
+
+@api_router.post("/tenants")
+async def create_tenant(body: TenantCreate, user: dict = Depends(get_current_user)):
+    """Create a new tenant (admin only)."""
+    require_admin(user)
+    slug = (body.slug or body.name).lower().strip()
+    import re
+    slug = re.sub(r'[^a-z0-9-]+', '-', slug).strip('-') or "tenant"
+    existing = await db.tenants.find_one({"slug": slug}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Tenant slug '{slug}' already exists")
+    tenant = Tenant(name=body.name, slug=slug, plan=body.plan)
+    doc = tenant.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.tenants.insert_one(doc.copy())
+    doc.pop('_id', None)
+    await create_audit_log(user["id"], user["email"], "tenant_create",
+                           f"tenant:{tenant.id}", f"Created tenant: {tenant.name} ({slug})")
+    return {"ok": True, "tenant": doc}
+
+
+@api_router.put("/tenants/{tenant_id}")
+async def update_tenant(tenant_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Update tenant config (admin only). Allowed fields: name, plan, status, branding, fresh_mode."""
+    require_admin(user)
+    ALLOWED = {"name", "plan", "status", "branding", "fresh_mode"}
+    update = {k: v for k, v in body.items() if k in ALLOWED}
+    if not update:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    result = await db.tenants.update_one({"id": tenant_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    await create_audit_log(user["id"], user["email"], "tenant_update",
+                           f"tenant:{tenant_id}", f"Updated: {update}")
+    tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+    return {"ok": True, "tenant": tenant}
+
+
+@api_router.post("/tenants/{tenant_id}/lockdown")
+async def lockdown_tenant_v2(tenant_id: str, user: dict = Depends(get_current_user)):
+    """Lockdown a tenant: suspend all running workspaces, terminate sessions, mark tenant status=lockdown."""
+    require_admin(user)
+    tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    # Terminate all active sessions in this tenant
+    sessions = await db.sessions.find(
+        {"tenant_id": tenant_id, "status": {"$in": ["active", None]}}, {"_id": 0}
+    ).to_list(500)
+    for s in sessions:
+        await db.sessions.update_one({"id": s["id"]},
+            {"$set": {"status": "terminated", "terminated_by": user["email"],
+                      "ended_at": datetime.now(timezone.utc).isoformat()}})
+        await notifications_hub.publish(s.get("user_id", ""), {
+            "type": "session.logoff", "severity": "error",
+            "title": "Tenant en lockdown",
+            "message": f"Tu sesión fue terminada por lockdown del tenant {tenant['name']}",
+            "session_id": s["id"], "action": "logoff",
+        })
+    await db.workspaces.update_many({"tenant_id": tenant_id, "status": "running"},
+                                    {"$set": {"status": "suspended"}})
+    await db.tenants.update_one({"id": tenant_id}, {"$set": {"status": "lockdown"}})
+    await create_audit_log(user["id"], user["email"], "tenant_lockdown",
+                           f"tenant:{tenant_id}",
+                           f"Lockdown {tenant['name']}: {len(sessions)} sessions killed")
+    return {"ok": True, "tenant_id": tenant_id, "killed_sessions": len(sessions)}
+
+
 @api_router.get("/sessions/active", response_model=List[dict])
 async def get_active_sessions(user: dict = Depends(get_current_user)):
     sessions = await db.sessions.find(
@@ -1772,7 +1884,7 @@ async def disconnect_session(session_id: str, user: dict = Depends(get_current_u
 
 # ============ AUDIT LOGS ENDPOINTS ============
 
-async def create_audit_log(user_id: str, user_email: str, action: str, resource: str, details: str, success: bool = True):
+async def create_audit_log(user_id: str, user_email: str, action: str, resource: str, details: str, success: bool = True, tenant_id: Optional[str] = None):
     log = AuditLog(
         user_id=user_id,
         user_email=user_email,
@@ -1783,12 +1895,20 @@ async def create_audit_log(user_id: str, user_email: str, action: str, resource:
     )
     log_doc = log.model_dump()
     log_doc['timestamp'] = log_doc['timestamp'].isoformat()
+    # Inject tenant_id (resolved from user when not provided)
+    if not tenant_id and user_id:
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "tenant_id": 1})
+        if u and u.get("tenant_id"):
+            tenant_id = u["tenant_id"]
+    if tenant_id:
+        log_doc['tenant_id'] = tenant_id
     await db.audit_logs.insert_one(log_doc)
 
 @api_router.get("/audit-logs", response_model=List[dict])
 async def get_audit_logs(user: dict = Depends(get_current_user)):
-    # Admins can see all, users see their own
-    query = {} if user.get('role') == 'admin' else {"user_id": user['id']}
+    # Admins see audit logs for their tenant only; users see their own
+    tid = await get_current_tenant_id(user)
+    query = {"tenant_id": tid} if user.get('role') == 'admin' else {"user_id": user['id']}
     logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(500)
     return logs
 
@@ -1982,16 +2102,17 @@ async def admin_activate_tenant(tenant_id: str, user: dict = Depends(get_current
 @api_router.get("/admin/orchestrator")
 async def admin_orchestrator(user: dict = Depends(get_current_user)):
     require_admin(user)
-    # Real provisioning orders
+    tid = await get_current_tenant_id(user)
+    # Real provisioning orders — scoped to tenant
     active_orders = await db.market_orders.find(
-        {"status": {"$in": ["pending", "provisioning", "completed"]}},
+        {"tenant_id": tid, "status": {"$in": ["pending", "provisioning", "completed"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(20)
 
-    # Real active sessions count (for winrm-style live workers)
-    active_sessions = await db.sessions.count_documents({"status": {"$in": ["active", None]}})
-    pending_invites = await db.users.count_documents({"invite_status": "pending"})
-    active_workspaces = await db.workspaces.count_documents({"status": "running"})
+    # Real active sessions count (scoped to tenant)
+    active_sessions = await db.sessions.count_documents({"tenant_id": tid, "status": {"$in": ["active", None]}})
+    pending_invites = await db.users.count_documents({"tenant_id": tid, "invite_status": "pending"})
+    active_workspaces = await db.workspaces.count_documents({"tenant_id": tid, "status": "running"})
 
     # Real workers — derived from active async tasks in DB
     workers = [
@@ -2043,6 +2164,7 @@ async def admin_orchestrator(user: dict = Depends(get_current_user)):
 
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     completed_today = await db.market_orders.count_documents({
+        "tenant_id": tid,
         "status": "completed",
         "created_at": {"$gte": today_start}
     })
@@ -2110,7 +2232,8 @@ async def admin_workspace_suspend(workspace_id: str, user: dict = Depends(get_cu
 @api_router.get("/admin/system-logs")
 async def admin_system_logs(user: dict = Depends(get_current_user)):
     require_admin(user)
-    raw = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(200)
+    tid = await get_current_tenant_id(user)
+    raw = await db.audit_logs.find({"tenant_id": tid}, {"_id": 0}).sort("timestamp", -1).to_list(200)
 
     # Map action keyword → source + level
     def classify(action: str, success: bool):
