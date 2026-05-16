@@ -1804,6 +1804,8 @@ async def update_tenant(tenant_id: str, body: dict, user: dict = Depends(get_cur
     update = {k: v for k, v in body.items() if k in ALLOWED}
     if not update:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    if "status" in update and update["status"] not in ("active", "suspended", "lockdown"):
+        raise HTTPException(status_code=400, detail="status must be active|suspended|lockdown")
     result = await db.tenants.update_one({"id": tenant_id}, {"$set": update})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Tenant not found")
