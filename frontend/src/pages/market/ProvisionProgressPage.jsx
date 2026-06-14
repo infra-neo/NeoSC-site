@@ -14,18 +14,18 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const STEP_DEFS = [
-  { name: 'payment_confirmed',    label: 'Pago confirmado',             icon: '1' },
-  { name: 'generate_credentials', label: 'Generando credenciales',      icon: '2' },
-  { name: 'create_lxd_vm',        label: 'Creando VM Windows',          icon: '3' },
-  { name: 'windows_bootstrap',    label: 'Configurando Windows',        icon: '4' },
-  { name: 'tsplus_install',       label: 'Instalando TSplus',           icon: '5' },
-  { name: 'netbird_install',      label: 'Instalando Netbird mesh',     icon: '6' },
-  { name: 'tsplus_configure',     label: 'Activando acceso HTML5',      icon: '7' },
-  { name: 'netbird_configure',    label: 'Configurando red Zero Trust', icon: '8' },
-  { name: 'zitadel_provision',    label: 'Creando organización SSO',    icon: '9' },
-  { name: 'dns_create',           label: 'Configurando DNS',            icon: '10' },
-  { name: 'email_welcome',        label: 'Enviando credenciales',       icon: '11' },
-  { name: 'complete',             label: 'Todo listo',                  icon: '12' },
+  { name: 'payment_confirmed',    label: 'Pago confirmado',                         icon: '1' },
+  { name: 'generate_credentials', label: 'Generando credenciales SSH/RDP',          icon: '2' },
+  { name: 'create_lxd_vm',        label: 'Desplegando VM en OpenNebula',            icon: '3' },
+  { name: 'windows_bootstrap',    label: 'Bootstrap Windows + sysprep',             icon: '4' },
+  { name: 'tsplus_install',       label: 'Instalando TSplus Server',                icon: '5' },
+  { name: 'netbird_install',      label: 'Instalando agente NeoMesh',               icon: '6' },
+  { name: 'tsplus_configure',     label: 'Activando HTML5 + Universal Printer',     icon: '7' },
+  { name: 'netbird_configure',    label: 'Configurando red Zero Trust',             icon: '8' },
+  { name: 'zitadel_provision',    label: 'Creando organización NeoGuard SSO',       icon: '9' },
+  { name: 'dns_create',           label: 'Configurando DNS y subdominio',           icon: '10' },
+  { name: 'email_welcome',        label: 'Enviando email de bienvenida',            icon: '11' },
+  { name: 'complete',             label: 'Workspace listo',                         icon: '12' },
 ];
 
 // Onboarding slides shown while provisioning
