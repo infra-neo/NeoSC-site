@@ -32,7 +32,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # Zitadel configuration - Multiple providers
-ZITADEL_AUTHORITY = os.environ.get('ZITADEL_AUTHORITY', 'https://manager.kappa4.com')
+ZITADEL_AUTHORITY = os.environ.get('ZITADEL_AUTHORITY', os.environ.get('ZITADEL_DOMAIN', ''))
 ZITADEL_CLIENT_ID = os.environ.get('ZITADEL_CLIENT_ID', '360979728544301063')
 ZITADEL_PROJECT_ID = os.environ.get('ZITADEL_PROJECT_ID', '360327617871609860')
 
@@ -3006,7 +3006,7 @@ async def get_neoconnect_info(tenant_id: str, user: dict = Depends(get_current_u
     if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
 
     setup_key = tenant.get("netbird_setup_key", "")
-    mgmt_url = NETBIRD_API_URL or "https://manager.kappa4.com"
+    mgmt_url = NETBIRD_API_URL or "https://api.netbird.io"
 
     return {
         "setup_key": setup_key,
@@ -4092,10 +4092,10 @@ async def _simulate_provisioning(order_id: str):
         "id": f"vm-{str(uuid.uuid4())[:8]}",
         "order_id": order_id,
         "status": "running",
-        "lxd_instance_name": f"windesk-demo-{str(uuid.uuid4())[:6]}",
-        "internal_ip": "10.100.10.152",
-        "netbird_ip": "100.79.92.225",
-        "tunnel_hostname": "demo-tsplus.desk.kappa4.com",
+        "lxd_instance_name": f"NEOSC-VDI-{str(uuid.uuid4())[:4].upper()}",
+        "netbird_ip": "10.0.6.99",
+        "html5_access_url": "https://vdi.eu1.netbird.services",
+        "connection_url": "https://vdi.eu1.netbird.services",
         "has_tsplus": True,
         "tsplus_licenses": 10,
         "vcpu": 4,
@@ -4346,9 +4346,10 @@ async def _provision_opennebula_vm(order_id: str):
             netbird_peer_id = poll_res.get("peer_id")
             netbird_dns_label = poll_res.get("dns_label")
     if not netbird_ip:
-        # Fallback synthetic IP if peer never registers (demo continues)
+        # Fallback synthetic IP within the customer's NetBird mesh subnet (10.0.6.0/24)
+        # Used when no real peer registered within the polling window
         import random
-        netbird_ip = f"100.92.{random.randint(10, 250)}.{random.randint(10, 250)}"
+        netbird_ip = f"10.0.6.{random.randint(50, 240)}"
         await _step("netbird_configure", "success",
                     f"⚠ Peer no detectado tras {peer_attempts} intentos. Mesh IP simulada: {netbird_ip}")
     else:
@@ -4365,17 +4366,16 @@ async def _provision_opennebula_vm(order_id: str):
     await asyncio.sleep(1.5)
     await _step("zitadel_provision", "success", "✓ Organización creada en NeoGuard")
 
-    # 10) dns_create — use NetBird expose service URL as primary access URL
+    # 10) dns_create — use NetBird expose service URL as primary access URL (no kappa4 tunnel)
     expose_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
-    tunnel_hostname = f"{order['vm_name']}.desk.kappa4.com"
     await db.market_orders.update_one({"id": order_id}, {"$set": {
-        "tunnel_hostname": tunnel_hostname,
         "html5_access_url": expose_url,
+        "tunnel_hostname": None,
     }})
     await _step("dns_create", "running",
-                f"Configurando proxy NetBird ({expose_url}) → {netbird_ip}...")
+                f"Configurando proxy NetBird Services ({expose_url}) → {netbird_ip}...")
     await asyncio.sleep(1)
-    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → http://{netbird_ip}")
+    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → {netbird_ip}")
 
     # 11) email_welcome
     await _step("email_welcome", "running", f"Enviando email a {order.get('admin_email')}...")
@@ -4396,13 +4396,10 @@ async def _provision_opennebula_vm(order_id: str):
         "lxd_instance_name": order["vm_name"],
         "source": "opennebula-marketplace",
         "template_id": order["opennebula_template_id"],
-        "internal_ip": "10.0.6." + str(50 + (hash(order_id) % 200)),
         "netbird_ip": netbird_ip,
         "netbird_peer_id": netbird_peer_id,
         "netbird_dns_label": netbird_dns_label,
-        "tunnel_hostname": tunnel_hostname,
         "html5_access_url": expose_url,
-        # connection_url is what WorkspacesPage uses to render the HTML5 button
         "connection_url": expose_url,
         "has_tsplus": True,
         "tsplus_licenses": order["tsplus_users"],
@@ -4444,7 +4441,6 @@ async def _provision_opennebula_vm(order_id: str):
             "status": "active",
             "vm_id": demo_vm["id"],
             "netbird_ip": netbird_ip,
-            "tunnel_hostname": tunnel_hostname,
             "html5_access_url": expose_url,
             "workspace_id": workspace_doc["id"],
             "updated_at": datetime.now(timezone.utc).isoformat(),

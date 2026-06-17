@@ -176,7 +176,7 @@ export default function ProvisionProgressPage() {
           setFailed(true);
           clearInterval(poll);
         }
-      } catch {}
+      } catch { /* swallow polling errors */ }
     }, 3000);
   };
 
@@ -281,21 +281,34 @@ export default function ProvisionProgressPage() {
             {vmData && (
               <div className="bg-card rounded-xl p-4 text-left text-xs font-mono space-y-1.5 border border-border max-w-md mx-auto">
                 <div className="text-teal-400 font-bold mb-2">Detalles de tu VM:</div>
-                {vmData.tunnel_hostname && (
+                {(vmData.html5_access_url || vmData.connection_url) && (
                   <div className="flex items-center gap-2">
                     <Globe className="w-3 h-3 text-cyan-400" />
-                    <span className="text-muted-foreground">URL:</span>
-                    <a href={`https://${vmData.tunnel_hostname}`} target="_blank" rel="noreferrer"
-                      className="text-cyan-400 hover:underline">
-                      https://{vmData.tunnel_hostname}
+                    <span className="text-muted-foreground">Acceso HTML5:</span>
+                    <a href={vmData.html5_access_url || vmData.connection_url} target="_blank" rel="noreferrer"
+                      className="text-cyan-400 hover:underline" data-testid="vm-html5-url">
+                      {vmData.html5_access_url || vmData.connection_url}
                     </a>
                   </div>
                 )}
                 {vmData.netbird_ip && (
                   <div className="flex items-center gap-2">
                     <Shield className="w-3 h-3 text-teal-400" />
-                    <span className="text-muted-foreground">IP Netbird:</span>
-                    <span className="text-white">{vmData.netbird_ip}</span>
+                    <span className="text-muted-foreground">IP NetBird:</span>
+                    <span className="text-white" data-testid="vm-netbird-ip">{vmData.netbird_ip}</span>
+                  </div>
+                )}
+                {vmData.netbird_dns_label && (
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-3 h-3 text-purple-400" />
+                    <span className="text-muted-foreground">DNS Mesh:</span>
+                    <span className="text-white">{vmData.netbird_dns_label}</span>
+                  </div>
+                )}
+                {vmData.name && (
+                  <div className="flex items-center gap-2 pt-1 border-t border-border/30 mt-2">
+                    <span className="text-muted-foreground">VM:</span>
+                    <span className="text-white">{vmData.name}</span>
                   </div>
                 )}
               </div>

@@ -162,7 +162,8 @@ def _build_cloud_init(username: str = "", password: str = "", ssh_key: str = "",
         packages.append("ca-certificates")
         runcmd.append("curl -fsSL https://pkgs.netbird.io/install.sh | sh")
         if netbird_setup_key:
-            runcmd.append(f"netbird up --setup-key {netbird_setup_key} --management-url https://manager.kappa4.com")
+            # NetBird Cloud uses default management URL (api.netbird.io)
+            runcmd.append(f"netbird up --setup-key {netbird_setup_key}")
 
     if "docker" in addons:
         runcmd.append("curl -fsSL https://get.docker.com | sh")
