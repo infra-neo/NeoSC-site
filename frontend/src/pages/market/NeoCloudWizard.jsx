@@ -10,8 +10,8 @@ import axios from 'axios';
 import {
   ArrowRight, ArrowLeft, CheckCircle2, Loader2, Cpu, MemoryStick, HardDrive,
   Shield, Lock, ChevronRight, CreditCard, Users, Crown, Star, Sparkles,
-  Server, Monitor, Building2, User, Mail, KeyRound, AppWindow, Smartphone,
-  Printer, Layers, Zap, Calendar, MapPin, Globe
+  Server, Monitor, Building2, User, Mail, KeyRound, AlertCircle,
+  Zap, MapPin
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -102,48 +102,35 @@ const PLAN_TIERS = [
   },
 ];
 
-// ─── TSplus License Editions ────────────────────────────────────────────────
-const TSPLUS_EDITIONS = [
-  {
-    id: 'system',
-    name: 'System Edition',
-    desc: 'Acceso RDP web básico, sin impresión universal',
-    icon: AppWindow,
-    color: 'amber',
-    features: ['HTML5 RemoteApp', 'Acceso RDP', 'Hasta 5 usuarios'],
-  },
-  {
-    id: 'printer',
-    name: 'Printer Edition',
-    desc: 'Incluye Universal Printer para imprimir desde cualquier dispositivo',
-    icon: Printer,
-    color: 'cyan',
-    features: ['Todo de System', 'Universal Printer', 'Driver-less printing'],
-  },
-  {
-    id: 'mobile-web',
-    name: 'Mobile Web Edition',
-    desc: 'Cliente HTML5 optimizado para móviles + tablet',
-    icon: Smartphone,
-    color: 'teal',
-    features: ['Todo de Printer', 'HTML5 móvil avanzado', 'Touch gestures'],
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise Edition',
-    desc: 'Farm + Load Balancing + Gateway Portal',
-    icon: Layers,
-    color: 'purple',
-    features: ['Todo de Mobile Web', 'Farm Manager', 'Load Balancing', 'Gateway Portal'],
-  },
+// ─── TSplus License Options (single product: Remote Enterprise Access, 14-day trial) ────
+const TSPLUS_LICENSE_OPTIONS = [
+  { value: 3,    label: '3 usuarios',  description: 'Equipos muy pequeños' },
+  { value: 5,    label: '5 usuarios',  description: 'Equipos pequeños' },
+  { value: 10,   label: '10 usuarios', description: 'Equipos medianos' },
+  { value: 15,   label: '15 usuarios', description: 'Equipos en crecimiento' },
+  { value: 25,   label: '25 usuarios', description: 'Equipos grandes' },
+  { value: 9999, label: 'Ilimitada',   description: 'Sin límite de usuarios' },
+];
+
+// ─── VM Resource Combos (CPU/RAM/Disk + allowed user counts) ───────────────
+// Rules:
+//   2 vCPU /  4 GB ·  50 GB disk → only 3 users (basic)
+//   4 vCPU /  8 GB ·  50 GB disk → 3, 5 users
+//   8 vCPU / 16 GB · 100 GB disk → 3, 5, 10, 15 users
+//  16 vCPU / 32 GB · 100 GB disk → any (3-unlimited)
+const VM_COMBOS = [
+  { id: 'xs',  cpu: 2,  ram: 4,  disk: 50,  allowed: [3],                        label: 'XS · Básico',     desc: '2 vCPU · 4 GB RAM · 50 GB SSD' },
+  { id: 's',   cpu: 4,  ram: 8,  disk: 50,  allowed: [3, 5],                     label: 'S · Pequeño',     desc: '4 vCPU · 8 GB RAM · 50 GB SSD' },
+  { id: 'm',   cpu: 8,  ram: 16, disk: 100, allowed: [3, 5, 10, 15],             label: 'M · Mediano',     desc: '8 vCPU · 16 GB RAM · 100 GB SSD' },
+  { id: 'l',   cpu: 16, ram: 32, disk: 100, allowed: [3, 5, 10, 15, 25, 9999],   label: 'L · Grande',      desc: '16 vCPU · 32 GB RAM · 100 GB SSD' },
 ];
 
 // ─── Windows OS Options ─────────────────────────────────────────────────────
 const WINDOWS_OS = [
-  { id: 'win-server-2022', name: 'Windows Server 2022', desc: 'Recomendado — última versión LTS', recommended: true },
-  { id: 'win-server-2019', name: 'Windows Server 2019', desc: 'Estable y ampliamente compatible' },
-  { id: 'win-11-pro', name: 'Windows 11 Pro (VDI)', desc: 'Para escritorios virtuales individuales' },
-  { id: 'win-10-ltsc', name: 'Windows 10 LTSC', desc: 'Soporte extendido sin actualizaciones forzadas' },
+  { id: 'win-server-2025', name: 'Windows Server 2025', desc: 'Última versión LTS — recomendado', recommended: true },
+  { id: 'win-server-2022', name: 'Windows Server 2022', desc: 'Estable y ampliamente compatible' },
+  { id: 'win-11',          name: 'Windows 11 Pro VDI',  desc: 'Para escritorios individuales' },
+  { id: 'win-10',          name: 'Windows 10 LTSC',     desc: 'Soporte extendido sin updates forzados' },
 ];
 
 // ─── Wizard Steps ───────────────────────────────────────────────────────────
@@ -166,14 +153,11 @@ export default function NeoCloudWizard() {
     // Step 0: Plan tier
     planId: 'business',
     billing: 'monthly',
-    // Step 1: TSplus
-    licenseId: 'printer',
+    // Step 1: TSplus (only license count — product is always "Remote Enterprise Access")
     tsplusUsers: 10,
-    // Step 2: Infra
-    osId: 'win-server-2022',
-    cpu: 6,
-    ram: 16,
-    disk: 200,
+    // Step 2: Infra (VM combo + OS)
+    vmComboId: 'm',
+    osId: 'win-server-2025',
     region: 'mx-central-1',
     // Step 3: Admin
     adminName: user?.name || '',
@@ -188,33 +172,46 @@ export default function NeoCloudWizard() {
   });
 
   const plan = useMemo(() => PLAN_TIERS.find(p => p.id === config.planId), [config.planId]);
-  const license = useMemo(() => TSPLUS_EDITIONS.find(l => l.id === config.licenseId), [config.licenseId]);
+  const vmCombo = useMemo(() => VM_COMBOS.find(v => v.id === config.vmComboId), [config.vmComboId]);
   const os = useMemo(() => WINDOWS_OS.find(o => o.id === config.osId), [config.osId]);
+  // Allowed VM combos for the currently selected number of users
+  const allowedCombos = useMemo(
+    () => VM_COMBOS.filter(v => v.allowed.includes(config.tsplusUsers)),
+    [config.tsplusUsers]
+  );
 
   // Price calc
   const basePrice = config.billing === 'yearly' ? plan.yearlyPrice : plan.price;
   const extraUsers = Math.max(0, config.tsplusUsers - plan.users.default);
-  const extraUserPrice = extraUsers * 12; // $12/extra user
+  const extraUserPrice = extraUsers * 12; // $12/extra user (after trial)
   const totalMonthly = basePrice + extraUserPrice;
 
   // ─── Step picker logic ─────────────────────────────────────────────────────
   const pickPlan = (planId) => {
     const p = PLAN_TIERS.find(x => x.id === planId);
+    // Pick a sensible VM combo for the plan's default user count
+    const fallbackCombo = VM_COMBOS.find(v => v.allowed.includes(p.users.default))?.id || 'm';
     setConfig(c => ({
       ...c,
       planId,
       tsplusUsers: p.users.default,
-      cpu: p.vm.cpu,
-      ram: p.vm.ram,
-      disk: p.vm.disk,
-      licenseId: p.license,
+      vmComboId: fallbackCombo,
     }));
+  };
+
+  // Auto-correct VM combo if current selection is no longer valid for the chosen users
+  const onChangeUsers = (newUsers) => {
+    setConfig(c => {
+      const currentValid = VM_COMBOS.find(v => v.id === c.vmComboId)?.allowed.includes(newUsers);
+      const newCombo = currentValid ? c.vmComboId : VM_COMBOS.find(v => v.allowed.includes(newUsers))?.id || 'l';
+      return { ...c, tsplusUsers: newUsers, vmComboId: newCombo };
+    });
   };
 
   const canNext = () => {
     if (step === 0) return !!config.planId;
-    if (step === 1) return config.tsplusUsers >= plan.users.min && config.tsplusUsers <= plan.users.max && !!config.licenseId;
-    if (step === 2) return !!config.osId && config.cpu > 0 && config.ram > 0;
+    if (step === 1) return TSPLUS_LICENSE_OPTIONS.some(o => o.value === config.tsplusUsers);
+    if (step === 2) return !!config.osId && !!vmCombo && vmCombo.allowed.includes(config.tsplusUsers);
     if (step === 3) {
       if (isAuthenticated) return !!config.companyName;
       return config.adminName && config.adminEmail && config.adminPassword?.length >= 8 && config.companyName;
@@ -230,36 +227,23 @@ export default function NeoCloudWizard() {
     await new Promise(r => setTimeout(r, 1500));
     try {
       const headers = isAuthenticated ? getAuthHeader() : {};
+      // Use OpenCloud Marketplace instantiate endpoint (real OpenNebula + NetBird polling)
       const payload = {
-        // Plan
-        neosc_plan: config.planId,
-        billing_period: config.billing,
-        // TSplus
-        tsplus_license_edition: config.licenseId,
+        vm_name: undefined, // backend autogenerates NEOSC-VDI-XXXX
+        cpu: vmCombo.cpu,
+        memory: vmCombo.ram * 1024,  // backend expects MB
         tsplus_users: config.tsplusUsers,
-        tsplus_company_name: config.companyName,
-        // Infra (OpenNebula)
-        opennebula_template: plan.template,
-        opennebula_service_id: plan.serviceId,
-        vm_os: config.osId,
-        vcpu: config.cpu,
-        ram_gb: config.ram,
-        disk_gb: config.disk,
-        region: config.region,
-        // Admin user
-        admin_name: config.adminName,
+        company_name: config.companyName,
         admin_email: config.adminEmail,
-        admin_password: config.adminPassword,
-        // Mocked payment
-        payment_method: 'card_simulated',
-        payment_last4: config.cardNumber.replace(/\s/g, '').slice(-4),
-        total_price: totalMonthly,
-        // Legacy fields used by provision flow
-        workspace_type: 'windows-desktop',
-        addons: [],
+        admin_name: config.adminName,
+        billing_period: config.billing,
       };
-      const res = await axios.post(`${API}/market/orders`, payload, { headers });
-      toast.success('Pago simulado aprobado. Iniciando provisión...');
+      const res = await axios.post(
+        `${API}/market/templates/${plan.serviceId === 84 ? 12 : (plan.serviceId === 92 ? 16 : 14)}/instantiate`,
+        payload,
+        { headers }
+      );
+      toast.success('Pago simulado aprobado. Iniciando provisión real en OpenNebula...');
       navigate(`/market/progress?order_id=${res.data.order_id}`);
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Error creando la orden');
@@ -424,100 +408,149 @@ export default function NeoCloudWizard() {
           </div>
         )}
 
-        {/* ─── STEP 1: TSPLUS LICENSE + USERS ─────────────────────────────── */}
+        {/* ─── STEP 1: TSPLUS — Remote Enterprise Access (single product, 14-day trial) ── */}
         {step === 1 && (
-          <div className="space-y-8 max-w-4xl mx-auto" data-testid="step-tsplus">
+          <div className="space-y-6 max-w-3xl mx-auto" data-testid="step-tsplus">
             <div className="text-center">
               <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 mb-3">Paso 2 de 6</Badge>
-              <h2 className="text-3xl font-bold">Configura TSplus</h2>
+              <h2 className="text-3xl font-bold">Licencias TSplus</h2>
               <p className="text-muted-foreground text-sm mt-2">
-                Elige la edición de TSplus y cuántos usuarios concurrentes necesitas.
+                Selecciona la cantidad de usuarios concurrentes. Las primeras <strong className="text-cyan-400">14 días son de prueba gratuita</strong>.
               </p>
             </div>
 
-            {/* Edition picker */}
-            <div className="grid md:grid-cols-2 gap-3">
-              {TSPLUS_EDITIONS.map(e => {
-                const Icon = e.icon;
-                const selected = config.licenseId === e.id;
-                return (
-                  <button
-                    key={e.id}
-                    onClick={() => setConfig(c => ({ ...c, licenseId: e.id }))}
-                    className={`rounded-xl border p-4 text-left transition-all ${
-                      selected ? `border-${e.color}-500 bg-${e.color}-500/5 ring-1 ring-${e.color}-500/30` : 'border-border hover:bg-muted/20'
-                    }`}
-                    data-testid={`license-${e.id}`}
-                  >
-                    <div className="flex items-start gap-3 mb-2">
-                      <div className={`w-10 h-10 rounded-lg bg-${e.color}-500/10 flex items-center justify-center flex-shrink-0`}>
-                        <Icon className={`w-5 h-5 text-${e.color}-400`} />
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-sm">{e.name}</div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{e.desc}</p>
-                      </div>
-                      {selected && <CheckCircle2 className={`w-4 h-4 text-${e.color}-400 flex-shrink-0`} />}
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {e.features.map((f, i) => (
-                        <Badge key={i} variant="outline" className="text-[9px] px-1.5 py-0">{f}</Badge>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
+            {/* Product banner */}
+            <div className="rounded-2xl border-2 border-cyan-500/40 bg-gradient-to-br from-cyan-500/10 to-purple-500/10 p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center flex-shrink-0">
+                  <Crown className="w-7 h-7 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <h3 className="text-lg font-black">TSplus Remote Enterprise Access</h3>
+                    <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/40 text-[10px]">
+                      14 días gratis
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Acceso HTML5, Universal Printer, Farm Manager, Load Balancing y Gateway Portal incluidos.
+                    Después del periodo de prueba se activa la suscripción con tu número de licencias o se cancela el servicio.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {['HTML5 RemoteApp', 'Universal Printer', 'Farm Manager', 'Load Balancing', 'Gateway Portal', 'Mobile Web'].map((f, i) => (
+                      <Badge key={i} variant="outline" className="text-[9px] px-1.5 py-0">{f}</Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* User slider */}
-            <div className="rounded-xl border border-border bg-card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <Label className="text-sm font-bold flex items-center gap-2">
-                    <Users className="w-4 h-4 text-cyan-400" /> Usuarios concurrentes TSplus
-                  </Label>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Plan {plan.name}: incluye {plan.users.default} usuarios, máx {plan.users.max}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <div className="text-3xl font-black text-cyan-400" data-testid="users-count">{config.tsplusUsers}</div>
-                  <div className="text-[10px] text-muted-foreground">usuarios</div>
-                </div>
+            {/* License count picker — fixed options ONLY */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Label className="text-sm font-bold flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4 text-cyan-400" /> Cantidad de licencias
+              </Label>
+              <p className="text-[11px] text-muted-foreground mb-4">
+                Solo se permiten estas cantidades. La elección define qué tamaños de VM están disponibles en el siguiente paso.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+                {TSPLUS_LICENSE_OPTIONS.map(opt => {
+                  const selected = config.tsplusUsers === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => onChangeUsers(opt.value)}
+                      className={`rounded-xl border p-3 text-left transition-all relative ${
+                        selected
+                          ? 'border-cyan-500 bg-cyan-500/10 ring-2 ring-cyan-500/30'
+                          : 'border-border hover:bg-muted/20'
+                      }`}
+                      data-testid={`license-count-${opt.value}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl font-black">{opt.value === 9999 ? '∞' : opt.value}</span>
+                        {selected && <CheckCircle2 className="w-5 h-5 text-cyan-400" />}
+                      </div>
+                      <div className="text-xs font-bold mt-1">{opt.label}</div>
+                      <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+                    </button>
+                  );
+                })}
               </div>
-              <input
-                type="range"
-                min={plan.users.min}
-                max={plan.users.max}
-                value={config.tsplusUsers}
-                onChange={e => setConfig(c => ({ ...c, tsplusUsers: parseInt(e.target.value) }))}
-                className="w-full accent-cyan-500"
-                data-testid="users-slider"
-              />
-              <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                <span>{plan.users.min} mín</span>
-                <span>{plan.users.max} máx</span>
+            </div>
+
+            {/* Trial info */}
+            <div className="rounded-lg bg-amber-500/5 border border-amber-500/30 px-4 py-3 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="text-amber-300">
+                <strong>Modelo de cobro:</strong> 14 días de prueba gratuita. Después se activa el cargo mensual según las licencias elegidas, o el servicio se cancela automáticamente.
               </div>
-              {extraUsers > 0 && (
-                <div className="mt-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs flex items-center justify-between">
-                  <span className="text-amber-400">+{extraUsers} usuarios extra</span>
-                  <span className="font-bold text-amber-400">+${extraUserPrice}/mes</span>
-                </div>
-              )}
             </div>
           </div>
         )}
 
-        {/* ─── STEP 2: INFRASTRUCTURE ─────────────────────────────────────── */}
+        {/* ─── STEP 2: INFRASTRUCTURE (VM combo + OS) ─────────────────────── */}
         {step === 2 && (
           <div className="space-y-6 max-w-4xl mx-auto" data-testid="step-infra">
             <div className="text-center">
               <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 mb-3">Paso 3 de 6</Badge>
-              <h2 className="text-3xl font-bold">Personaliza la infraestructura</h2>
+              <h2 className="text-3xl font-bold">Infraestructura de la VM</h2>
               <p className="text-muted-foreground text-sm mt-2">
-                Tu VM se desplegará en <strong className="text-cyan-400">OpenNebula</strong> con la plantilla{' '}
-                <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">{plan.template}</code> (Service ID {plan.serviceId}).
+                Para <strong className="text-cyan-400">{config.tsplusUsers === 9999 ? 'usuarios ilimitados' : `${config.tsplusUsers} usuarios`}</strong> solo se permiten estas combinaciones:
               </p>
+            </div>
+
+            {/* VM Combo picker */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Label className="text-sm font-bold flex items-center gap-2 mb-3">
+                <Server className="w-4 h-4 text-cyan-400" /> Tamaño de la VM
+              </Label>
+              <div className="grid md:grid-cols-2 gap-3">
+                {VM_COMBOS.map(combo => {
+                  const isAllowed = combo.allowed.includes(config.tsplusUsers);
+                  const selected = config.vmComboId === combo.id;
+                  return (
+                    <button
+                      key={combo.id}
+                      onClick={() => isAllowed && setConfig(c => ({ ...c, vmComboId: combo.id }))}
+                      disabled={!isAllowed}
+                      className={`rounded-xl border p-4 text-left transition-all relative ${
+                        !isAllowed
+                          ? 'border-border/30 bg-muted/10 opacity-40 cursor-not-allowed'
+                          : selected
+                          ? 'border-cyan-500 bg-cyan-500/5 ring-2 ring-cyan-500/30'
+                          : 'border-border hover:bg-muted/20'
+                      }`}
+                      data-testid={`vm-combo-${combo.id}`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <div className="font-bold text-sm">{combo.label}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">{combo.desc}</div>
+                        </div>
+                        {selected && <CheckCircle2 className="w-5 h-5 text-cyan-400 flex-shrink-0" />}
+                        {!isAllowed && <Lock className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground mt-2 pt-2 border-t border-border/30">
+                        <div className="flex items-center gap-1"><Cpu className="w-3 h-3 text-cyan-400" /> {combo.cpu} vCPU</div>
+                        <div className="flex items-center gap-1"><MemoryStick className="w-3 h-3 text-purple-400" /> {combo.ram} GB</div>
+                        <div className="flex items-center gap-1"><HardDrive className="w-3 h-3 text-amber-400" /> {combo.disk} GB SSD</div>
+                      </div>
+                      {!isAllowed && (
+                        <div className="mt-2 text-[10px] text-amber-400">
+                          No disponible para {config.tsplusUsers === 9999 ? 'usuarios ilimitados' : `${config.tsplusUsers} usuarios`}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {allowedCombos.length === 0 && (
+                <div className="mt-3 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">
+                  <AlertCircle className="w-3.5 h-3.5 inline mr-1" />
+                  No hay combinaciones válidas. Vuelve al paso anterior y ajusta el número de licencias.
+                </div>
+              )}
             </div>
 
             {/* OS Selection */}
@@ -545,63 +578,6 @@ export default function NeoCloudWizard() {
                     </button>
                   );
                 })}
-              </div>
-            </div>
-
-            {/* Resources */}
-            <div className="rounded-xl border border-border bg-card p-5 space-y-5">
-              <Label className="text-sm font-bold flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-cyan-400" /> Recursos de la VM
-              </Label>
-              <div className="grid md:grid-cols-3 gap-4">
-                <div>
-                  <Label className="text-xs flex items-center gap-1 mb-2">
-                    <Cpu className="w-3 h-3 text-cyan-400" /> CPU: {config.cpu} vCPU
-                  </Label>
-                  <input
-                    type="range" min={plan.vm.cpu} max={plan.vm.cpu * 2} step={2}
-                    value={config.cpu}
-                    onChange={e => setConfig(c => ({ ...c, cpu: parseInt(e.target.value) }))}
-                    className="w-full accent-cyan-500"
-                    data-testid="slider-cpu"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>{plan.vm.cpu}</span>
-                    <span>{plan.vm.cpu * 2}</span>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs flex items-center gap-1 mb-2">
-                    <MemoryStick className="w-3 h-3 text-purple-400" /> RAM: {config.ram} GB
-                  </Label>
-                  <input
-                    type="range" min={plan.vm.ram} max={plan.vm.ram * 2} step={4}
-                    value={config.ram}
-                    onChange={e => setConfig(c => ({ ...c, ram: parseInt(e.target.value) }))}
-                    className="w-full accent-purple-500"
-                    data-testid="slider-ram"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>{plan.vm.ram} GB</span>
-                    <span>{plan.vm.ram * 2} GB</span>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs flex items-center gap-1 mb-2">
-                    <HardDrive className="w-3 h-3 text-amber-400" /> Disco: {config.disk} GB
-                  </Label>
-                  <input
-                    type="range" min={plan.vm.disk} max={plan.vm.disk * 2} step={50}
-                    value={config.disk}
-                    onChange={e => setConfig(c => ({ ...c, disk: parseInt(e.target.value) }))}
-                    className="w-full accent-amber-500"
-                    data-testid="slider-disk"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>{plan.vm.disk} GB</span>
-                    <span>{plan.vm.disk * 2} GB</span>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -804,8 +780,8 @@ export default function NeoCloudWizard() {
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-400">
                   <Users className="w-4 h-4" /> TSplus
                 </div>
-                <div className="text-2xl font-black">{config.tsplusUsers} usuarios</div>
-                <div className="text-xs text-muted-foreground">{license?.name}</div>
+                <div className="text-2xl font-black">{config.tsplusUsers === 9999 ? 'Ilimitada' : `${config.tsplusUsers} usuarios`}</div>
+                <div className="text-xs text-muted-foreground">Remote Enterprise Access · 14 días gratis</div>
               </div>
 
               {/* Infra card */}
@@ -815,7 +791,7 @@ export default function NeoCloudWizard() {
                 </div>
                 <div className="text-sm font-bold">{os?.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {config.cpu} vCPU · {config.ram} GB RAM · {config.disk} GB SSD · {config.region}
+                  {vmCombo?.cpu} vCPU · {vmCombo?.ram} GB RAM · {vmCombo?.disk} GB SSD · {config.region}
                 </div>
               </div>
 

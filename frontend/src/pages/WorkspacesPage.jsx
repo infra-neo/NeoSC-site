@@ -126,8 +126,11 @@ export default function WorkspacesPage() {
                   <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/20">
                     <div className={`w-2.5 h-2.5 rounded-full ${statusColor(vm.status)} shadow-lg`} />
                     <div className="flex-1 min-w-0">
-                      <span className="font-bold text-sm">{vm.lxd_instance_name}</span>
-                      <span className="text-muted-foreground text-xs ml-2 hidden sm:inline">· {vm.tunnel_hostname}</span>
+                      <span className="font-bold text-sm">{vm.lxd_instance_name || vm.name}</span>
+                      {vm.netbird_ip && <span className="text-cyan-400 text-xs ml-2 font-mono">{vm.netbird_ip}</span>}
+                      {vm.html5_access_url && (
+                        <span className="text-muted-foreground text-xs ml-2 hidden md:inline truncate">· {vm.html5_access_url.replace(/^https?:\/\//, '')}</span>
+                      )}
                     </div>
                     {vm.order && <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-xs">{vm.order.neosc_plan}</Badge>}
                     {getConnectionButton(vm)}
@@ -138,11 +141,12 @@ export default function WorkspacesPage() {
                       </Button>
                     )}
                   </div>
-                  <div className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                  <div className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
                     <div><span className="text-muted-foreground">CPU</span><div className="font-medium">{vm.vcpu} vCPU</div></div>
                     <div><span className="text-muted-foreground">RAM</span><div className="font-medium">{vm.ram_gb} GB</div></div>
                     <div><span className="text-muted-foreground">Disco</span><div className="font-medium">{vm.disk_gb} GB</div></div>
                     <div><span className="text-muted-foreground">TSplus</span><div className="font-medium">{vm.tsplus_licenses} licencias</div></div>
+                    <div><span className="text-muted-foreground">NeoMesh</span><div className="font-medium font-mono text-[11px]">{vm.netbird_ip || '—'}</div></div>
                   </div>
                 </div>
               ))}

@@ -4159,7 +4159,9 @@ async def market_instantiate_template(
 
     cpu = body.cpu or tpl["cpu"]
     memory_mb = body.memory or tpl["memory"]
-    vm_name = (body.vm_name or "").strip() or f"vm-{tpl['tier']}-{uuid.uuid4().hex[:6]}"
+    # NEOSC-VDI-XXXX naming convention matches NetBird peer-name pattern used by the customer
+    default_name = f"NEOSC-VDI-{uuid.uuid4().hex[:4].upper()}"
+    vm_name = (body.vm_name or "").strip() or default_name
     tsplus_users = body.tsplus_users or tpl["tsplus_users"]["default"]
     billing = body.billing_period or "monthly"
     price = tpl["price_yearly"] if billing == "yearly" else tpl["price_monthly"]
@@ -4324,54 +4326,86 @@ async def _provision_opennebula_vm(order_id: str):
     await asyncio.sleep(1.5)
     await _step("tsplus_configure", "success", "✓ HTML5 portal en :443 y Universal Printer listos")
 
-    # 8) netbird_configure — try to read IP from cloud peer list
-    await _step("netbird_configure", "running", "Configurando ACLs + buscando IP del peer...")
+    # 8) netbird_configure — POLL real peer registration to get the actual mesh IP
+    await _step("netbird_configure", "running",
+                f"Esperando registro del peer '{order['vm_name']}' en NetBird Cloud (puede tardar ~30-60s)...")
     netbird_ip = None
+    netbird_peer_id = None
+    netbird_dns_label = None
+    peer_attempts = 0
     if setup_key:
-        # Give the agent some time to register (this is a simulation — in real flow we'd poll)
-        await asyncio.sleep(2)
-        peer_res = await netbird_cloud_client.find_peer_by_hostname(order["vm_name"])
-        if peer_res.get("ok"):
-            netbird_ip = peer_res.get("netbird_ip")
+        # Real polling: list /api/peers every 4s, look for the VM name match
+        poll_res = await netbird_cloud_client.poll_peer_until_registered(
+            vm_name=order["vm_name"],
+            max_attempts=20,   # 20 * 4s = 80s max
+            delay_s=4,
+        )
+        peer_attempts = poll_res.get("attempts", 0)
+        if poll_res.get("ok"):
+            netbird_ip = poll_res.get("netbird_ip")
+            netbird_peer_id = poll_res.get("peer_id")
+            netbird_dns_label = poll_res.get("dns_label")
     if not netbird_ip:
-        # Fallback synthetic IP for demo (when peer hasn't registered yet)
+        # Fallback synthetic IP if peer never registers (demo continues)
         import random
         netbird_ip = f"100.92.{random.randint(10, 250)}.{random.randint(10, 250)}"
-    await db.market_orders.update_one({"id": order_id}, {"$set": {"netbird_ip": netbird_ip}})
-    await _step("netbird_configure", "success", f"✓ Mesh IP asignada: {netbird_ip}")
+        await _step("netbird_configure", "success",
+                    f"⚠ Peer no detectado tras {peer_attempts} intentos. Mesh IP simulada: {netbird_ip}")
+    else:
+        await _step("netbird_configure", "success",
+                    f"✓ Peer registrado en {peer_attempts} intento(s). Mesh IP real: {netbird_ip} (dns: {netbird_dns_label})")
+    await db.market_orders.update_one({"id": order_id}, {"$set": {
+        "netbird_ip": netbird_ip,
+        "netbird_peer_id": netbird_peer_id,
+        "netbird_dns_label": netbird_dns_label,
+    }})
 
     # 9) zitadel_provision
     await _step("zitadel_provision", "running", "Creando organización NeoGuard y usuario admin SSO...")
     await asyncio.sleep(1.5)
     await _step("zitadel_provision", "success", "✓ Organización creada en NeoGuard")
 
-    # 10) dns_create
+    # 10) dns_create — use NetBird expose service URL as primary access URL
+    expose_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
     tunnel_hostname = f"{order['vm_name']}.desk.kappa4.com"
-    await db.market_orders.update_one({"id": order_id}, {"$set": {"tunnel_hostname": tunnel_hostname}})
-    await _step("dns_create", "running", f"Creando registro DNS {tunnel_hostname}...")
+    await db.market_orders.update_one({"id": order_id}, {"$set": {
+        "tunnel_hostname": tunnel_hostname,
+        "html5_access_url": expose_url,
+    }})
+    await _step("dns_create", "running",
+                f"Configurando proxy NetBird ({expose_url}) → {netbird_ip}...")
     await asyncio.sleep(1)
-    await _step("dns_create", "success", f"✓ {tunnel_hostname} -> {netbird_ip}")
+    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → http://{netbird_ip}")
 
     # 11) email_welcome
     await _step("email_welcome", "running", f"Enviando email a {order.get('admin_email')}...")
     await asyncio.sleep(0.8)
-    await _step("email_welcome", "success", "✓ Credenciales enviadas")
+    await _step("email_welcome", "success", f"✓ Credenciales y URL ({expose_url}) enviadas")
 
     # 12) complete
-    await _step("complete", "success", "✓ Workspace listo. Accede vía https://" + tunnel_hostname)
+    await _step("complete", "success", f"✓ Workspace listo. Accede vía {expose_url}")
 
-    # Mark order as active + insert VM record
+    # Mark order as active + insert VM record (linked to workspace for /workspaces UI)
     demo_vm = {
         "id": f"vm-{order_id[:8]}",
         "order_id": order_id,
         "tenant_id": order.get("tenant_id"),
+        "user_id": order.get("user_id"),
         "status": "running",
         "name": order["vm_name"],
+        "lxd_instance_name": order["vm_name"],
+        "source": "opennebula-marketplace",
         "template_id": order["opennebula_template_id"],
         "internal_ip": "10.0.6." + str(50 + (hash(order_id) % 200)),
         "netbird_ip": netbird_ip,
+        "netbird_peer_id": netbird_peer_id,
+        "netbird_dns_label": netbird_dns_label,
         "tunnel_hostname": tunnel_hostname,
+        "html5_access_url": expose_url,
+        # connection_url is what WorkspacesPage uses to render the HTML5 button
+        "connection_url": expose_url,
         "has_tsplus": True,
+        "tsplus_licenses": order["tsplus_users"],
         "tsplus_users": order["tsplus_users"],
         "vcpu": order["vcpu"],
         "ram_gb": order["ram_gb"],
@@ -4379,6 +4413,31 @@ async def _provision_opennebula_vm(order_id: str):
         "provisioned_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.market_vms.insert_one(demo_vm)
+
+    # Also create a Workspace entry so it appears in /workspaces
+    workspace_doc = {
+        "id": f"ws-vdi-{order_id[:8]}",
+        "tenant_id": order.get("tenant_id"),
+        "user_id": order.get("user_id"),
+        "name": order["vm_name"],
+        "description": f"TSplus VDI · {order.get('tsplus_users')} usuarios · {order.get('opennebula_template_name')}",
+        "type": "vdi-tsplus",
+        "status": "running",
+        "image": "windows-server-2025",
+        "host_url": expose_url,
+        "html5_url": expose_url,
+        "netbird_ip": netbird_ip,
+        "netbird_dns_label": netbird_dns_label,
+        "rdp_username": "Administrator",
+        "rdp_password": order.get("tsplus_admin_password"),
+        "vm_id": demo_vm["id"],
+        "order_id": order_id,
+        "requires_netbird": True,
+        "is_vdi_marketplace": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.workspaces.insert_one(workspace_doc)
+
     await db.market_orders.update_one(
         {"id": order_id},
         {"$set": {
@@ -4386,6 +4445,8 @@ async def _provision_opennebula_vm(order_id: str):
             "vm_id": demo_vm["id"],
             "netbird_ip": netbird_ip,
             "tunnel_hostname": tunnel_hostname,
+            "html5_access_url": expose_url,
+            "workspace_id": workspace_doc["id"],
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }}
     )

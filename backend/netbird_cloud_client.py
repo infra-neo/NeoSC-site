@@ -68,7 +68,7 @@ class NetBirdCloudClient:
             return {"ok": False, "error": str(e)[:200]}
 
     async def find_peer_by_hostname(self, hostname: str) -> dict:
-        """Locate a registered peer by hostname (the VM name). Returns its mesh IP."""
+        """Locate a registered peer by hostname or name. Returns its mesh IP."""
         res = await self.list_peers()
         if not res.get("ok"):
             return res
@@ -76,6 +76,33 @@ class NetBirdCloudClient:
             if p.get("hostname") == hostname or p.get("name") == hostname:
                 return {"ok": True, "peer": p, "netbird_ip": p.get("ip")}
         return {"ok": False, "error": f"peer not found: {hostname}"}
+
+    async def poll_peer_until_registered(self, vm_name: str,
+                                          max_attempts: int = 30,
+                                          delay_s: int = 4) -> dict:
+        """
+        Poll NetBird until a peer matching `vm_name` (by .name) shows up.
+        Returns {ok, netbird_ip, peer, attempts}.
+        """
+        import asyncio as _aio
+        for attempt in range(1, max_attempts + 1):
+            res = await self.list_peers()
+            if res.get("ok"):
+                for p in res.get("peers", []):
+                    name = (p.get("name") or "").lower()
+                    hostname = (p.get("hostname") or "").lower()
+                    target = vm_name.lower()
+                    if name == target or hostname == target or target in name:
+                        return {
+                            "ok": True,
+                            "netbird_ip": p.get("ip"),
+                            "peer": p,
+                            "peer_id": p.get("id"),
+                            "dns_label": p.get("dns_label"),
+                            "attempts": attempt,
+                        }
+            await _aio.sleep(delay_s)
+        return {"ok": False, "error": f"peer '{vm_name}' not registered after {max_attempts} attempts", "attempts": max_attempts}
 
     async def create_group(self, name: str) -> dict:
         if not self.configured:

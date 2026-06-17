@@ -1,0 +1,47 @@
+{
+  "summary": "NeoCloud Wizard iter-17 simplification — 6/6 backend pytest pass + 100% frontend assertions pass. Step 2 (TSplus) now shows ONLY the single 'TSplus Remote Enterprise Access' product card with '14 días gratis' badge — the old 4 edition cards are gone. The 6 license-count buttons (3/5/10/15/25/9999) render with correct testids. Step 3 (Infraestructura) shows exactly 4 VM-combo cards (xs/s/m/l) with allow-rule enforcement: with 3 users all 4 are clickable; with 10 users XS+S are disabled (Lock icon visible), M+L enabled; with 25 users only L is enabled. The 4 OS cards (win-server-2025 with 'Recomendado' badge, win-server-2022, win-11, win-10) render, and the old slider-cpu/slider-ram/slider-disk testids are completely removed. Backend: POST /api/market/templates/14/instantiate without vm_name auto-generates NEOSC-VDI-XXXX (4 uppercase hex chars, verified by regex AND uniqueness check across two consecutive calls). After ~95-110s the order reaches status=active with netbird_ip=100.92.x.x (synthetic fallback — real peer didn't register in 80s polling window, acceptable per agent context), html5_access_url=https://vdi.eu1.netbird.services, workspace_id populated, and a corresponding entry in /api/market/my-vms with source='opennebula-marketplace' and connection_url=https://vdi.eu1.netbird.services. Full happy-path UI flow (Business tier → 10 users → M combo → Win Server 2025 → company Acme QA → card 4242 4242 4242 4242 → confirm-and-pay) successfully redirects to /market/progress?order_id=... and the 12-step progress bar runs live (captured 'Paso 8/12: Configurando red Zero Trust...' at 58%). /workspaces page renders the new VM cards under the 'WINDOWS VDI (TSPLUS)' section with NEOSC-VDI-XXXX names, NetBird IP in font-mono (100.92.x.x), 'vdi.eu1.netbird.services' text, and the HTML5 button with data-testid=open-html5-vm-<id>.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/market/templates/{id}/instantiate", "issue": "End-to-end provisioning now takes 95-110s due to the new NetBird poll_peer_until_registered (max 20 attempts × 4s). When the real peer never registers, code falls back to a synthetic 100.92.x.x IP. Acceptable per the review-request agent-context, but consider exposing the polling-timeout knob via env var so demos that don't have a real agent installed can be tuned down to ~30s."},
+      {"endpoint": "POST /api/market/templates/{id}/instantiate", "issue": "Synthetic netbird_ip uses random.randint(10,250) for octets 3 and 4 — observed collision is possible across multiple demo orders (5 VMs all in 100.92.x.x range in /workspaces, two different orders share the same /16). Not blocking but flagged in iter-16 too."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/market/neocloud Step 3", "issues": ["Lock icon on disabled vm-combo cards is shown but the disabled state's text contrast drops below WCAG-AA on the dark background (opacity ~40%). Consider adding a 'No disponible para X usuarios' tooltip on hover to make the constraint explicit."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_neocloud_wizard_iter17.py",
+    "/app/test_reports/pytest/neocloud_iter17.xml"
+  ],
+  "action_items": [
+    "NONE blocking. All iter-17 requirements verified.",
+    "OPTIONAL: Expose NetBird polling timeout via env (NETBIRD_POLL_MAX_ATTEMPTS / NETBIRD_POLL_INTERVAL) so demo provisioning doesn't always wait 80s for a peer that won't appear.",
+    "OPTIONAL: Replace random IP allocator with a monotonic counter or pull next-free /24 from NetBird inventory to avoid demo collisions.",
+    "OPTIONAL: Add hover tooltip 'No disponible para X usuarios' on disabled vm-combo cards so the constraint is self-explanatory without reading the helper text."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~5210 lines — the marketplace block (~4115-4450) plus _provision_opennebula_vm + market_vms helpers should move into /app/backend/routers/marketplace.py. Same comment as iter-16, still pending.",
+    "_provision_opennebula_vm now blocks an event-loop task for ~95-110s (sequential await asyncio.sleep + 80s NetBird poll). At 10+ concurrent demo orders this will saturate the loop. Move to a background queue or fire-and-forget worker.",
+    "NeoCloudWizard.jsx (874 lines) is approaching the 700-line ceiling — extract STEPS configuration arrays (PLAN_TIERS, TSPLUS_LICENSE_OPTIONS, VM_COMBOS, WINDOWS_OS) into /pages/market/neocloud/constants.js and the 6 step bodies into separate components.",
+    "html5_access_url is hardcoded fallback string 'https://vdi.eu1.netbird.services' both in env and in code. If env var is unset, code still defaults to the same string — consider failing fast instead so misconfigured tenants don't silently route to the prod URL.",
+    "MarketInstantiateRequest still accepts admin_password and tsplus_admin_password fields but stores them plaintext on the order doc (flagged in iter-16). Pending."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_neocloud_wizard_iter17.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 pytest passed in 100.28s)",
+    "frontend": "100% (Step 1 TSplus banner+licenses, Step 2 VM-combo allow-rules for 3/10/25 users, OS options with Recomendado badge, sliders removed, full happy-path to /market/progress with live 12-step bar, /workspaces shows NEOSC-VDI cards with HTML5 buttons + netbird_ip + html5_access_url)"
+  },
+  "test_credentials": "admin@windesk.cloud / Admin123! via /login bypass card (Platform Admin tile)",
+  "seed_data_creation": "Created 3 market_orders via pytest (auto-named NEOSC-VDI-XXXX, all reached status=active), 1 market_order via UI (Acme QA Corp / NEOSC-VDI-XXXX from Business tier + 10 users + M combo + Win Server 2025). /workspaces lists 5 NEOSC-VDI-* cards from iter-17 testing.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter-17 wizard simplification fully verified. Routes & testids: /market/neocloud (NeoCloudWizard) → step-plan/tier-{free,business,enterprise} → btn-next → step-tsplus + license-count-{3,5,10,15,25,9999} → btn-next → step-infra + vm-combo-{xs,s,m,l} + os-{win-server-2025,win-server-2022,win-11,win-10} + region-select → btn-next → step-admin + input-company (+ input-admin-name/email/password if unauth) → btn-next → step-payment + input-card-{name,number,expiry,cvc} → btn-next → step-confirm + confirm-and-pay → navigates to /market/progress?order_id=<uuid>. Progress page shows 'Paso X/12' counter + 6-slide carousel (NeoMesh, HTML5, etc). /workspaces page shows 'WINDOWS VDI (TSPLUS)' section with cards listing NEOSC-VDI-XXXX + netbird_ip (font-mono) + html5_access_url + HTML5 button (data-testid=open-html5-vm-<id>). Backend pipeline ~95-110s end-to-end (added NetBird polling 80s + provisioning 15-30s). Pre-existing items: server.py >5000 lines split, plaintext tsplus_admin_password, NETBIRD_DEFAULT_EXPOSE_URL silent fallback.",
+  "rca of the issue": "N/A — no functional bugs. Synthetic netbird_ip + 'sim-<8hex>' vm_id fallback are documented acceptable behavior per the review-request agent-to-agent context."
+}
