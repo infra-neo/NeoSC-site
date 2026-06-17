@@ -8,6 +8,16 @@ React 19 + FastAPI + MongoDB + Tailwind + Shadcn/UI + framer-motion + sonner. JW
 
 ## What's Implemented
 
+### Phase 18 — Wizard Simplification + Real NetBird Polling + Workspace Integration (Feb 2026) ✅
+- **Step 2 TSplus simplificado**: removidas las 4 ediciones (System/Printer/Mobile Web/Enterprise). Único producto: "TSplus Remote Enterprise Access" con badge "14 días gratis". Licencias fijas: 3 / 5 / 10 / 15 / 25 / ∞ (no se permite otro valor).
+- **Step 3 Infraestructura — 4 combos VM con allow-rules**: XS(2vCPU/4GB/50GB)→[3], S(4/8/50)→[3,5], M(8/16/100)→[3,5,10,15], L(16/32/100)→[cualquier]. Combos inválidos se muestran disabled con Lock. Removidos los sliders de CPU/RAM/Disk.
+- **OS options**: Windows Server 2025 (recomendado), 2022, Win 11 Pro VDI, Win 10 LTSC.
+- **VM naming `NEOSC-VDI-XXXX`** (matching NetBird peer pattern del cliente).
+- **NetBird Cloud polling real**: `poll_peer_until_registered` (20 attempts × 4s = 80s max). Si el peer registra, usa la IP real + dns_label de api.netbird.io. Si no, fallback sintético 100.92.x.x.
+- **`html5_access_url`** poblado desde env `NETBIRD_DEFAULT_EXPOSE_URL=https://vdi.eu1.netbird.services`. Insertado en `market_vms.connection_url` y en `workspaces.html5_url`.
+- **WorkspacesPage** actualizado: muestra NEOSC-VDI-XXXX, NetBird IP en font-mono, URL HTML5, columna NeoMesh, botón HTML5 abre la URL real.
+- Testing iter-17: 6/6 backend pytest + 100% frontend assertions.
+
 ### Phase 17 — OpenCloud Marketplace + OpenNebula + NetBird Cloud (Feb 2026) ✅
 - **NeoMarket redesigned** as OpenCloud-style catalog (mirrors http://149.56.241.64:3000/marketplace.html). 3 gradient cards (GOLD/STD/POWER) with specs + tags + "Instanciar" button.
 - **`/app/backend/opennebula_client.py`** — wrapper REST client (`POST /api/vm/instantiate {templateId, vmName, cpu, memory}`) with TEMPLATE_CATALOG (templateId 14/12/16, Service ID 9) and `health()` check.
