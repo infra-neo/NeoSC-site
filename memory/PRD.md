@@ -8,6 +8,16 @@ React 19 + FastAPI + MongoDB + Tailwind + Shadcn/UI + framer-motion + sonner. JW
 
 ## What's Implemented
 
+### Phase 17 — OpenCloud Marketplace + OpenNebula + NetBird Cloud (Feb 2026) ✅
+- **NeoMarket redesigned** as OpenCloud-style catalog (mirrors http://149.56.241.64:3000/marketplace.html). 3 gradient cards (GOLD/STD/POWER) with specs + tags + "Instanciar" button.
+- **`/app/backend/opennebula_client.py`** — wrapper REST client (`POST /api/vm/instantiate {templateId, vmName, cpu, memory}`) with TEMPLATE_CATALOG (templateId 14/12/16, Service ID 9) and `health()` check.
+- **`/app/backend/netbird_cloud_client.py`** — NetBird Cloud client (api.netbird.io) — `create_setup_key`, `find_peer_by_hostname`.
+- **New endpoints**: `GET /api/market/templates` (public), `POST /api/market/templates/{id}/instantiate` (auth).
+- **Real provisioning pipeline `_provision_opennebula_vm`** orchestrates 12 steps: payment → setup-key (real NetBird Cloud call) → OpenNebula instantiate (real wrapper call) → bootstrap → TSplus → NeoMesh agent → HTML5 → DNS → email → complete. Falls back to synthetic IP/vmId if upstream doesn't return them.
+- **`NeoCloudWizard.jsx`** refactored as 6-step TSplus wizard (Plan/TSplus/Infra/Admin/Pago simulado/Confirmar) routed at `/market/neocloud` for guided flow.
+- Env vars added: `OPENNEBULA_API_URL`, `OPENNEBULA_SUNSTONE_URL`, `OPENNEBULA_TOKEN`, `NETBIRD_CLOUD_URL`, `NETBIRD_CLOUD_TOKEN`.
+- Testing iter-16: 8/8 backend pytest + 4/4 frontend flows pass.
+
 ### Phase 16 — Multi-Tenant Real + LXD Trust Fix (May 2026) ✅
 - **LXD trust re-established** via join token exchange (`POST /1.0/certificates {trust_token, type, name}`). Switched `LXD_PROJECT=default`. Backend now reports `auth=trusted`, instances list real (juju-c27595-0, silver-2, etc).
 - **Tenants collection** with `Tenant` Pydantic model (id, name, slug, zitadel_org_id, plan, status, branding, fresh_mode).
