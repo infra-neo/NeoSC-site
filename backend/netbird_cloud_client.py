@@ -1,0 +1,95 @@
+"""
+NetBird Cloud client (app.netbird.io / api.netbird.io)
+Used to create setup-keys for new VMs so the in-VM agent can auto-register
+and obtain a NetBird mesh IP.
+
+Env vars:
+  NETBIRD_CLOUD_URL   = https://api.netbird.io
+  NETBIRD_CLOUD_TOKEN = nbp_xxxxxxxxxxxx  (Personal Access Token)
+"""
+import os
+import logging
+import httpx
+
+logger = logging.getLogger("netbird_cloud")
+
+
+class NetBirdCloudClient:
+    def __init__(self):
+        self.url = os.environ.get("NETBIRD_CLOUD_URL", "https://api.netbird.io").rstrip("/")
+        self.token = os.environ.get("NETBIRD_CLOUD_TOKEN", "")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.token)
+
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Token {self.token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+    async def create_setup_key(self, name: str, group_ids: list = None,
+                                expires_in_days: int = 7, ephemeral: bool = False) -> dict:
+        """Create a one-time setup key for a new peer to auto-register."""
+        if not self.configured:
+            return {"ok": False, "error": "NETBIRD_CLOUD_TOKEN not configured"}
+        body = {
+            "name": name,
+            "type": "reusable" if not ephemeral else "one-off",
+            "expires_in": expires_in_days * 86400,
+            "revoked": False,
+            "auto_groups": group_ids or [],
+            "usage_limit": 0 if not ephemeral else 1,
+            "ephemeral": ephemeral,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.post(f"{self.url}/api/setup-keys", headers=self._headers(), json=body)
+                if r.status_code >= 400:
+                    return {"ok": False, "status_code": r.status_code, "error": r.text[:300]}
+                data = r.json()
+                return {"ok": True, "key": data.get("key"), "id": data.get("id"), "data": data}
+        except Exception as e:
+            logger.error(f"create_setup_key error: {e}")
+            return {"ok": False, "error": str(e)[:200]}
+
+    async def list_peers(self) -> dict:
+        if not self.configured:
+            return {"ok": False, "error": "not configured"}
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(f"{self.url}/api/peers", headers=self._headers())
+                if r.status_code >= 400:
+                    return {"ok": False, "status_code": r.status_code, "error": r.text[:300]}
+                return {"ok": True, "peers": r.json()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+    async def find_peer_by_hostname(self, hostname: str) -> dict:
+        """Locate a registered peer by hostname (the VM name). Returns its mesh IP."""
+        res = await self.list_peers()
+        if not res.get("ok"):
+            return res
+        for p in res.get("peers", []):
+            if p.get("hostname") == hostname or p.get("name") == hostname:
+                return {"ok": True, "peer": p, "netbird_ip": p.get("ip")}
+        return {"ok": False, "error": f"peer not found: {hostname}"}
+
+    async def create_group(self, name: str) -> dict:
+        if not self.configured:
+            return {"ok": False, "error": "not configured"}
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.post(f"{self.url}/api/groups", headers=self._headers(),
+                                  json={"name": name})
+                if r.status_code >= 400:
+                    return {"ok": False, "status_code": r.status_code, "error": r.text[:300]}
+                d = r.json()
+                return {"ok": True, "id": d.get("id"), "data": d}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+
+netbird_cloud_client = NetBirdCloudClient()

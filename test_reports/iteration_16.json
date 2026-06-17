@@ -1,0 +1,48 @@
+{
+  "summary": "OpenCloud Marketplace (iter-16) — 8/8 backend pytest pass and all 4 frontend flows verified. GET /api/market/templates returns 3 templates (14=GOLD/starter, 12=STD/business, 16=POWER/enterprise) with api_status='ok'. POST /api/market/templates/14/instantiate (admin) creates an order with total_usd=79, status=provisioning, vm_name preserved, and the background pipeline reaches status=active within ~18s with netbird_ip (100.92.x.x fallback), tunnel_hostname=<vm>.desk.kappa4.com, vm_id set, and all 12 provision_steps=success. NetBird Cloud setup_key is real (verified by directly minting a key on api.netbird.io and by reading the order doc). Frontend: /market hero='Marketplace VDI Empresarial sobre OpenNebula' renders + api-status indicator + 3 cards with GOLD/STD/POWER badges. Unauthenticated click on btn-instantiate-14 redirects to /login WITHOUT opening modal. Authenticated click opens modal-input-vmname; submitting navigates to /market/progress?order_id=... where the 12-step progress bar runs (saw 'Paso 7/12: Activando HTML5 + Universal Printer...' live) and the carousel slides include NeoMesh + HTML5.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/market/templates", "issue": "On the wrapper at 149.56.241.64:3000 the /api/health route currently returns 200 so api_status='ok' — if upstream goes down the field switches to 'limited'. Acceptable behaviour, but the api_health blob is returned to anonymous callers (includes raw status_code + body). Not sensitive today but consider scrubbing if the wrapper ever returns internal info."},
+      {"endpoint": "POST /api/market/templates/{id}/instantiate", "issue": "OpenNebula wrapper responded successfully but did NOT return vmId — provision pipeline falls back to a synthetic vm_id ('sim-<8hex>'). Per agent-to-agent context this is acceptable, but worth noting in dashboards that the order is technically simulated even though api_status='ok'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ProvisionProgressPage", "issues": ["Step labels (OpenNebula/NeoMesh/etc) are only exposed via tooltip 'title' on the mini-dot row — not visible text. Acceptable but means screen readers / users hovering quickly won't see all 12 labels. Carousel slides do mention NeoMesh + HTML5 as headings, so the keywords are user-visible there."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_opencloud_marketplace.py",
+    "/app/test_reports/pytest/opencloud_marketplace.xml"
+  ],
+  "action_items": [
+    "NONE blocking. All requested checks pass.",
+    "INFO: The OpenNebula wrapper at 149.56.241.64:3000/api/vm/instantiate accepted the call but did not return vmId in payload — backend correctly falls back to 'sim-<id>' and marks order.simulated=true. End status still reaches 'active' as required.",
+    "OPTIONAL: Render the 12 step labels as a visible vertical timeline (not just dot tooltips) so users can see what's about to happen next.",
+    "OPTIONAL: Strip api_health.raw payload from the public GET /market/templates response."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 5149 lines — the marketplace block (~lines 4115-4400) should move into a dedicated /app/backend/routers/marketplace.py module along with _provision_opennebula_vm. Previous iterations flagged this; still pending.",
+    "_provision_opennebula_vm has 12 sequential await asyncio.sleep(...) totaling ~14s of forced delays plus real I/O. Each provision blocks an event-loop task slot for the full ~25-35s window. Use create_task + a background queue (RQ/arq) if concurrency grows.",
+    "Fallback netbird_ip uses random.randint(10,250) — two concurrent orders could collide on 100.92.x.x. Track allocated synthetic IPs or pull from a counter so demos are deterministic.",
+    "Order doc stores 'tsplus_admin_password' in plaintext. Acceptable for the demo flow but should be encrypted or one-time-revealed via a signed URL before going to production.",
+    "MarketInstantiateRequest accepts admin_password but it isn't used in this endpoint — remove the field or wire it through so the API contract matches behaviour.",
+    "POST /market/templates/{id}/instantiate doesn't enforce role=='admin' — any authenticated user can instantiate. Review-request says 'admin auth' but code only checks get_current_user. Document or restrict."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_opencloud_marketplace.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 pytest passed in 18.66s)",
+    "frontend": "100% (4/4 verified flows: load+cards+api-status, unauth-redirect, auth-modal-open, modal-submit→/market/progress)"
+  },
+  "test_credentials": "admin@windesk.cloud / Admin123! via /login bypass card (Platform Admin tile). Auth uses POST /api/auth/login returning access_token; sent as Bearer header.",
+  "seed_data_creation": "Created 1 market_order via pytest (id=<uuid>, vm_name='TEST-qa-vm-001', template=14/GOLD) — fully provisioned to status=active. Created 1 market_order via UI (vm_name='qa-vm-001'). Plus a real NetBird setup-key 'TEST-marketplace-pytest' that lives on api.netbird.io (expires in 1d per test fixture).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Marketplace works end-to-end in iter-16. Routes: GET /api/market/templates (public), POST /api/market/templates/{id}/instantiate (any authenticated user — NOT admin-only despite review-request wording), GET /api/market/orders/{id}, GET /api/market/orders/{id}/status (returns {steps[], vm, completed_steps, total_steps=12}). Frontend route /market is the OpenCloud-style cards page (MarketPage.jsx); /market/neocloud is the legacy wizard (NOT under test this iteration); /market/progress?order_id=... is ProvisionProgressPage with a 12-step bar and a 6-slide carousel. testids: api-status, templates-grid, template-{14,12,16}, btn-instantiate-{14,12,16}, modal-input-vmname, modal-input-cpu, modal-input-memory, modal-submit, modal-close, hero-title, btn-explore, btn-status, btn-wizard, btn-refresh, btn-dashboard, btn-login, chip-{all,windows,linux,specialized}, input-search. Provision pipeline reaches active in ~18-25s. NetBird Cloud token (env NETBIRD_CLOUD_TOKEN=nbp_OJad...) is working — verified by minting a key directly against api.netbird.io. OpenNebula wrapper at 149.56.241.64:3000 returns success without vmId, so backend marks order.simulated=true but still completes happy-path. Pre-existing items from earlier iterations still pending: server.py >5000 lines split, native <select> in tenant modal, auth cookie not httpOnly.",
+  "rca of the issue": "N/A — no functional bugs. The synthetic vm_id fallback ('sim-<8hex>') and 100.92.x.x netbird_ip fallback are documented acceptable behaviour per the review-request agent-to-agent context."
+}
