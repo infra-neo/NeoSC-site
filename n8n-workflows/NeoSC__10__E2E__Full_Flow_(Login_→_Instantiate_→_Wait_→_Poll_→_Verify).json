@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "d50b9297-8f4d-406f-bcdf-519da07fd91f",
+      "id": "53dd6820-4cc3-4fc9-97c2-f8e7a8bff593",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,25 +17,25 @@
         "assignments": {
           "assignments": [
             {
-              "id": "8915825f-5548-48a1-870f-85f1f9b22288",
+              "id": "e63b90f1-93fe-4afc-bbd9-4c364ebba5b1",
               "name": "api",
               "value": "https://action-steps-4.preview.emergentagent.com/api",
               "type": "string"
             },
             {
-              "id": "057e954b-5da0-45f8-9e6a-b1de2a47e730",
+              "id": "91e1ca6e-ae84-4c3f-bf11-11f000aeb302",
               "name": "email",
               "value": "admin@windesk.cloud",
               "type": "string"
             },
             {
-              "id": "224d4148-0ca7-415d-963b-be2a36c98d63",
+              "id": "292c24e7-37fd-4832-8190-66b3dd95cd59",
               "name": "password",
               "value": "Admin123!",
               "type": "string"
             },
             {
-              "id": "a12cc65a-4cc6-4dcc-88e0-63f7928ba609",
+              "id": "510286c8-8e7b-45f6-9eef-6bad6fdfec7d",
               "name": "template_id",
               "value": "14",
               "type": "string"
@@ -44,7 +44,7 @@
         },
         "options": {}
       },
-      "id": "ded66048-75fb-408b-9983-b8ead7df96d5",
+      "id": "8b132381-4519-48e1-8034-72535af180ce",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -59,7 +59,7 @@
         "url": "={{ $json.api }}/auth/login",
         "sendQuery": false,
         "sendHeaders": false,
-        "sendBody": false,
+        "sendBody": true,
         "options": {
           "response": {
             "response": {
@@ -68,9 +68,22 @@
             }
           }
         },
-        "jsonBody": "={\n  \"email\": $json.email,\n  \"password\": $json.password\n}"
+        "bodyContentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $json.password }}"
+            }
+          ]
+        }
       },
-      "id": "516703dd-cbcd-40e6-8e8c-0d2d59284e25",
+      "id": "fbfb651d-e5db-4088-b92c-eec1e15f9a1d",
       "name": "1. Login",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -85,7 +98,7 @@
         "url": "={{ $('Config').first().json.api }}/market/templates/{{ $('Config').first().json.template_id }}/instantiate",
         "sendQuery": false,
         "sendHeaders": true,
-        "sendBody": false,
+        "sendBody": true,
         "options": {
           "response": {
             "response": {
@@ -102,9 +115,26 @@
             }
           ]
         },
-        "jsonBody": "={\n  \"cpu\": 4,\n  \"memory\": 8192,\n  \"tsplus_users\": 3\n}"
+        "bodyContentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "cpu",
+              "value": 4
+            },
+            {
+              "name": "memory",
+              "value": 8192
+            },
+            {
+              "name": "tsplus_users",
+              "value": 3
+            }
+          ]
+        }
       },
-      "id": "4b292ffc-7fa7-4c30-8a74-5d033b4d8d81",
+      "id": "2d07bbd7-f097-4694-8426-ca046a7c4df1",
       "name": "2. Instantiate",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -118,7 +148,7 @@
         "amount": 120,
         "unit": "seconds"
       },
-      "id": "282dbe87-1785-48d2-aca1-9b5d3552fc5e",
+      "id": "6f70170d-ae8b-4e65-bd12-3269f1c53d8f",
       "name": "3. Wait 120s for provisioning",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
@@ -126,7 +156,7 @@
         1120,
         300
       ],
-      "webhookId": "84f757eb-99e6-4428-a7d6-181a98b02d96"
+      "webhookId": "895de8a2-8e26-4930-808f-cdb47e065168"
     },
     {
       "parameters": {
@@ -152,7 +182,7 @@
           ]
         }
       },
-      "id": "1c0bda74-c52e-4bcd-9ae2-0484ea2825c5",
+      "id": "4d6e2549-ef5a-48d3-ac52-e08355e0dc39",
       "name": "4. Poll Status",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -165,7 +195,7 @@
       "parameters": {
         "jsCode": "\nconst o = $('2. Instantiate').first().json;\nconst s = $input.first().json;\nconst vm = s.vm || {};\nreturn [{ json: {\n  status: s.order_status,\n  order_id: o.order_id,\n  vm_name: vm.name,\n  netbird_ip: vm.netbird_ip,\n  html5_url: vm.html5_access_url,\n  template_used: o.template && o.template.name,\n  total_steps: `${s.completed_steps}/${s.total_steps}`,\n  e2e_ok: s.order_status === 'active' && !!vm.netbird_ip && !!vm.html5_access_url,\n}}];\n"
       },
-      "id": "af05718c-fd01-4c26-bdb9-130a91178180",
+      "id": "ecef592a-431f-4090-9ded-9a6289f4bcb8",
       "name": "5. E2E Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

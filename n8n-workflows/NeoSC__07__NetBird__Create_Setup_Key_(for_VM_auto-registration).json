@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "9c49cb3d-5b00-4899-8e49-8419ed770be4",
+      "id": "2b117aca-7484-4a54-b916-ec6ebb4d77df",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,7 +17,7 @@
         "assignments": {
           "assignments": [
             {
-              "id": "978ed0e0-cb07-4d7b-9434-8851e4dd1eff",
+              "id": "b55697ff-5fde-474c-a222-825188f6efa9",
               "name": "key_name",
               "value": "n8n-test-key",
               "type": "string"
@@ -26,7 +26,7 @@
         },
         "options": {}
       },
-      "id": "79b9be5b-c715-4b56-b117-d9405a04922a",
+      "id": "98749329-d240-4734-aead-f3f39f7006fb",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -41,7 +41,7 @@
         "url": "https://api.netbird.io/api/setup-keys",
         "sendQuery": false,
         "sendHeaders": true,
-        "sendBody": false,
+        "sendBody": true,
         "options": {
           "response": {
             "response": {
@@ -58,9 +58,38 @@
             }
           ]
         },
-        "jsonBody": "={\n  \"name\": $json.key_name,\n  \"type\": \"reusable\",\n  \"expires_in\": 86400,\n  \"revoked\": false,\n  \"usage_limit\": 0,\n  \"ephemeral\": false\n}"
+        "bodyContentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.key_name }}"
+            },
+            {
+              "name": "type",
+              "value": "reusable"
+            },
+            {
+              "name": "expires_in",
+              "value": 86400
+            },
+            {
+              "name": "revoked",
+              "value": false
+            },
+            {
+              "name": "usage_limit",
+              "value": 0
+            },
+            {
+              "name": "ephemeral",
+              "value": false
+            }
+          ]
+        }
       },
-      "id": "c7ffb95a-bbc0-4fea-9724-4d14502a4a23",
+      "id": "19c4f78d-520e-4966-a3d9-0c1f680f5d2e",
       "name": "Create Setup Key",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -73,7 +102,7 @@
       "parameters": {
         "jsCode": "\nconst d = $input.first().json;\nreturn [{ json: {\n  setup_key_id: d.id, key: d.key, name: d.name,\n  expires_at: d.expires, valid: d.valid, type: d.type,\n  install_cmd: `netbird up --setup-key ${d.key}`,\n}}];\n"
       },
-      "id": "32fc04b8-c512-400a-a71c-4637aca94a63",
+      "id": "0a44390d-34e2-49b5-8948-7a7ed0cbdd1d",
       "name": "Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

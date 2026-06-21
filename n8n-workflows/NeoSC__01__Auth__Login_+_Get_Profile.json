@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "33b8c842-8789-48c1-92ca-018176953948",
+      "id": "41fba878-c6b1-47ac-bc17-d09298f367c5",
       "name": "▶ Click to run",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,19 +17,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "054a57a3-c290-4f98-b41d-33df42a26d6e",
+              "id": "14635eab-73db-4f74-90c8-e2ffe1eb8f9d",
               "name": "api",
               "value": "https://action-steps-4.preview.emergentagent.com/api",
               "type": "string"
             },
             {
-              "id": "d5d1701a-459b-4ba5-afaf-55ebdd376ef2",
+              "id": "52ba9e54-7fa8-4cd0-aeee-d58c4684788e",
               "name": "email",
               "value": "admin@windesk.cloud",
               "type": "string"
             },
             {
-              "id": "143c842d-7d87-4214-a291-9f1827c725d1",
+              "id": "3345148a-7d55-4efb-ac51-004519486dca",
               "name": "password",
               "value": "Admin123!",
               "type": "string"
@@ -38,7 +38,7 @@
         },
         "options": {}
       },
-      "id": "78b7ae78-f01b-40f1-9e28-b95b46f419bf",
+      "id": "af717831-28be-4815-b3e2-0c83270072dd",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -50,7 +50,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{$json.api}}/auth/login",
+        "url": "={{ $json.api }}/auth/login",
         "sendQuery": false,
         "sendHeaders": false,
         "sendBody": true,
@@ -63,10 +63,21 @@
           }
         },
         "bodyContentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"email\": $json.email,\n  \"password\": $json.password\n}"
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $json.password }}"
+            }
+          ]
+        }
       },
-      "id": "25549261-7cae-438f-ab2e-eb977e8b58ec",
+      "id": "b61c16e5-2ec3-49b0-b87c-7fdb9fea2dd3",
       "name": "Login (POST /auth/login)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -99,7 +110,7 @@
           ]
         }
       },
-      "id": "88873ae4-50e6-466f-b811-746036c56626",
+      "id": "3392bf96-525f-4992-8d7c-718aede12171",
       "name": "Get my profile (GET /auth/me)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

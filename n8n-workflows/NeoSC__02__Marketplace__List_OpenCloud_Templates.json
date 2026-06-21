@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "71e1adfe-fc5c-4535-9ee4-c6dd493e9cab",
+      "id": "f532d54f-c2a3-46d0-83d1-88cc68c4007a",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -28,7 +28,7 @@
           }
         }
       },
-      "id": "30419b81-7145-4ea9-80e2-9a3eb2c3bbc4",
+      "id": "519e0cf3-f192-44c6-a888-3bfdd0197d52",
       "name": "List Templates (GET /market/templates)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -41,7 +41,7 @@
       "parameters": {
         "jsCode": "\nconst data = $input.first().json;\nconst templates = (data.templates || []).map(t => ({\n  templateId: t.templateId,\n  name: t.name,\n  badge: t.badge,\n  tier: t.tier,\n  cpu: t.cpu,\n  ram_mb: t.memory,\n  disk_gb: t.disk,\n  os: t.os,\n  service_id: t.service_id,\n  price_monthly: t.price_monthly,\n  tsplus_default_users: t.tsplus_users && t.tsplus_users.default,\n}));\nreturn [{ json: { api_status: data.api_status, count: templates.length, templates } }];\n"
       },
-      "id": "fd942a76-ef05-4868-8b19-a91246686e8e",
+      "id": "7bfdb102-50c6-4620-8d2c-b52cf5d49ab8",
       "name": "Summarize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

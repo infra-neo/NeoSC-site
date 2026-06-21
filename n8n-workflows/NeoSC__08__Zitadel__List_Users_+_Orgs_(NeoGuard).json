@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "a209f9f2-b5ae-4efb-85bf-f1f5edb4cbf7",
+      "id": "f3906491-624f-47a8-9b3d-6ea9c3adf8f6",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -36,10 +36,21 @@
           ]
         },
         "bodyContentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "{\"queries\": [], \"limit\": 50}"
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "queries",
+              "value": []
+            },
+            {
+              "name": "limit",
+              "value": 50
+            }
+          ]
+        }
       },
-      "id": "a91586c6-6ee1-46f7-8c7c-ade2de64a972",
+      "id": "ad181cbb-3f1e-4591-a0b2-a4039672b75e",
       "name": "List Users (POST /v2/users)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -72,10 +83,21 @@
           ]
         },
         "bodyContentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "{\"queries\": [], \"limit\": 50}"
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "queries",
+              "value": []
+            },
+            {
+              "name": "limit",
+              "value": 50
+            }
+          ]
+        }
       },
-      "id": "b915e55a-59b0-4e4c-94b3-c9d15d93b79f",
+      "id": "80c1611f-f34c-4968-aa42-6154da70f1e9",
       "name": "List Orgs (POST /v2/organizations/_search)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -88,7 +110,7 @@
       "parameters": {
         "jsCode": "\n// Use referenced inputs to combine two parallel calls\nconst u = $('List Users (POST /v2/users)').first().json;\nconst o = $('List Orgs (POST /v2/organizations/_search)').first().json;\nreturn [{ json: {\n  users_total: u.details && u.details.totalResult,\n  orgs_total: o.details && o.details.totalResult,\n  sample_users: (u.result || []).slice(0,5).map(x => ({\n    id: x.userId, email: x.human && x.human.email && x.human.email.email,\n    name: x.human && x.human.profile && x.human.profile.displayName, state: x.state\n  })),\n  orgs: (o.result || []).map(x => ({id: x.id, name: x.name, primaryDomain: x.primaryDomain})),\n}}];\n"
       },
-      "id": "9b7c7600-e705-4a2d-b35a-6cec8a257650",
+      "id": "d8df26ab-0703-443a-b128-b578ae80a251",
       "name": "Merge users + orgs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

@@ -83,8 +83,16 @@ def http_node(name, method, url, *, body=None, headers=None, query=None, x=680, 
         }
     if body:
         params["bodyContentType"] = "json"
-        params["specifyBody"] = "json"
-        params["jsonBody"] = body if isinstance(body, str) else json.dumps(body)
+        if isinstance(body, dict):
+            # Use n8n keypair body — each field supports expressions natively
+            params["specifyBody"] = "keypair"
+            params["bodyParameters"] = {
+                "parameters": [{"name": k, "value": v} for k, v in body.items()]
+            }
+        else:
+            # Raw JSON string (no expressions in body)
+            params["specifyBody"] = "json"
+            params["jsonBody"] = body
     return {
         "parameters": params,
         "id": uid(),
@@ -132,11 +140,9 @@ def wf_1_auth_login():
         {"name": "password", "value": ADMIN_PASS},
     ], 460)
     login = http_node("Login (POST /auth/login)", "POST",
-                      "={{$json.api}}/auth/login",
-                      body='={"email": $json.email, "password": $json.password}',
+                      "={{ $json.api }}/auth/login",
+                      body={"email": "={{ $json.email }}", "password": "={{ $json.password }}"},
                       x=680)
-    # Use expression body
-    login["parameters"]["jsonBody"] = '={\n  "email": $json.email,\n  "password": $json.password\n}'
     me = http_node("Get my profile (GET /auth/me)", "GET",
                    "={{ $('Config').first().json.api }}/auth/me",
                    headers={"Authorization": "=Bearer {{ $json.access_token }}"},
@@ -188,17 +194,20 @@ def wf_3_marketplace_instantiate():
         {"name": "tsplus_users", "value": "3"},
     ], 460)
     login = http_node("Login", "POST",
-                      "={{ $json.api }}/auth/login", x=680)
-    login["parameters"]["jsonBody"] = '={\n  "email": $json.email,\n  "password": $json.password\n}'
+                      "={{ $json.api }}/auth/login",
+                      body={"email": "={{ $json.email }}", "password": "={{ $json.password }}"},
+                      x=680)
     instantiate = http_node(
         "Instantiate VM (POST /market/templates/{id}/instantiate)", "POST",
         "={{ $('Config').first().json.api }}/market/templates/{{ $('Config').first().json.template_id }}/instantiate",
         headers={"Authorization": "=Bearer {{ $json.access_token }}"},
+        body={
+            "cpu": "={{ parseInt($('Config').first().json.cpu) }}",
+            "memory": "={{ parseInt($('Config').first().json.memory_mb) }}",
+            "tsplus_users": "={{ parseInt($('Config').first().json.tsplus_users) }}",
+        },
         x=900,
     )
-    instantiate["parameters"]["jsonBody"] = ('={\n  "cpu": parseInt($("Config").first().json.cpu),\n'
-                                              '  "memory": parseInt($("Config").first().json.memory_mb),\n'
-                                              '  "tsplus_users": parseInt($("Config").first().json.tsplus_users)\n}')
     summary = js_node("Result", """
 const o = $input.first().json;
 return [{ json: {
@@ -225,8 +234,9 @@ def wf_4_provision_poll():
         {"name": "password", "value": ADMIN_PASS},
         {"name": "order_id", "value": "REPLACE_WITH_ORDER_ID"},
     ], 460)
-    login = http_node("Login", "POST", "={{ $json.api }}/auth/login", x=680)
-    login["parameters"]["jsonBody"] = '={\n  "email": $json.email,\n  "password": $json.password\n}'
+    login = http_node("Login", "POST", "={{ $json.api }}/auth/login",
+                      body={"email": "={{ $json.email }}", "password": "={{ $json.password }}"},
+                      x=680)
     status = http_node(
         "Get Order Status", "GET",
         "={{ $('Config').first().json.api }}/market/orders/{{ $('Config').first().json.order_id }}/status",
@@ -306,13 +316,15 @@ def wf_7_netbird_setupkey():
     create_key = http_node("Create Setup Key", "POST",
                             f"{NETBIRD_API}/api/setup-keys",
                             headers={"Authorization": f"Token {NETBIRD_TOKEN}"},
+                            body={
+                                "name": "={{ $json.key_name }}",
+                                "type": "reusable",
+                                "expires_in": 86400,
+                                "revoked": False,
+                                "usage_limit": 0,
+                                "ephemeral": False,
+                            },
                             x=680)
-    create_key["parameters"]["jsonBody"] = ('={\n  "name": $json.key_name,\n'
-                                             '  "type": "reusable",\n'
-                                             '  "expires_in": 86400,\n'
-                                             '  "revoked": false,\n'
-                                             '  "usage_limit": 0,\n'
-                                             '  "ephemeral": false\n}')
     summary = js_node("Result", """
 const d = $input.first().json;
 return [{ json: {
@@ -375,8 +387,9 @@ def wf_9_workspaces_list():
         {"name": "email", "value": ADMIN_EMAIL},
         {"name": "password", "value": ADMIN_PASS},
     ], 460)
-    login = http_node("Login", "POST", "={{ $json.api }}/auth/login", x=680)
-    login["parameters"]["jsonBody"] = '={\n  "email": $json.email,\n  "password": $json.password\n}'
+    login = http_node("Login", "POST", "={{ $json.api }}/auth/login",
+                      body={"email": "={{ $json.email }}", "password": "={{ $json.password }}"},
+                      x=680)
     vms = http_node("List my VMs (GET /market/my-vms)", "GET",
                     "={{ $('Config').first().json.api }}/market/my-vms",
                     headers={"Authorization": "=Bearer {{ $json.access_token }}"},
@@ -411,16 +424,17 @@ def wf_10_e2e_full_flow():
         {"name": "password", "value": ADMIN_PASS},
         {"name": "template_id", "value": "14"},
     ], 460)
-    login = http_node("1. Login", "POST", "={{ $json.api }}/auth/login", x=680)
-    login["parameters"]["jsonBody"] = '={\n  "email": $json.email,\n  "password": $json.password\n}'
+    login = http_node("1. Login", "POST", "={{ $json.api }}/auth/login",
+                      body={"email": "={{ $json.email }}", "password": "={{ $json.password }}"},
+                      x=680)
     inst = http_node(
         "2. Instantiate",
         "POST",
         "={{ $('Config').first().json.api }}/market/templates/{{ $('Config').first().json.template_id }}/instantiate",
         headers={"Authorization": "=Bearer {{ $json.access_token }}"},
+        body={"cpu": 4, "memory": 8192, "tsplus_users": 3},
         x=900,
     )
-    inst["parameters"]["jsonBody"] = '={\n  "cpu": 4,\n  "memory": 8192,\n  "tsplus_users": 3\n}'
     wait = {
         "parameters": {"amount": 120, "unit": "seconds"},
         "id": uid(), "name": "3. Wait 120s for provisioning",
@@ -517,8 +531,9 @@ def wf_12_tenants_management():
         {"name": "email", "value": ADMIN_EMAIL},
         {"name": "password", "value": ADMIN_PASS},
     ], 460)
-    login = http_node("Login", "POST", "={{ $json.api }}/auth/login", x=680)
-    login["parameters"]["jsonBody"] = '={\n  "email": $json.email,\n  "password": $json.password\n}'
+    login = http_node("Login", "POST", "={{ $json.api }}/auth/login",
+                      body={"email": "={{ $json.email }}", "password": "={{ $json.password }}"},
+                      x=680)
     my_tenant = http_node("GET /tenants/me", "GET",
                           "={{ $('Config').first().json.api }}/tenants/me",
                           headers={"Authorization": "=Bearer {{ $json.access_token }}"},

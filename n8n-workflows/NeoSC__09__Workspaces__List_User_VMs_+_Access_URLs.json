@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "e39d58b1-45fe-4bd6-9624-8c7646aa94cc",
+      "id": "497b0cd5-f01a-4662-90fe-c011c95c50ef",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,19 +17,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "099dc59c-5035-4849-862e-76d08c65844d",
+              "id": "3ba84a02-1717-49ef-b205-80776115625d",
               "name": "api",
               "value": "https://action-steps-4.preview.emergentagent.com/api",
               "type": "string"
             },
             {
-              "id": "bc1c91db-b28f-4dbc-bcf2-acecb105eb66",
+              "id": "52361afa-8994-4a5f-bcb5-3f2328304c1b",
               "name": "email",
               "value": "admin@windesk.cloud",
               "type": "string"
             },
             {
-              "id": "dcdd9e02-6493-48a5-8bbe-bb80b75a49c8",
+              "id": "9b9341da-9f98-4cc4-94a7-50bfa726abaa",
               "name": "password",
               "value": "Admin123!",
               "type": "string"
@@ -38,7 +38,7 @@
         },
         "options": {}
       },
-      "id": "8dff6492-4639-4ed2-b548-b5fb03f340f4",
+      "id": "fdca5ce0-5a72-4ccf-a459-cedd5fdca059",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -53,7 +53,7 @@
         "url": "={{ $json.api }}/auth/login",
         "sendQuery": false,
         "sendHeaders": false,
-        "sendBody": false,
+        "sendBody": true,
         "options": {
           "response": {
             "response": {
@@ -62,9 +62,22 @@
             }
           }
         },
-        "jsonBody": "={\n  \"email\": $json.email,\n  \"password\": $json.password\n}"
+        "bodyContentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $json.password }}"
+            }
+          ]
+        }
       },
-      "id": "f0b491d8-c041-47da-a2f1-9b39c8eefbdf",
+      "id": "58e5ab8a-4217-4072-bc50-09e8ab603a80",
       "name": "Login",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -97,7 +110,7 @@
           ]
         }
       },
-      "id": "e7cf6bd2-5de0-4edc-a7b9-9235d9ec565d",
+      "id": "076c2125-866f-4cfb-b293-affcbc1e2eb4",
       "name": "List my VMs (GET /market/my-vms)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -110,7 +123,7 @@
       "parameters": {
         "jsCode": "\nconst d = $input.first().json;\nconst vms = d.vms || [];\nreturn [{ json: {\n  total: vms.length,\n  vms: vms.map(v => ({\n    id: v.id, name: v.name, status: v.status,\n    source: v.source, netbird_ip: v.netbird_ip,\n    html5: v.connection_url || v.html5_access_url,\n    tsplus_licenses: v.tsplus_licenses,\n    vcpu: v.vcpu, ram_gb: v.ram_gb, disk_gb: v.disk_gb,\n  }))\n}}];\n"
       },
-      "id": "4a6007aa-7007-4643-a198-330cc1f6203b",
+      "id": "3c133138-c28c-4f4b-8291-ce2552764af9",
       "name": "VM Catalog",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

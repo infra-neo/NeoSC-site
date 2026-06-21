@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "dfd601dc-7dba-40d5-a0d6-b95d82f76c95",
+      "id": "d0927f62-b3a5-4f82-9f67-08a33a8cbbec",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -36,7 +36,7 @@
           ]
         }
       },
-      "id": "e98b3cf8-7300-4915-8066-1a85cc257f50",
+      "id": "449ad4d3-1d1e-4514-b6e8-32a2809513ca",
       "name": "List Peers (GET /api/peers)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -49,7 +49,7 @@
       "parameters": {
         "jsCode": "\nconst peers = $input.first().json;\nconst list = Array.isArray(peers) ? peers : [];\nreturn [{ json: {\n  total: list.length,\n  online: list.filter(p => p.connected).length,\n  peers: list.slice(0, 20).map(p => ({\n    name: p.name, hostname: p.hostname, ip: p.ip,\n    dns_label: p.dns_label, os: p.os, version: p.version,\n    connected: p.connected, last_login: p.last_login,\n  }))\n}}];\n"
       },
-      "id": "9e862b8e-a651-4bd2-9af1-0987dd597d42",
+      "id": "61d05e22-c1c9-48fd-8958-586f6c6cb69c",
       "name": "Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

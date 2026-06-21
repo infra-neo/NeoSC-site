@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "75b86927-a7c3-41bf-b1f2-a88f94f800d2",
+      "id": "769b2107-c51b-4f3f-8058-37be062e1ce1",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,43 +17,43 @@
         "assignments": {
           "assignments": [
             {
-              "id": "1d6c3b39-2ba6-4a39-8417-5c52eb666a0f",
+              "id": "ed191d23-4e3f-45eb-b2ae-c27347b524c5",
               "name": "api",
               "value": "https://action-steps-4.preview.emergentagent.com/api",
               "type": "string"
             },
             {
-              "id": "ee2a9e88-d8d8-4889-b25d-1d3608e2de77",
+              "id": "eef258e4-4d15-452f-a136-acea4f087a32",
               "name": "email",
               "value": "admin@windesk.cloud",
               "type": "string"
             },
             {
-              "id": "d462081a-100e-4d69-b915-794d8648da2c",
+              "id": "8a3e0e4b-b2ad-4379-9659-89198c6f5eec",
               "name": "password",
               "value": "Admin123!",
               "type": "string"
             },
             {
-              "id": "f7865d46-e71d-4299-addf-03b587594174",
+              "id": "59150401-9bf9-4137-bc9a-97783d74f098",
               "name": "template_id",
               "value": "14",
               "type": "string"
             },
             {
-              "id": "f2f76676-7f02-4d1a-88ea-bfe3d666e2b1",
+              "id": "f52c2103-d2f1-4220-b47a-dc54c6455240",
               "name": "cpu",
               "value": "4",
               "type": "string"
             },
             {
-              "id": "e041a79d-6187-4ad1-9db3-4958d5a1b3e7",
+              "id": "f9d8a334-40bf-4b98-9322-089b20152edb",
               "name": "memory_mb",
               "value": "8192",
               "type": "string"
             },
             {
-              "id": "f52ec44d-bece-41a3-b889-f42344627889",
+              "id": "59adec3d-a8fc-48c9-bf1c-e8b7ed4fae5e",
               "name": "tsplus_users",
               "value": "3",
               "type": "string"
@@ -62,7 +62,7 @@
         },
         "options": {}
       },
-      "id": "e47890a8-44bf-4511-9ad6-48f2fe4f4ada",
+      "id": "a82b6e9d-dfcb-40ea-add5-c86c7c623227",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -77,7 +77,7 @@
         "url": "={{ $json.api }}/auth/login",
         "sendQuery": false,
         "sendHeaders": false,
-        "sendBody": false,
+        "sendBody": true,
         "options": {
           "response": {
             "response": {
@@ -86,9 +86,22 @@
             }
           }
         },
-        "jsonBody": "={\n  \"email\": $json.email,\n  \"password\": $json.password\n}"
+        "bodyContentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $json.password }}"
+            }
+          ]
+        }
       },
-      "id": "29db3941-35b7-4ce0-9f5d-75c11c26103c",
+      "id": "ef0bd9fa-dbfb-4132-9a30-0930b5f43153",
       "name": "Login",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -103,7 +116,7 @@
         "url": "={{ $('Config').first().json.api }}/market/templates/{{ $('Config').first().json.template_id }}/instantiate",
         "sendQuery": false,
         "sendHeaders": true,
-        "sendBody": false,
+        "sendBody": true,
         "options": {
           "response": {
             "response": {
@@ -120,9 +133,26 @@
             }
           ]
         },
-        "jsonBody": "={\n  \"cpu\": parseInt($(\"Config\").first().json.cpu),\n  \"memory\": parseInt($(\"Config\").first().json.memory_mb),\n  \"tsplus_users\": parseInt($(\"Config\").first().json.tsplus_users)\n}"
+        "bodyContentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "cpu",
+              "value": "={{ parseInt($('Config').first().json.cpu) }}"
+            },
+            {
+              "name": "memory",
+              "value": "={{ parseInt($('Config').first().json.memory_mb) }}"
+            },
+            {
+              "name": "tsplus_users",
+              "value": "={{ parseInt($('Config').first().json.tsplus_users) }}"
+            }
+          ]
+        }
       },
-      "id": "cf7aa74e-6e26-43a3-906c-b1933314c5f0",
+      "id": "f5cd1d86-e894-4be9-ae64-0b63eac531e4",
       "name": "Instantiate VM (POST /market/templates/{id}/instantiate)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -135,7 +165,7 @@
       "parameters": {
         "jsCode": "\nconst o = $input.first().json;\nreturn [{ json: {\n  status: 'order_created',\n  order_id: o.order_id,\n  vm_name: o.vm_name,\n  template: o.template && o.template.name,\n  total_usd: o.total_usd,\n  next_step: `Poll /market/orders/${o.order_id}/status until status=active`\n}}];\n"
       },
-      "id": "9c689aca-4617-4ce3-9521-92120c9a0e7d",
+      "id": "550cbfaf-419e-4aa5-9c39-eda525ca1b09",
       "name": "Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

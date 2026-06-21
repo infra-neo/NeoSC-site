@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "2bed6c54-eb73-40c8-a0c8-cd2e450ebaa2",
+      "id": "a720278b-15eb-4775-a264-b9612787d764",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -36,7 +36,7 @@
           ]
         }
       },
-      "id": "31be7920-a01e-47cb-b677-05bc07385da6",
+      "id": "777143d5-a0b1-45f1-a912-2f2a24a2fb9f",
       "name": "OpenNebula Health (GET /api/health)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -69,10 +69,29 @@
           ]
         },
         "bodyContentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "{\"templateId\": 14, \"vmName\": \"NEOSC-VDI-N8NTEST\", \"cpu\": 4, \"memory\": 8192}"
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "templateId",
+              "value": 14
+            },
+            {
+              "name": "vmName",
+              "value": "NEOSC-VDI-N8NTEST"
+            },
+            {
+              "name": "cpu",
+              "value": 4
+            },
+            {
+              "name": "memory",
+              "value": 8192
+            }
+          ]
+        }
       },
-      "id": "6592f255-2f8d-4571-8959-c81ceec243c7",
+      "id": "053e00a0-96ee-453c-95d6-fbb097b8c5ea",
       "name": "Instantiate VM (POST /api/vm/instantiate)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
