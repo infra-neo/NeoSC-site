@@ -1,0 +1,235 @@
+{
+  "name": "NeoSC · 11 · Health Check · All 3rd-party Services",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "3a87d736-f643-410b-b089-a9800da798a4",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://action-steps-4.preview.emergentagent.com/api/health",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "83075f3b-9930-4078-9b0f-2aee0a8a01ad",
+      "name": "NeoSC Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        120
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://149.56.241.64:3000/api/health",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 9c632dc1ac0b26ab925717ba62a2b0e535476a1d1b57ecbd7b58aae84cbb9113"
+            }
+          ]
+        }
+      },
+      "id": "a46b67f6-2f63-4691-b09b-0ab21be6a4a9",
+      "name": "OpenNebula Wrapper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        260
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.netbird.io/api/users/current",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Token nbp_OJadsrm9YusgaWHrnWQpdZZydYffG811DIL9"
+            }
+          ]
+        }
+      },
+      "id": "97daa775-2ade-4c79-8961-82868277618b",
+      "name": "NetBird Cloud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://beyondcloud-nxm7ab.us1.zitadel.cloud/v2/organizations/_search",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": true,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer NsXZCNkadmuKysEBT45K88gh8urvDjjwBJCWUhLzHdIAR1qiXbz5tQnV4rniPl12vOuzXMY"
+            }
+          ]
+        },
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"queries\": [], \"limit\": 1}"
+      },
+      "id": "f4ed0136-cae0-4331-82d7-94472518d4ee",
+      "name": "Zitadel Cloud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        540
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction asResult(label, item) {\n  if (!item) return { service: label, ok: false, reason: 'no response' };\n  const j = item.json || {};\n  const code = j.statusCode || (j.error ? 0 : 200);\n  return {\n    service: label,\n    http_status: code,\n    ok: code >= 200 && code < 400,\n    details: typeof j.body === 'object' ? JSON.stringify(j.body).slice(0,200) : (j.body || '').toString().slice(0,200),\n  };\n}\nconst out = [\n  asResult('NeoSC Backend', $('NeoSC Backend').first()),\n  asResult('OpenNebula Wrapper', $('OpenNebula Wrapper').first()),\n  asResult('NetBird Cloud', $('NetBird Cloud').first()),\n  asResult('Zitadel Cloud', $('Zitadel Cloud').first()),\n];\nconst all_ok = out.every(r => r.ok);\nreturn [{ json: { timestamp: new Date().toISOString(), all_ok, services: out } }];\n"
+      },
+      "id": "460b180b-3bc4-49ee-bcaf-d1c9aa896ed5",
+      "name": "Aggregate Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        330
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "NeoSC Backend",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "OpenNebula Wrapper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "NetBird Cloud",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Zitadel Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NeoSC Backend": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenNebula Wrapper": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetBird Cloud": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zitadel Cloud": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "name": "NeoSC · 04 · Marketplace · Poll Provision Status",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7d060649-e3cc-49b7-846a-d0cec925cca9",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e936aae8-cdff-407a-a32d-fc678aea5ed4",
+              "name": "api",
+              "value": "https://action-steps-4.preview.emergentagent.com/api",
+              "type": "string"
+            },
+            {
+              "id": "4a171266-eb62-46bb-8921-d9354a0c9aa3",
+              "name": "email",
+              "value": "admin@windesk.cloud",
+              "type": "string"
+            },
+            {
+              "id": "220ad218-a85f-45b8-8048-afe74d00029c",
+              "name": "password",
+              "value": "Admin123!",
+              "type": "string"
+            },
+            {
+              "id": "712741dc-d5c3-4ae5-aabc-90f76097b199",
+              "name": "order_id",
+              "value": "REPLACE_WITH_ORDER_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3d53a978-144b-4f44-8ba9-fd018afb30e5",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api }}/auth/login",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "jsonBody": "={\n  \"email\": $json.email,\n  \"password\": $json.password\n}"
+      },
+      "id": "1ec06f20-56e4-4961-8b11-c8de196c3c41",
+      "name": "Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.api }}/market/orders/{{ $('Config').first().json.order_id }}/status",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "71fb8756-9066-4fd7-9232-fe32a74d6b9f",
+      "name": "Get Order Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $input.first().json;\nconst vm = d.vm || {};\nreturn [{ json: {\n  order_status: d.order_status,\n  completed: `${d.completed_steps}/${d.total_steps}`,\n  steps: (d.steps || []).map(s => ({step: s.step_name, status: s.status})),\n  vm_name: vm.name,\n  netbird_ip: vm.netbird_ip,\n  html5_access_url: vm.html5_access_url,\n  netbird_dns_label: vm.netbird_dns_label,\n}}];\n"
+      },
+      "id": "e6174250-1f5d-4c8d-baf0-7989998ff433",
+      "name": "Pretty Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login": {
+      "main": [
+        [
+          {
+            "node": "Get Order Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Order Status": {
+      "main": [
+        [
+          {
+            "node": "Pretty Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "name": "NeoSC · 02 · Marketplace · List OpenCloud Templates",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "71e1adfe-fc5c-4535-9ee4-c6dd493e9cab",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://action-steps-4.preview.emergentagent.com/api/market/templates",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "30419b81-7145-4ea9-80e2-9a3eb2c3bbc4",
+      "name": "List Templates (GET /market/templates)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $input.first().json;\nconst templates = (data.templates || []).map(t => ({\n  templateId: t.templateId,\n  name: t.name,\n  badge: t.badge,\n  tier: t.tier,\n  cpu: t.cpu,\n  ram_mb: t.memory,\n  disk_gb: t.disk,\n  os: t.os,\n  service_id: t.service_id,\n  price_monthly: t.price_monthly,\n  tsplus_default_users: t.tsplus_users && t.tsplus_users.default,\n}));\nreturn [{ json: { api_status: data.api_status, count: templates.length, templates } }];\n"
+      },
+      "id": "fd942a76-ef05-4868-8b19-a91246686e8e",
+      "name": "Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Templates (GET /market/templates)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Templates (GET /market/templates)": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

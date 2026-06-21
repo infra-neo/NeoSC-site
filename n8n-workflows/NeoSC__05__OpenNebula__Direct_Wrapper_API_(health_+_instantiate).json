@@ -1,0 +1,112 @@
+{
+  "name": "NeoSC · 05 · OpenNebula · Direct Wrapper API (health + instantiate)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "2bed6c54-eb73-40c8-a0c8-cd2e450ebaa2",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://149.56.241.64:3000/api/health",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 9c632dc1ac0b26ab925717ba62a2b0e535476a1d1b57ecbd7b58aae84cbb9113"
+            }
+          ]
+        }
+      },
+      "id": "31be7920-a01e-47cb-b677-05bc07385da6",
+      "name": "OpenNebula Health (GET /api/health)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://149.56.241.64:3000/api/vm/instantiate",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": true,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 9c632dc1ac0b26ab925717ba62a2b0e535476a1d1b57ecbd7b58aae84cbb9113"
+            }
+          ]
+        },
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"templateId\": 14, \"vmName\": \"NEOSC-VDI-N8NTEST\", \"cpu\": 4, \"memory\": 8192}"
+      },
+      "id": "6592f255-2f8d-4571-8959-c81ceec243c7",
+      "name": "Instantiate VM (POST /api/vm/instantiate)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "OpenNebula Health (GET /api/health)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenNebula Health (GET /api/health)": {
+      "main": [
+        [
+          {
+            "node": "Instantiate VM (POST /api/vm/instantiate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

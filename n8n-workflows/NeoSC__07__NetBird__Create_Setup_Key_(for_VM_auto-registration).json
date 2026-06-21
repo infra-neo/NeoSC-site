@@ -1,0 +1,124 @@
+{
+  "name": "NeoSC · 07 · NetBird · Create Setup Key (for VM auto-registration)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9c49cb3d-5b00-4899-8e49-8419ed770be4",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "978ed0e0-cb07-4d7b-9434-8851e4dd1eff",
+              "name": "key_name",
+              "value": "n8n-test-key",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "79b9be5b-c715-4b56-b117-d9405a04922a",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.netbird.io/api/setup-keys",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Token nbp_OJadsrm9YusgaWHrnWQpdZZydYffG811DIL9"
+            }
+          ]
+        },
+        "jsonBody": "={\n  \"name\": $json.key_name,\n  \"type\": \"reusable\",\n  \"expires_in\": 86400,\n  \"revoked\": false,\n  \"usage_limit\": 0,\n  \"ephemeral\": false\n}"
+      },
+      "id": "c7ffb95a-bbc0-4fea-9724-4d14502a4a23",
+      "name": "Create Setup Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $input.first().json;\nreturn [{ json: {\n  setup_key_id: d.id, key: d.key, name: d.name,\n  expires_at: d.expires, valid: d.valid, type: d.type,\n  install_cmd: `netbird up --setup-key ${d.key}`,\n}}];\n"
+      },
+      "id": "32fc04b8-c512-400a-a71c-4637aca94a63",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Create Setup Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Setup Key": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

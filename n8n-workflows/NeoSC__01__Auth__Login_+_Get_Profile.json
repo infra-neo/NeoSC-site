@@ -1,0 +1,150 @@
+{
+  "name": "NeoSC · 01 · Auth · Login + Get Profile",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "33b8c842-8789-48c1-92ca-018176953948",
+      "name": "▶ Click to run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "054a57a3-c290-4f98-b41d-33df42a26d6e",
+              "name": "api",
+              "value": "https://action-steps-4.preview.emergentagent.com/api",
+              "type": "string"
+            },
+            {
+              "id": "d5d1701a-459b-4ba5-afaf-55ebdd376ef2",
+              "name": "email",
+              "value": "admin@windesk.cloud",
+              "type": "string"
+            },
+            {
+              "id": "143c842d-7d87-4214-a291-9f1827c725d1",
+              "name": "password",
+              "value": "Admin123!",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "78b7ae78-f01b-40f1-9e28-b95b46f419bf",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.api}}/auth/login",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": $json.email,\n  \"password\": $json.password\n}"
+      },
+      "id": "25549261-7cae-438f-ab2e-eb977e8b58ec",
+      "name": "Login (POST /auth/login)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.api }}/auth/me",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "88873ae4-50e6-466f-b811-746036c56626",
+      "name": "Get my profile (GET /auth/me)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "▶ Click to run": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Login (POST /auth/login)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login (POST /auth/login)": {
+      "main": [
+        [
+          {
+            "node": "Get my profile (GET /auth/me)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

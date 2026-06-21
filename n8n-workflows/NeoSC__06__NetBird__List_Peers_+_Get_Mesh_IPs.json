@@ -1,0 +1,89 @@
+{
+  "name": "NeoSC · 06 · NetBird · List Peers + Get Mesh IPs",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "dfd601dc-7dba-40d5-a0d6-b95d82f76c95",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.netbird.io/api/peers",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": false,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Token nbp_OJadsrm9YusgaWHrnWQpdZZydYffG811DIL9"
+            }
+          ]
+        }
+      },
+      "id": "e98b3cf8-7300-4915-8066-1a85cc257f50",
+      "name": "List Peers (GET /api/peers)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst peers = $input.first().json;\nconst list = Array.isArray(peers) ? peers : [];\nreturn [{ json: {\n  total: list.length,\n  online: list.filter(p => p.connected).length,\n  peers: list.slice(0, 20).map(p => ({\n    name: p.name, hostname: p.hostname, ip: p.ip,\n    dns_label: p.dns_label, os: p.os, version: p.version,\n    connected: p.connected, last_login: p.last_login,\n  }))\n}}];\n"
+      },
+      "id": "9e862b8e-a651-4bd2-9af1-0987dd597d42",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Peers (GET /api/peers)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Peers (GET /api/peers)": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

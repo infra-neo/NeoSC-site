@@ -1,0 +1,144 @@
+{
+  "name": "NeoSC · 08 · Zitadel · List Users + Orgs (NeoGuard)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a209f9f2-b5ae-4efb-85bf-f1f5edb4cbf7",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://beyondcloud-nxm7ab.us1.zitadel.cloud/v2/users",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": true,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer NsXZCNkadmuKysEBT45K88gh8urvDjjwBJCWUhLzHdIAR1qiXbz5tQnV4rniPl12vOuzXMY"
+            }
+          ]
+        },
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"queries\": [], \"limit\": 50}"
+      },
+      "id": "a91586c6-6ee1-46f7-8c7c-ade2de64a972",
+      "name": "List Users (POST /v2/users)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://beyondcloud-nxm7ab.us1.zitadel.cloud/v2/organizations/_search",
+        "sendQuery": false,
+        "sendHeaders": true,
+        "sendBody": true,
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer NsXZCNkadmuKysEBT45K88gh8urvDjjwBJCWUhLzHdIAR1qiXbz5tQnV4rniPl12vOuzXMY"
+            }
+          ]
+        },
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"queries\": [], \"limit\": 50}"
+      },
+      "id": "b915e55a-59b0-4e4c-94b3-c9d15d93b79f",
+      "name": "List Orgs (POST /v2/organizations/_search)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Use referenced inputs to combine two parallel calls\nconst u = $('List Users (POST /v2/users)').first().json;\nconst o = $('List Orgs (POST /v2/organizations/_search)').first().json;\nreturn [{ json: {\n  users_total: u.details && u.details.totalResult,\n  orgs_total: o.details && o.details.totalResult,\n  sample_users: (u.result || []).slice(0,5).map(x => ({\n    id: x.userId, email: x.human && x.human.email && x.human.email.email,\n    name: x.human && x.human.profile && x.human.profile.displayName, state: x.state\n  })),\n  orgs: (o.result || []).map(x => ({id: x.id, name: x.name, primaryDomain: x.primaryDomain})),\n}}];\n"
+      },
+      "id": "9b7c7600-e705-4a2d-b35a-6cec8a257650",
+      "name": "Merge users + orgs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Users (POST /v2/users)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "List Orgs (POST /v2/organizations/_search)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Users (POST /v2/users)": {
+      "main": [
+        [
+          {
+            "node": "Merge users + orgs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Orgs (POST /v2/organizations/_search)": {
+      "main": [
+        [
+          {
+            "node": "Merge users + orgs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
