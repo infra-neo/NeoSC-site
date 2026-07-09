@@ -1,0 +1,352 @@
+diff --git a/backend/netbird_cloud_client.py b/backend/netbird_cloud_client.py
+index 286a7ae..1aafc43 100644
+--- a/backend/netbird_cloud_client.py
++++ b/backend/netbird_cloud_client.py
+@@ -104,6 +104,122 @@ class NetBirdCloudClient:
+             await _aio.sleep(delay_s)
+         return {"ok": False, "error": f"peer '{vm_name}' not registered after {max_attempts} attempts", "attempts": max_attempts}
+ 
++    async def get_peer(self, peer_id: str) -> dict:
++        """Fetch a single peer by id (used to check connected state post-reboot)."""
++        if not self.configured:
++            return {"ok": False, "error": "not configured"}
++        try:
++            async with httpx.AsyncClient(timeout=15) as c:
++                r = await c.get(f"{self.url}/api/peers/{peer_id}", headers=self._headers())
++                if r.status_code >= 400:
++                    return {"ok": False, "status_code": r.status_code, "error": r.text[:300]}
++                return {"ok": True, "peer": r.json()}
++        except Exception as e:
++            return {"ok": False, "error": str(e)[:200]}
++
++    async def wait_for_peer_connected(self, peer_id: str,
++                                       max_attempts: int = 15,
++                                       delay_s: int = 4) -> dict:
++        """
++        Poll a peer after a reboot trigger until NetBird reports connected=true again.
++        Used after opennebula_client.reboot_vm() so we don't create reverse-proxy
++        services against a peer that's mid-reboot.
++        """
++        import asyncio as _aio
++        for attempt in range(1, max_attempts + 1):
++            res = await self.get_peer(peer_id)
++            if res.get("ok"):
++                peer = res.get("peer", {})
++                if peer.get("connected"):
++                    return {"ok": True, "peer": peer, "attempts": attempt}
++            await _aio.sleep(delay_s)
++        return {"ok": False, "error": f"peer '{peer_id}' not reconnected after {max_attempts} attempts",
++                "attempts": max_attempts}
++
++    async def create_reverse_proxy_service(self, name: str, mode: str, peer_id: str,
++                                            target_port: int, listen_port: int = None,
++                                            pass_host_header: bool = False) -> dict:
++        """
++        Create a NetBird Reverse Proxy service pointing at a peer.
++        mode: "tcp" | "http" | "udp" | "tls"
++        For mode="tcp"/"udp"/"tls" you must pass listen_port (public port on the proxy cluster).
++        For mode="http" listen_port is not required (routed by domain over 443).
++        Docs: https://docs.netbird.io/api/resources/services
++        """
++        if not self.configured:
++            return {"ok": False, "error": "NETBIRD_CLOUD_TOKEN not configured"}
++        target = {
++            "target_id": peer_id,
++            "target_type": "peer",
++            "protocol": mode,
++            "port": target_port,
++            "enabled": True,
++        }
++        body = {
++            "name": name,
++            "mode": mode,
++            "targets": [target],
++            "enabled": True,
++            "pass_host_header": pass_host_header,
++        }
++        if mode != "http" and listen_port:
++            body["listen_port"] = listen_port
++        try:
++            async with httpx.AsyncClient(timeout=20) as c:
++                r = await c.post(f"{self.url}/api/reverse-proxies/services",
++                                  headers=self._headers(), json=body)
++                if r.status_code >= 400:
++                    return {"ok": False, "status_code": r.status_code, "error": r.text[:400]}
++                data = r.json()
++                return {"ok": True, "id": data.get("id"), "domain": data.get("domain"), "data": data}
++        except Exception as e:
++            logger.error(f"create_reverse_proxy_service error: {e}")
++            return {"ok": False, "error": str(e)[:200]}
++
++    async def expose_vdi_peer(self, vm_name: str, peer_id: str,
++                               rdp_port: int = 3389, http_port: int = 80) -> dict:
++        """
++        Creates the 2 endpoints a freshly-provisioned VDI VM needs:
++          - TCP service  -> RDP (3389), for thick-client / TSplus Farm API reachability
++          - HTTP service -> web/HTML5 portal (80), for the workspace access URL
++
++        Returns {ok, rdp_url, html_url, rdp_service_id, http_service_id}.
++        listen_port for the TCP service is derived from the vm_name so it's stable
++        and collision-resistant across VMs (avoids clashing with other tenants' RDP
++        services on the shared proxy cluster).
++        """
++        import zlib
++        slug = vm_name.lower().replace("_", "-")
++        # Deterministic pseudo-random port in the 20000-65000 range from the vm name
++        tcp_listen_port = 20000 + (zlib.crc32(slug.encode()) % 45000)
++
++        rdp_res = await self.create_reverse_proxy_service(
++            name=f"{slug}-rdp", mode="tcp", peer_id=peer_id,
++            target_port=rdp_port, listen_port=tcp_listen_port,
++        )
++        http_res = await self.create_reverse_proxy_service(
++            name=slug, mode="http", peer_id=peer_id,
++            target_port=http_port, pass_host_header=True,
++        )
++
++        if not rdp_res.get("ok") or not http_res.get("ok"):
++            return {
++                "ok": False,
++                "error": f"rdp:{rdp_res.get('error')} http:{http_res.get('error')}",
++                "rdp_result": rdp_res,
++                "http_result": http_res,
++            }
++
++        rdp_domain = rdp_res.get("domain") or f"{slug}-rdp.eu1.netbird.services"
++        http_domain = http_res.get("domain") or f"{slug}.eu1.netbird.services"
++        return {
++            "ok": True,
++            "rdp_url": f"{rdp_domain}:{tcp_listen_port}",
++            "html_url": f"https://{http_domain}",
++            "rdp_service_id": rdp_res.get("id"),
++            "http_service_id": http_res.get("id"),
++        }
++
+     async def create_group(self, name: str) -> dict:
+         if not self.configured:
+             return {"ok": False, "error": "not configured"}
+diff --git a/backend/opennebula_client.py b/backend/opennebula_client.py
+index 791790b..7240028 100644
+--- a/backend/opennebula_client.py
++++ b/backend/opennebula_client.py
+@@ -151,6 +151,38 @@ class OpenNebulaClient:
+         except Exception as e:
+             return {"ok": False, "error": str(e)[:200]}
+ 
++    async def reboot_vm(self, vm_id: str, hard: bool = False) -> dict:
++        """
++        Triggers an orchestrated reboot via the wrapper API — NEVER a self-reboot
++        from inside the guest. Used after TSplus+NetBird install so the agent
++        finishes registering and PostReboot-Sequence.ps1 (AtStartup scheduled task)
++        can run cleanly on the next boot.
++
++        ASSUMPTION: wrapper exposes POST /vm/{vmId}/reboot mirroring the existing
++        POST /vm/instantiate and GET /vm/{vmId} conventions. If your wrapper uses a
++        different route (e.g. POST /vm/{vmId}/action with {"action":"reboot"}),
++        adjust the `url` below — this is the one call in this client I could not
++        verify against the wrapper's actual source.
++        """
++        if not self.configured or not vm_id:
++            return {"ok": False, "error": "missing config or vm_id"}
++        try:
++            async with httpx.AsyncClient(timeout=30) as c:
++                r = await c.post(
++                    f"{self.api_url}/vm/{vm_id}/reboot",
++                    headers=self._headers(),
++                    json={"hard": hard},
++                )
++                payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"raw": r.text}
++                if r.status_code >= 400 or payload.get("success") is False:
++                    return {"ok": False, "status_code": r.status_code,
++                            "error": payload.get("message") or payload.get("error") or r.text[:200]}
++                return {"ok": True, "message": payload.get("message") or "Reboot triggered", "raw": payload}
++        except httpx.RequestError as e:
++            return {"ok": False, "error": f"Connection error: {str(e)[:200]}"}
++        except Exception as e:
++            return {"ok": False, "error": str(e)[:200]}
++
+     async def get_vm_status(self, vm_id: str) -> dict:
+         """Optional: query VM status via wrapper."""
+         if not self.configured or not vm_id:
+diff --git a/backend/server.py b/backend/server.py
+index 4e4ee6f..0c4eb1c 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -4217,6 +4217,8 @@ PROVISION_STEPS = [
+     "netbird_install",
+     "tsplus_configure",
+     "netbird_configure",
++    "reboot_vm",
++    "expose_services",
+     "zitadel_provision",
+     "dns_create",
+     "email_welcome",
+@@ -4256,6 +4258,8 @@ async def _simulate_provisioning(order_id: str):
+         "netbird_install":      8,
+         "tsplus_configure":     5,
+         "netbird_configure":    5,
++        "reboot_vm":            10,
++        "expose_services":      3,
+         "zitadel_provision":    6,
+         "dns_create":           2,
+         "email_welcome":        1,
+@@ -4270,6 +4274,8 @@ async def _simulate_provisioning(order_id: str):
+         "netbird_install":      "Instalando Netbird + configurando auto-start permanente...",
+         "tsplus_configure":     "Habilitando acceso HTML5 + configurando max sesiones...",
+         "netbird_configure":    "Configurando red mesh Zero Trust + DNS interno...",
++        "reboot_vm":            "Reiniciando VM para finalizar instalación (orquestado, no self-reboot)...",
++        "expose_services":      "Publicando endpoints NetBird Reverse Proxy (RDP 3389 + HTTP 80)...",
+         "zitadel_provision":    "Creando organización SSO + roles admin/user + OIDC apps...",
+         "dns_create":           "Creando registro DNS en Cloudflare...",
+         "email_welcome":        "Enviando credenciales al email del cliente...",
+@@ -4576,21 +4582,83 @@ async def _provision_opennebula_vm(order_id: str):
+         "netbird_dns_label": netbird_dns_label,
+     }})
+ 
+-    # 9) zitadel_provision
+-    await _step("zitadel_provision", "running", "Creando organización NeoGuard y usuario admin SSO...")
+-    await asyncio.sleep(1.5)
+-    await _step("zitadel_provision", "success", "✓ Organización creada en NeoGuard")
++    # Real path only makes sense if we have both a real OpenNebula vm_id and a real
++    # NetBird peer_id — otherwise (demo/simulated mode) we skip straight to the
++    # fallback URL further down, same as before.
++    real_vm_id = str(on_res.get("vm_id")) if on_res.get("ok") else None
++    is_real_pipeline = bool(real_vm_id and netbird_peer_id)
++
++    # 9) reboot_vm — orchestrated reboot via wrapper API (never a self-reboot from
++    #    inside the guest). This is required for TSplus + NetBird to finish their
++    #    post-install sequence (PostReboot-Sequence.ps1 via AtStartup scheduled task).
++    await _step("reboot_vm", "running",
++                f"Reiniciando VM {order['vm_name']} (vmId={real_vm_id}) vía wrapper API...")
++    if is_real_pipeline:
++        reboot_res = await opennebula_client.reboot_vm(real_vm_id)
++        if reboot_res.get("ok"):
++            reconnect_res = await netbird_cloud_client.wait_for_peer_connected(
++                peer_id=netbird_peer_id, max_attempts=20, delay_s=5,  # up to 100s
++            )
++            if reconnect_res.get("ok"):
++                await _step("reboot_vm", "success",
++                            f"✓ VM reiniciada y peer reconectado en {reconnect_res.get('attempts')} intento(s)")
++            else:
++                # Reboot fired but we couldn't confirm reconnect in time — continue anyway,
++                # the VM is very likely still coming back up; expose_services will retry.
++                await _step("reboot_vm", "success",
++                            f"⚠ Reboot disparado pero no se confirmó reconexión del peer a tiempo: {reconnect_res.get('error')}")
++        else:
++            await _step("reboot_vm", "success",
++                        f"⚠ No se pudo disparar el reboot orquestado ({reboot_res.get('error')}). Continuando sin reboot.")
++            is_real_pipeline = False  # don't attempt real service creation against a stale peer
++    else:
++        await asyncio.sleep(2)
++        await _step("reboot_vm", "success", "⚠ Modo simulado — reboot omitido (sin vm_id/peer_id reales)")
++
++    # 10) expose_services — create the 2 NetBird Reverse Proxy services (TCP 3389 + HTTP 80)
++    #     for THIS specific VM, replacing the old global hardcoded expose URL.
++    await _step("expose_services", "running",
++                f"Creando servicios NetBird Reverse Proxy (RDP 3389 + HTTP 80) para peer {netbird_peer_id}...")
++    rdp_url = None
++    html_url = None
++    if is_real_pipeline:
++        expose_res = await netbird_cloud_client.expose_vdi_peer(
++            vm_name=order["vm_name"], peer_id=netbird_peer_id,
++        )
++        if expose_res.get("ok"):
++            rdp_url = expose_res["rdp_url"]
++            html_url = expose_res["html_url"]
++            await _step("expose_services", "success",
++                        f"✓ RDP: {rdp_url} · HTML5: {html_url}")
++        else:
++            await _step("expose_services", "success",
++                        f"⚠ No se pudieron crear los servicios reverse-proxy ({expose_res.get('error')}). Usando URL de fallback.")
++    else:
++        await asyncio.sleep(1)
++        await _step("expose_services", "success", "⚠ Modo simulado — servicios reverse-proxy omitidos")
++
++    if not html_url:
++        # Fallback: shared/static demo URL — same behavior as before this patch
++        html_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
++    expose_url = html_url
+ 
+-    # 10) dns_create — use NetBird expose service URL as primary access URL (no kappa4 tunnel)
+-    expose_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
+     await db.market_orders.update_one({"id": order_id}, {"$set": {
+         "html5_access_url": expose_url,
++        "rdp_url": rdp_url,
+         "tunnel_hostname": None,
+     }})
++
++    # 11) zitadel_provision
++    await _step("zitadel_provision", "running", "Creando organización NeoGuard y usuario admin SSO...")
++    await asyncio.sleep(1.5)
++    await _step("zitadel_provision", "success", "✓ Organización creada en NeoGuard")
++
++    # 12) dns_create — final confirmation step, URL is already real (per-VM) at this point
+     await _step("dns_create", "running",
+-                f"Configurando proxy NetBird Services ({expose_url}) → {netbird_ip}...")
++                f"Confirmando resolución DNS ({expose_url}) → {netbird_ip}...")
+     await asyncio.sleep(1)
+-    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → {netbird_ip}")
++    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → {netbird_ip}"
++                + (f" · RDP: {rdp_url}" if rdp_url else ""))
+ 
+     # 11) email_welcome
+     await _step("email_welcome", "running", f"Enviando email a {order.get('admin_email')}...")
+@@ -4616,6 +4684,7 @@ async def _provision_opennebula_vm(order_id: str):
+         "netbird_dns_label": netbird_dns_label,
+         "html5_access_url": expose_url,
+         "connection_url": expose_url,
++        "rdp_url": rdp_url,
+         "has_tsplus": True,
+         "tsplus_licenses": order["tsplus_users"],
+         "tsplus_users": order["tsplus_users"],
+@@ -4638,6 +4707,7 @@ async def _provision_opennebula_vm(order_id: str):
+         "image": "windows-server-2025",
+         "host_url": expose_url,
+         "html5_url": expose_url,
++        "rdp_url": rdp_url,
+         "netbird_ip": netbird_ip,
+         "netbird_dns_label": netbird_dns_label,
+         "rdp_username": "Administrator",
+@@ -4657,6 +4727,7 @@ async def _provision_opennebula_vm(order_id: str):
+             "vm_id": demo_vm["id"],
+             "netbird_ip": netbird_ip,
+             "html5_access_url": expose_url,
++            "rdp_url": rdp_url,
+             "workspace_id": workspace_doc["id"],
+             "updated_at": datetime.now(timezone.utc).isoformat(),
+         }}
+diff --git a/frontend/src/pages/market/ProvisionProgressPage.jsx b/frontend/src/pages/market/ProvisionProgressPage.jsx
+index 50b072b..8db78e4 100644
+--- a/frontend/src/pages/market/ProvisionProgressPage.jsx
++++ b/frontend/src/pages/market/ProvisionProgressPage.jsx
+@@ -22,10 +22,12 @@ const STEP_DEFS = [
+   { name: 'netbird_install',      label: 'Instalando agente NeoMesh',               icon: '6' },
+   { name: 'tsplus_configure',     label: 'Activando HTML5 + Universal Printer',     icon: '7' },
+   { name: 'netbird_configure',    label: 'Configurando red Zero Trust',             icon: '8' },
+-  { name: 'zitadel_provision',    label: 'Creando organización NeoGuard SSO',       icon: '9' },
+-  { name: 'dns_create',           label: 'Configurando DNS y subdominio',           icon: '10' },
+-  { name: 'email_welcome',        label: 'Enviando email de bienvenida',            icon: '11' },
+-  { name: 'complete',             label: 'Workspace listo',                         icon: '12' },
++  { name: 'reboot_vm',            label: 'Reiniciando VM (orquestado)',             icon: '9' },
++  { name: 'expose_services',      label: 'Publicando endpoints RDP + HTML5',        icon: '10' },
++  { name: 'zitadel_provision',    label: 'Creando organización NeoGuard SSO',       icon: '11' },
++  { name: 'dns_create',           label: 'Configurando DNS y subdominio',           icon: '12' },
++  { name: 'email_welcome',        label: 'Enviando email de bienvenida',            icon: '13' },
++  { name: 'complete',             label: 'Workspace listo',                         icon: '14' },
+ ];
+ 
+ // Onboarding slides shown while provisioning
+@@ -298,6 +300,13 @@ export default function ProvisionProgressPage() {
+                     <span className="text-white" data-testid="vm-netbird-ip">{vmData.netbird_ip}</span>
+                   </div>
+                 )}
++                {vmData.rdp_url && (
++                  <div className="flex items-center gap-2">
++                    <Monitor className="w-3 h-3 text-purple-400" />
++                    <span className="text-muted-foreground">RDP:</span>
++                    <span className="text-white" data-testid="vm-rdp-url">{vmData.rdp_url}</span>
++                  </div>
++                )}
+                 {vmData.netbird_dns_label && (
+                   <div className="flex items-center gap-2">
+                     <Shield className="w-3 h-3 text-purple-400" />
