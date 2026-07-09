@@ -178,6 +178,13 @@ export default function MarketPage() {
             >
               <Rocket className="w-4 h-4" /> Explorar Plantillas
             </Button>
+            <Button
+              className="bg-gradient-to-r from-emerald-500 via-cyan-500 to-purple-500 hover:opacity-90 text-white font-bold gap-2 shadow-lg shadow-purple-500/30"
+              onClick={() => navigate('/market/chat')}
+              data-testid="btn-chat-wizard"
+            >
+              <Sparkles className="w-4 h-4" /> Asistente Chat <Badge className="ml-1 bg-white/20 text-white border-0 text-[9px]">NEW</Badge>
+            </Button>
             <Button variant="outline" className="border-white/20 hover:bg-white/5 gap-2" data-testid="btn-status">
               <Server className="w-4 h-4" /> Estado del Servicio
             </Button>

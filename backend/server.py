@@ -3854,7 +3854,6 @@ async def neo_chat(data: NeoMessage, authorization: str = Header(None)):
         )
         chat.with_model("anthropic", "claude-sonnet-4-5-20250929")
         neo_chat_sessions[session_id] = chat
-
     chat = neo_chat_sessions[session_id]
 
     # Load conversation history from DB
@@ -3904,6 +3903,222 @@ async def neo_clear_history(session_id: str):
     if session_id in neo_chat_sessions:
         del neo_chat_sessions[session_id]
     return {"message": "Historial limpiado", "session_id": session_id}
+
+
+# ============ NL WIZARD CHAT (Conversational onboarding/purchase) ============
+# /api/wizard/chat   → Conversational purchase wizard (TSplus VDI)
+# /api/tenant-enroll/chat → Conversational tenant enrollment
+# /api/wizard/submit → Finalize order from chat state
+
+WIZARD_SYSTEM_PROMPT = """Eres NeoSC Sales Assistant, un experto en VDI con TSplus y OpenNebula que ayuda a los clientes a configurar su workspace virtual Windows de forma conversacional.
+
+OBJETIVO: Recopilar los datos necesarios para crear una orden de compra de VM TSplus VDI, de forma natural y empática, una pregunta a la vez.
+
+CATÁLOGO DE PLANES (3 tiers — siempre TSplus Remote Enterprise Access con 14 días gratis):
+- STARTER (template_id=14, GOLD, $79/mes): 3-5 usuarios, hasta L grande
+- BUSINESS (template_id=12, STD, $189/mes): 6-15 usuarios, mediano o grande
+- ENTERPRISE (template_id=16, POWER, $499/mes): 16+ usuarios o ilimitada, Grande obligatorio
+
+OPCIONES DE LICENCIA TSPLUS (concurrentes, fijas): 3, 5, 10, 15, 25, ilimitada
+
+TAMAÑOS DE VM y reglas (CPU/RAM/Disco):
+- XS: 2 vCPU · 4 GB · 50 GB  → SOLO para 3 usuarios
+- S:  4 vCPU · 8 GB · 50 GB  → Para 3 o 5 usuarios
+- M:  8 vCPU · 16 GB · 100 GB → Para 3, 5, 10, 15 usuarios
+- L: 16 vCPU · 32 GB · 100 GB → Para cualquier nivel (incluyendo 25 e ilimitada)
+
+SISTEMAS OPERATIVOS: Windows Server 2025 (recomendado), Server 2022, Win 11 Pro VDI, Win 10 LTSC
+
+FLUJO CONVERSACIONAL (recopila estos datos):
+1. company_name (texto)
+2. tsplus_users (uno de: 3, 5, 10, 15, 25, 9999 para ilimitada)
+3. vm_size (uno de: xs, s, m, l) — sugiere según users
+4. os_id (uno de: win-server-2025, win-server-2022, win-11, win-10)
+5. plan_tier (starter, business, enterprise) — DERÍVALO automáticamente de users
+6. admin_email (si no está autenticado el usuario)
+
+REGLAS:
+- Sé cálido, conversacional, NUNCA formal o robótico. Usa emojis con moderación.
+- Una pregunta a la vez, ofrece opciones rápidas cuando aplique.
+- Si el usuario dice "tengo 8 personas en ventas que necesitan acceso", recomienda Business + 10 usuarios + Win Server 2025 + M.
+- Si dice "no sé cuántos necesito", pregunta por el equipo / industria y recomienda.
+- Si pide una combinación inválida (ej: XS con 25 usuarios), explícale por qué no es posible y sugiere alternativa.
+- Cuando tengas TODOS los datos requeridos, muestra un resumen y pide confirmación.
+
+IMPORTANTE — FORMATO DE RESPUESTA:
+Cada mensaje DEBE terminar con un bloque JSON oculto entre etiquetas <state>...</state> con el estado actual.
+
+Ejemplo:
+"¡Genial! Para un equipo de 8 personas te recomiendo el plan **Business** con 10 licencias TSplus. ¿Qué te parece?
+
+<state>
+{"company_name": "Acme Corp", "tsplus_users": 10, "plan_tier": "business", "vm_size": null, "os_id": null, "admin_email": null, "ready_to_submit": false, "next_question": "vm_size", "quick_replies": ["Recomienda M (Mediano)", "Recomienda L (Grande)", "Ver detalles"]}
+</state>"
+
+Cuando ready_to_submit sea true, agrega un campo "summary" con texto resumen para mostrar."""
+
+
+class WizardChatMessage(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    context: Optional[dict] = None
+
+
+wizard_chat_sessions = {}
+
+
+@api_router.post("/wizard/chat")
+async def wizard_chat(data: WizardChatMessage, authorization: str = Header(None)):
+    """Conversational purchase wizard powered by Claude Sonnet 4.5."""
+    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    if not llm_key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+
+    session_id = data.session_id or f"wiz-{uuid.uuid4()}"
+
+    if session_id not in wizard_chat_sessions:
+        sys_prompt = WIZARD_SYSTEM_PROMPT
+        if data.context:
+            sys_prompt += f"\n\nCONTEXTO DEL USUARIO ACTUAL: {_json.dumps(data.context, ensure_ascii=False)}"
+        chat = LlmChat(api_key=llm_key, session_id=session_id, system_message=sys_prompt)
+        chat.with_model("anthropic", "claude-sonnet-4-5-20250929")
+        wizard_chat_sessions[session_id] = chat
+
+    chat = wizard_chat_sessions[session_id]
+
+    try:
+        response = await chat.send_message(UserMessage(text=data.message))
+    except Exception as e:
+        logger.error(f"wizard_chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e)[:200])
+
+    # Extract <state>{...}</state>
+    state = {}
+    text = response
+    import re
+    m = re.search(r"<state>\s*(\{.*?\})\s*</state>", response, re.DOTALL)
+    if m:
+        try:
+            state = _json.loads(m.group(1))
+            text = response[:m.start()].strip() + response[m.end():].strip()
+        except Exception as e:
+            logger.warning(f"could not parse wizard state: {e}")
+
+    return {
+        "session_id": session_id,
+        "message": text,
+        "state": state,
+        "ready_to_submit": state.get("ready_to_submit", False),
+        "quick_replies": state.get("quick_replies", []),
+    }
+
+
+class WizardSubmitRequest(BaseModel):
+    session_id: str
+    state: dict
+
+
+# Map plan_tier to OpenNebula template id
+_PLAN_TO_TEMPLATE = {"starter": 14, "business": 12, "enterprise": 16}
+_VM_SIZE_TO_SPECS = {
+    "xs": {"cpu": 2,  "memory": 4096,  "disk": 50},
+    "s":  {"cpu": 4,  "memory": 8192,  "disk": 50},
+    "m":  {"cpu": 8,  "memory": 16384, "disk": 100},
+    "l":  {"cpu": 16, "memory": 32768, "disk": 100},
+}
+
+
+@api_router.post("/wizard/submit")
+async def wizard_submit(data: WizardSubmitRequest, user: dict = Depends(get_current_user)):
+    """Finalize the conversational wizard → create market order using collected state."""
+    s = data.state or {}
+    plan = (s.get("plan_tier") or "starter").lower()
+    template_id = _PLAN_TO_TEMPLATE.get(plan, 14)
+    vm_size = (s.get("vm_size") or "m").lower()
+    specs = _VM_SIZE_TO_SPECS.get(vm_size, _VM_SIZE_TO_SPECS["m"])
+
+    body = MarketInstantiateRequest(
+        cpu=specs["cpu"],
+        memory=specs["memory"],
+        tsplus_users=int(s.get("tsplus_users") or 3),
+        company_name=s.get("company_name") or user.get("organization"),
+        admin_email=s.get("admin_email") or user["email"],
+        admin_name=s.get("admin_name") or user.get("name"),
+        billing_period="monthly",
+    )
+
+    # Reuse the existing instantiate endpoint logic
+    return await market_instantiate_template(template_id, body, user)
+
+
+@api_router.delete("/wizard/chat/{session_id}")
+async def wizard_clear(session_id: str):
+    if session_id in wizard_chat_sessions:
+        del wizard_chat_sessions[session_id]
+    return {"ok": True}
+
+
+# ─── Tenant enrollment chat (conversational org onboarding) ────────────────
+TENANT_ENROLL_PROMPT = """Eres NeoSC Onboarding Concierge, un asistente especializado en darle la bienvenida a nuevos clientes a la plataforma NeoSCloud.
+
+OBJETIVO: Recopilar de forma cálida y conversacional los datos para enrolar una nueva organización (tenant) en la plataforma.
+
+DATOS A RECOPILAR (uno a la vez):
+1. organization_name: Nombre legal de la empresa
+2. industry: Industria/sector (ej: retail, salud, tech, manufactura, educación)
+3. team_size: Tamaño del equipo aproximado (1-10, 11-50, 51-200, 201-1000, 1000+)
+4. primary_use_case: Caso de uso principal (ej: "acceso remoto a sistemas legacy", "BYOD", "outsourcing", "consultoría")
+5. admin_name: Nombre del administrador principal
+6. admin_email: Email del administrador
+7. country: País de residencia fiscal (para facturación)
+
+REGLAS:
+- Tono cálido, profesional pero cercano. Como si estuvieras dándole la bienvenida a un nuevo cliente premium.
+- Una pregunta a la vez. Reconoce y comenta brevemente cada respuesta.
+- Si pregunta sobre la plataforma, explica brevemente NeoSC (VDI seguro con TSplus + NeoMesh VPN).
+- Cuando tengas todos los datos, muestra un resumen claro y pide confirmación con "¿Procedemos a crear tu workspace?"
+
+FORMATO DE RESPUESTA:
+Cada mensaje termina con bloque oculto:
+<state>
+{"organization_name": null, "industry": null, "team_size": null, "primary_use_case": null, "admin_name": null, "admin_email": null, "country": null, "ready_to_create": false, "next_question": "organization_name", "quick_replies": []}
+</state>"""
+
+
+@api_router.post("/tenant-enroll/chat")
+async def tenant_enroll_chat(data: WizardChatMessage, authorization: str = Header(None)):
+    """Conversational tenant enrollment powered by Claude."""
+    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    if not llm_key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    session_id = data.session_id or f"enroll-{uuid.uuid4()}"
+    if session_id not in wizard_chat_sessions:
+        chat = LlmChat(api_key=llm_key, session_id=session_id, system_message=TENANT_ENROLL_PROMPT)
+        chat.with_model("anthropic", "claude-sonnet-4-5-20250929")
+        wizard_chat_sessions[session_id] = chat
+    chat = wizard_chat_sessions[session_id]
+    try:
+        response = await chat.send_message(UserMessage(text=data.message))
+    except Exception as e:
+        logger.error(f"tenant_enroll_chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e)[:200])
+    import re
+    state = {}
+    text = response
+    m = re.search(r"<state>\s*(\{.*?\})\s*</state>", response, re.DOTALL)
+    if m:
+        try:
+            state = _json.loads(m.group(1))
+            text = response[:m.start()].strip() + response[m.end():].strip()
+        except Exception:
+            pass
+    return {
+        "session_id": session_id,
+        "message": text,
+        "state": state,
+        "ready_to_create": state.get("ready_to_create", False),
+        "quick_replies": state.get("quick_replies", []),
+    }
 
 
 # ============ MARKET — WINDOWS VDI SELF-SERVICE ============
