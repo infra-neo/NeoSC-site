@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -274,6 +274,9 @@ export default function WorkspacesPage() {
               <Globe className="w-4 h-4 text-cyan-400" />
               {embedVm?.name || 'Escritorio Remoto'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Escritorio remoto embebido vía Guacamole. Presiona Fullscreen para pantalla completa o cerrar para volver a Workspaces.
+            </DialogDescription>
             <div className="flex items-center gap-1">
               <Button
                 size="sm"
