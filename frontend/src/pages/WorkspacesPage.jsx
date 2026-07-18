@@ -3,10 +3,11 @@ import { useAuth } from '@/context/AuthContext';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Monitor, Globe, Trash2, Terminal, Server, Network, Cpu, MemoryStick } from 'lucide-react';
+import { Monitor, Globe, Trash2, Terminal, Server, Network, Cpu, MemoryStick, Maximize2, X, ExternalLink } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -17,6 +18,7 @@ export default function WorkspacesPage() {
   const [vms, setVms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);
+  const [embedVm, setEmbedVm] = useState(null); // { url, name, vmId }
 
   const loadData = async () => {
     try {
@@ -49,6 +51,11 @@ export default function WorkspacesPage() {
     return 'bg-muted-foreground';
   };
 
+  const openEmbed = (vm, url) => {
+    if (!url) { toast.error('No hay URL de conexión disponible'); return; }
+    setEmbedVm({ url, name: vm.lxd_instance_name || vm.name, vmId: vm.id });
+  };
+
   const getConnectionButton = (vm) => {
     const source = vm.source || '';
     const hasHtml5 = vm.connection_url && (vm.connection_url.startsWith('http') || vm.tsplus_licenses > 0);
@@ -60,9 +67,10 @@ export default function WorkspacesPage() {
       // If we have a real Guacamole enrollment, show a rich button;
       // otherwise fall back to the plain NetBird HTML5 button.
       if (guacOk) {
+        const url = vm.guacamole_connect_url || vm.connection_url;
         return (
           <div className="flex items-center gap-1.5">
-            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px]" title="Guacamole conn_id vm.guacamole_connection_id">
+            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px]" title={`Guacamole conn_id ${vm.guacamole_connection_id}`}>
               Guac #{vm.guacamole_connection_id}
             </Badge>
             <Button
@@ -70,8 +78,8 @@ export default function WorkspacesPage() {
               disabled={!running}
               className={`gap-1 text-black font-bold ${running ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-slate-600 cursor-not-allowed'}`}
               data-testid={`open-html5-${vm.id}`}
-              title={running ? 'Abrir escritorio HTML5 vía Guacamole' : 'La VM debe estar running para conectar'}
-              onClick={() => running && window.open(vm.guacamole_connect_url || vm.connection_url, '_blank')}
+              title={running ? 'Abrir escritorio HTML5 embebido' : 'La VM debe estar running para conectar'}
+              onClick={() => running && openEmbed(vm, url)}
             >
               <Globe className="w-3 h-3" /> Conectar
             </Button>
@@ -87,7 +95,7 @@ export default function WorkspacesPage() {
             </Badge>
           )}
           <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1" data-testid={`open-html5-${vm.id}`}
-            onClick={() => window.open(vm.connection_url || 'https://web.proxy.kappa4.com/', '_blank')}>
+            onClick={() => openEmbed(vm, vm.connection_url || 'https://web.proxy.kappa4.com/')}>
             <Globe className="w-3 h-3" /> HTML5
           </Button>
         </div>
@@ -112,7 +120,7 @@ export default function WorkspacesPage() {
     }
     return (
       <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1" data-testid={`open-${vm.id}`}
-        onClick={() => window.open('https://web.proxy.kappa4.com/', '_blank')}>
+        onClick={() => openEmbed(vm, 'https://web.proxy.kappa4.com/')}>
         <Globe className="w-3 h-3" /> Conectar
       </Button>
     );
@@ -234,6 +242,66 @@ export default function WorkspacesPage() {
           )}
         </div>
       </main>
+
+      {/* Embedded remote desktop dialog */}
+      <Dialog open={!!embedVm} onOpenChange={(open) => !open && setEmbedVm(null)}>
+        <DialogContent
+          className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 bg-black border-cyan-500/30 flex flex-col"
+          data-testid="embed-connection-dialog"
+        >
+          <DialogHeader className="px-4 py-2 border-b border-border bg-muted/30 flex-row items-center justify-between space-y-0">
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <Globe className="w-4 h-4 text-cyan-400" />
+              {embedVm?.name || 'Escritorio Remoto'}
+            </DialogTitle>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs"
+                data-testid="embed-fullscreen-btn"
+                onClick={() => {
+                  const el = document.getElementById('embed-connection-iframe');
+                  if (el && el.requestFullscreen) el.requestFullscreen();
+                }}
+                title="Pantalla completa"
+              >
+                <Maximize2 className="w-3.5 h-3.5" /> Fullscreen
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs"
+                data-testid="embed-external-btn"
+                onClick={() => embedVm && window.open(embedVm.url, '_blank')}
+                title="Abrir en pestaña nueva"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Nueva pestaña
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 hover:bg-red-500/20 hover:text-red-400"
+                data-testid="embed-close-btn"
+                onClick={() => setEmbedVm(null)}
+                title="Cerrar"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          {embedVm && (
+            <iframe
+              id="embed-connection-iframe"
+              src={embedVm.url}
+              title={embedVm.name}
+              className="flex-1 w-full border-0 bg-black"
+              allow="clipboard-read; clipboard-write; fullscreen; autoplay"
+              data-testid="embed-connection-iframe"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -4122,6 +4122,218 @@ async def tenant_enroll_chat(data: WizardChatMessage, authorization: str = Heade
     }
 
 
+# ============ FASE D · GATEWAY LXD VMs (NeoSC Gateway) ============
+# Deploy a Linux LXD container as a NetBird gateway that exposes a customer
+# subnet to the mesh. Clones the `Gateway-NeoSC` base container in LXD,
+# injects cloud-init with a NetBird setup key, then creates a NetBird
+# Network Route pointing the subnet to the new peer.
+
+LXD_GATEWAY_SOURCE = os.environ.get("LXD_GATEWAY_SOURCE", "Gateway-NeoSC")
+
+
+class GatewayDeployRequest(BaseModel):
+    subnet_to_expose: str  # CIDR e.g. "192.168.1.0/24"
+    region: Optional[str] = "mx-central-1"
+    name_suffix: Optional[str] = None
+    description: Optional[str] = ""
+
+
+def _build_gateway_cloud_init(setup_key: str, subnet: str) -> str:
+    """Cloud-init user-data injected into the cloned LXD container."""
+    return f"""#cloud-config
+package_update: true
+package_upgrade: false
+runcmd:
+  - [ sh, -c, "curl -fsSL https://pkgs.netbird.io/install.sh | sh || true" ]
+  - [ sh, -c, "netbird up --setup-key {setup_key} || true" ]
+  - [ sh, -c, "echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf" ]
+  - [ sh, -c, "echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf" ]
+  - [ sh, -c, "sysctl -p" ]
+  - [ sh, -c, "iptables -t nat -A POSTROUTING -s {subnet} -j MASQUERADE || true" ]
+write_files:
+  - path: /etc/neosc-gateway.info
+    content: |
+      NeoSC Gateway
+      subnet={subnet}
+      deployed_at={datetime.now(timezone.utc).isoformat()}
+"""
+
+
+@api_router.post("/gateway-vm/deploy")
+async def gateway_vm_deploy(body: GatewayDeployRequest, user: dict = Depends(get_current_user)):
+    """
+    Deploy a new Gateway VM by cloning Gateway-NeoSC base and registering it
+    on NetBird Cloud with a route that exposes body.subnet_to_expose.
+    """
+    tenant_id = user.get("tenant_id") or user["id"]
+    gw_id = str(uuid.uuid4())
+    suffix = (body.name_suffix or gw_id[:6]).replace(" ", "").lower()[:12]
+    gw_name = f"gw-{suffix}"
+
+    # 1) Mint NetBird setup key for this gateway
+    key_res = await netbird_cloud_client.create_setup_key(
+        name=f"gateway-{gw_name}",
+        expires_in_days=30,
+        ephemeral=False,
+    )
+    setup_key = key_res.get("key") if key_res.get("ok") else None
+    if not setup_key:
+        raise HTTPException(status_code=502, detail=f"NetBird setup-key creation failed: {key_res.get('error')}")
+
+    # 2) Clone Gateway-NeoSC LXD container with cloud-init injection
+    cloud_init = _build_gateway_cloud_init(setup_key, body.subnet_to_expose)
+    clone_res = await lxd_client.clone_instance(
+        source_name=LXD_GATEWAY_SOURCE,
+        new_name=gw_name,
+        user_data=cloud_init,
+    )
+    if not clone_res.get("ok"):
+        raise HTTPException(status_code=502, detail=f"LXD clone failed: {clone_res.get('error')}")
+
+    # 3) Start the container
+    start_res = await lxd_client.change_instance_state(gw_name, "start")
+    if not start_res.get("ok"):
+        # rollback
+        await lxd_client.delete_instance(gw_name, force=True)
+        raise HTTPException(status_code=502, detail=f"LXD start failed: {start_res.get('error')}")
+
+    # 4) Poll NetBird for the peer registration (async, non-blocking best-effort)
+    #    We store the record now and let the background poller update netbird_ip.
+    gw_doc = {
+        "id": gw_id,
+        "tenant_id": tenant_id,
+        "user_id": user["id"],
+        "name": gw_name,
+        "type": "netbird-gateway",
+        "status": "provisioning",
+        "lxd_instance_name": gw_name,
+        "lxd_source": LXD_GATEWAY_SOURCE,
+        "subnet_to_expose": body.subnet_to_expose,
+        "region": body.region,
+        "description": body.description or "",
+        "netbird_setup_key": setup_key,
+        "netbird_peer_id": None,
+        "netbird_ip": None,
+        "netbird_route_id": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.gateway_vms.insert_one(gw_doc)
+
+    # Schedule background finish (poll peer, create route)
+    asyncio.create_task(_gateway_finish_provision(gw_id, gw_name, body.subnet_to_expose))
+
+    await create_audit_log(
+        user["id"], user["email"], "gateway_vm_deploy", f"gateway:{gw_id}",
+        f"Deploy gateway {gw_name} exposing {body.subnet_to_expose}"
+    )
+    return {"ok": True, "gateway_id": gw_id, "name": gw_name,
+            "subnet": body.subnet_to_expose, "status": "provisioning",
+            "note": "peer registration and route creation in background"}
+
+
+async def _gateway_finish_provision(gw_id: str, gw_name: str, subnet: str):
+    """Background task: wait for the peer to register, then create NetBird route."""
+    # Poll NetBird for the new peer (max ~3 min)
+    peer_res = await netbird_cloud_client.poll_peer_until_registered(
+        vm_name=gw_name, max_attempts=45, delay_s=4
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    if not peer_res.get("ok"):
+        await db.gateway_vms.update_one({"id": gw_id}, {"$set": {
+            "status": "peer_not_registered",
+            "provision_error": peer_res.get("error"),
+            "updated_at": now,
+        }})
+        logger.warning(f"gateway {gw_name}: peer did not register — {peer_res.get('error')}")
+        return
+
+    netbird_ip = peer_res.get("netbird_ip")
+    peer_id = peer_res.get("peer_id")
+    dns_label = peer_res.get("dns_label")
+
+    # Create NetBird Network Route
+    net_list = await netbird_cloud_client.list_networks()
+    network_id = ""
+    if net_list.get("ok") and net_list.get("networks"):
+        network_id = net_list["networks"][0].get("id", "")
+    route_res = await netbird_cloud_client.create_network_route(
+        network_id=network_id, peer_id=peer_id, network_range=subnet,
+        description=f"neosc-gw-{gw_name}",
+    )
+    route_id = route_res.get("route_id") if route_res.get("ok") else None
+    if not route_res.get("ok"):
+        logger.warning(f"gateway {gw_name}: route creation failed — {route_res.get('error')}")
+
+    await db.gateway_vms.update_one({"id": gw_id}, {"$set": {
+        "status": "active",
+        "netbird_peer_id": peer_id,
+        "netbird_ip": netbird_ip,
+        "netbird_dns_label": dns_label,
+        "netbird_route_id": route_id,
+        "netbird_route_error": route_res.get("error") if not route_res.get("ok") else None,
+        "updated_at": now,
+    }})
+    logger.info(f"gateway {gw_name}: active — ip={netbird_ip} route={route_id}")
+
+
+@api_router.get("/gateway-vm")
+async def gateway_vm_list(user: dict = Depends(get_current_user)):
+    """List gateway VMs for the current tenant."""
+    tenant_id = user.get("tenant_id") or user["id"]
+    q = {} if user.get("role") == "admin" else {"tenant_id": tenant_id}
+    gws = await db.gateway_vms.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"count": len(gws), "gateways": gws}
+
+
+@api_router.get("/gateway-vm/{gw_id}")
+async def gateway_vm_get(gw_id: str, user: dict = Depends(get_current_user)):
+    gw = await db.gateway_vms.find_one({"id": gw_id}, {"_id": 0})
+    if not gw:
+        raise HTTPException(status_code=404, detail="gateway not found")
+    if user.get("role") != "admin" and gw.get("tenant_id") != user.get("tenant_id"):
+        raise HTTPException(status_code=403, detail="not your gateway")
+    # Enrich with live LXD state
+    lxd_state = await lxd_client.get_instance(gw["lxd_instance_name"])
+    gw["lxd_live"] = lxd_state.get("instance", {}).get("status") if lxd_state.get("ok") else None
+    return gw
+
+
+@api_router.post("/gateway-vm/{gw_id}/{action}")
+async def gateway_vm_lifecycle(gw_id: str, action: str, user: dict = Depends(get_current_user)):
+    """Actions: start, stop, restart"""
+    if action not in ("start", "stop", "restart"):
+        raise HTTPException(status_code=400, detail="action must be start|stop|restart")
+    gw = await db.gateway_vms.find_one({"id": gw_id}, {"_id": 0})
+    if not gw:
+        raise HTTPException(status_code=404, detail="gateway not found")
+    if user.get("role") != "admin" and gw.get("tenant_id") != user.get("tenant_id"):
+        raise HTTPException(status_code=403, detail="not your gateway")
+    lxd_action = {"restart": "restart"}.get(action, action)
+    res = await lxd_client.change_instance_state(gw["lxd_instance_name"], lxd_action)
+    if not res.get("ok"):
+        raise HTTPException(status_code=502, detail=f"LXD {action} failed: {res.get('error')}")
+    await db.gateway_vms.update_one({"id": gw_id}, {"$set": {
+        "last_action": action,
+        "last_action_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    return {"ok": True, "action": action, "gateway_id": gw_id}
+
+
+@api_router.delete("/gateway-vm/{gw_id}")
+async def gateway_vm_delete(gw_id: str, user: dict = Depends(get_current_user)):
+    gw = await db.gateway_vms.find_one({"id": gw_id}, {"_id": 0})
+    if not gw:
+        raise HTTPException(status_code=404, detail="gateway not found")
+    if user.get("role") != "admin" and gw.get("tenant_id") != user.get("tenant_id"):
+        raise HTTPException(status_code=403, detail="not your gateway")
+    # Best-effort delete LXD container
+    await lxd_client.delete_instance(gw["lxd_instance_name"], force=True)
+    await db.gateway_vms.delete_one({"id": gw_id})
+    await create_audit_log(user["id"], user["email"], "gateway_vm_delete",
+                            f"gateway:{gw_id}", f"Deleted gateway {gw.get('name')}")
+    return {"ok": True, "deleted": gw_id}
+
+
 # ============ MARKET — WINDOWS VDI SELF-SERVICE ============
 # Rutas: /api/market/...
 # Branch: feature/windeskcloud-market
@@ -5209,10 +5421,20 @@ async def delete_market_vm(vm_id: str, user: dict = Depends(get_current_user)):
     vm = await db.market_vms.find_one({"id": vm_id})
     if not vm:
         raise HTTPException(status_code=404, detail="VM no encontrada")
+    # Cascade: delete Guacamole connection if enrolled
+    conn_id = vm.get("guacamole_connection_id")
+    guac_result = None
+    if conn_id:
+        try:
+            guac_result = await guacamole_client.delete_connection(str(conn_id))
+            logger.info(f"delete_market_vm: guac conn={conn_id} → {guac_result}")
+        except Exception as e:
+            logger.error(f"delete_market_vm: guac delete failed conn={conn_id}: {e}")
+            guac_result = {"ok": False, "error": str(e)}
     await db.market_vms.delete_one({"id": vm_id})
     await db.market_orders.update_many({"vm_id": vm_id}, {"$set": {"status": "deleted"}})
     await create_audit_log(user['id'], user['email'], "delete_market_vm", f"vm:{vm_id}", "Market VM deleted")
-    return {"ok": True, "message": f"VM {vm_id} eliminada"}
+    return {"ok": True, "message": f"VM {vm_id} eliminada", "guacamole": guac_result}
 
 
 

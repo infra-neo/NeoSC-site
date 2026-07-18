@@ -118,5 +118,50 @@ class NetBirdCloudClient:
         except Exception as e:
             return {"ok": False, "error": str(e)[:200]}
 
+    async def create_network_route(self, network_id: str, peer_id: str,
+                                    network_range: str, description: str = "",
+                                    groups: list = None, enabled: bool = True) -> dict:
+        """
+        Add a Network Route so the peer advertises `network_range` (CIDR) to the mesh.
+        network_id is the NetBird Network id (get from /api/networks).
+        """
+        if not self.configured:
+            return {"ok": False, "error": "not configured"}
+        body = {
+            "description": description or f"Gateway route to {network_range}",
+            "network_id": description or f"gw-{peer_id[:6]}",
+            "peer": peer_id,
+            "network": network_range,
+            "metric": 9999,
+            "masquerade": True,
+            "enabled": enabled,
+            "groups": groups or [],
+            "keep_route": False,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                # NetBird uses /api/routes (legacy) or /api/networks/{id}/routes for network-scoped
+                url = f"{self.url}/api/networks/{network_id}/routes" if network_id else f"{self.url}/api/routes"
+                r = await c.post(url, headers=self._headers(), json=body)
+                if r.status_code >= 400:
+                    return {"ok": False, "status_code": r.status_code, "error": r.text[:300]}
+                d = r.json()
+                return {"ok": True, "route_id": d.get("id"), "data": d}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+    async def list_networks(self) -> dict:
+        if not self.configured:
+            return {"ok": False, "error": "not configured"}
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{self.url}/api/networks", headers=self._headers())
+                if r.status_code >= 400:
+                    return {"ok": False, "status_code": r.status_code}
+                data = r.json()
+                return {"ok": True, "networks": data if isinstance(data, list) else data.get("networks", [])}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
 
 netbird_cloud_client = NetBirdCloudClient()

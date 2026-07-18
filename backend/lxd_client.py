@@ -354,6 +354,60 @@ async def delete_instance(name: str, force: bool = False, project: Optional[str]
         return {"ok": False, "error": str(e)}
 
 
+async def clone_instance(source_name: str, new_name: str,
+                          user_data: Optional[str] = None,
+                          config_overrides: Optional[dict] = None,
+                          project: Optional[str] = None) -> dict:
+    """
+    Clone an existing LXD container/VM (copy source-type).
+    Optionally inject cloud-init user-data and override config keys.
+    Waits for the clone operation to complete.
+    """
+    body = {
+        "name": new_name,
+        "source": {"type": "copy", "source": source_name},
+    }
+    config = {}
+    if user_data:
+        config["user.user-data"] = user_data
+    if config_overrides:
+        config.update(config_overrides)
+    if config:
+        body["config"] = config
+    try:
+        async with _get_client() as client:
+            r = await client.post("/1.0/instances", json=body, params=_p(project))
+            data = r.json()
+            if r.status_code in (200, 202) and data.get("type") != "error":
+                op_url = data.get("operation")
+                if op_url:
+                    # cloning can take a minute or two
+                    op = await client.get(f"{op_url}/wait", params={**_p(project), "timeout": "300"}, timeout=310.0)
+                    op_data = op.json()
+                    if op_data.get("metadata", {}).get("status_code") == 200:
+                        return {"ok": True, "name": new_name, "source": source_name}
+                    return {"ok": False, "error": op_data.get("metadata", {}).get("err", "clone op failed"),
+                            "raw": op_data}
+                return {"ok": True, "name": new_name}
+            return {"ok": False, "error": data.get("error", r.text)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def get_instance(name: str, project: Optional[str] = None) -> dict:
+    """Get full instance metadata including network state."""
+    try:
+        async with _get_client() as client:
+            r = await client.get(f"/1.0/instances/{name}?recursion=1", params=_p(project))
+            if r.status_code == 200:
+                return {"ok": True, "instance": r.json().get("metadata", {})}
+            return {"ok": False, "error": r.text, "http": r.status_code}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+
+
 async def list_images(project: Optional[str] = None) -> list:
     try:
         async with _get_client() as client:

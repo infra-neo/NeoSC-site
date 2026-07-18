@@ -1,0 +1,26 @@
+{
+  "summary": "Validated Workspaces bugfixes: (1) DELETE /api/market/vms/{id} cascade to Guacamole, (2) POST /api/internal/sunset/sync-now works and returns stats, (3) Sunset auto-cleanup code path exists (probe_state.not_found + _cleanup_missing_vms cascades Guacamole), (4) Frontend Conectar/HTML5 button opens embedded iframe dialog instead of new tab. All 3 backend pytest cases pass and full frontend flow verified end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_workspaces_bugfix.py",
+    "/app/test_reports/pytest/workspaces_bugfix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py delete_market_vm correctly cascades Guacamole (line 5425-5433) and always returns 'guacamole' key in response (None when no conn existed).",
+    "sunset_sync.probe_state now returns 'not_found' flag when wrapper responds with 404 or Spanish/English 'no encontrado/not found/inválido/invalid/does not exist'; _cleanup_missing_vms increments sunset_missing_count and cascades Guacamole+Mongo delete after MISSING_THRESHOLD=2.",
+    "sync_once single-VM path also invokes _cleanup_missing_vms on not_found, so cleanup works even when list_all_vms returns empty (wrapper has no list-all endpoint currently).",
+    "WorkspacesPage.jsx openEmbed() sets state instead of window.open() — no new tab created. Dialog exposes fullscreen, external and close buttons with proper data-testids and iframe carries guacamole/netbird URL."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_workspaces_bugfix.py (new pytest file)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@windesk.cloud / Admin123! (from /app/memory/test_credentials.md). Login response uses key 'access_token' (not 'token').",
+  "seed_data_creation": "Inserted temporary Mongo doc in market_vms (id=vm-test-e248c7ee, guacamole_connection_id=999, guacamole_enrollment=ok) to render a Conectar button on /workspaces for the UI test. The doc was auto-cleaned by the DELETE cascade tests / no residue found.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend: 3 tests in /app/backend/tests/test_workspaces_bugfix.py cover: sunset sync-now endpoint, sunset_sync module code-paths (probe_state not_found + _cleanup_missing_vms), and DELETE cascade. NOTE: DELETE test picks the first simulated VM (id starts with 'vm-'); if no VMs exist it skips. UI: /workspaces requires a market VM with tsplus_licenses>0 (or guacamole_enrollment=ok) to render the Conectar/HTML5 button; when no VMs exist the page just shows empty state. Login endpoint returns {access_token, user}.",
+  "rca of the issue": "Both bugs were code-level. (a) delete_market_vm previously removed the Mongo doc but did not call guacamole_client.delete_connection, leaving orphan Guacamole connections after Sunset VMs disappeared. (b) getConnectionButton used window.open, spawning a browser tab instead of embedding. Fixes applied by main agent add guacamole cascade in delete_market_vm and add openEmbed() + <Dialog> with <iframe> on WorkspacesPage. Additionally probe_state now emits not_found=True when the Sunset wrapper responds with 'vmId inválido'/404, allowing sunset_sync._cleanup_missing_vms to increment sunset_missing_count and auto-delete VMs after 2 consecutive misses, cascading Guacamole cleanup. Verified by pytest and Playwright UI test."
+}
