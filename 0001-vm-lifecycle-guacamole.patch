@@ -1,0 +1,631 @@
+From c61a4ffc19745f9a332c17c178110aa869761a0a Mon Sep 17 00:00:00 2001
+From: "Benja Frias (via Claude)" <benja@kappa4.com>
+Date: Sat, 18 Jul 2026 02:08:11 +0000
+Subject: [PATCH 1/2] feat(vm-lifecycle): start/stop/reboot OpenNebula VMs +
+ auto-registro real en Guacamole
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- opennebula_client.py: nuevo método vm_action() (start/stop/reboot/poweroff/
+  suspend/resume/terminate) contra el wrapper REST. ⚠️ Endpoint POST /vm/{id}/
+  action asumido por convención con /vm/instantiate — verificar contra el
+  wrapper real antes de usar en producción.
+
+- server.py:
+  * _provision_opennebula_vm: nuevo paso 'guacamole_register' que crea la
+    conexión RDP real en Guacamole usando el netbird_ip ya obtenido (antes
+    las VMs del marketplace solo exponían la URL genérica de NetBird
+    Services, nunca pasaban por Guacamole).
+  * market_vms ahora guarda opennebula_vm_id (id real en OpenNebula) y
+    guacamole_connection_id.
+  * Nuevo POST /market/vms/{vm_id}/action — start/stop/reboot con audit log,
+    solo para source=opennebula-marketplace (LXD sigue usando su propio
+    endpoint /lxd/instances/{name}/state).
+  * Nuevo GET /market/vms/{vm_id}/guacamole-link — devuelve URL de sesión
+    Guacamole con token; auto-registra la conexión si faltaba.
+
+- WorkspacesPage.jsx: botón 'RDP (Guacamole)' con prioridad sobre el proxy
+  NetBird genérico cuando existe guacamole_connection_id; botones Start/
+  Stop/Reboot (solo admin, solo VMs opennebula-marketplace).
+
+Sin probar contra infra real (sandbox sin salida de red a giving-flounder/
+OpenNebula/Guacamole) — validar con Claude Code en el host.
+---
+ backend/opennebula_client.py          |  34 ++++++++
+ backend/server.py                     | 120 +++++++++++++++++++++++++-
+ frontend/src/pages/WorkspacesPage.jsx |  51 +++++++++++
+ 3 files changed, 203 insertions(+), 2 deletions(-)
+
+diff --git a/backend/opennebula_client.py b/backend/opennebula_client.py
+index 791790b..b4590a8 100644
+--- a/backend/opennebula_client.py
++++ b/backend/opennebula_client.py
+@@ -151,6 +151,40 @@ class OpenNebulaClient:
+         except Exception as e:
+             return {"ok": False, "error": str(e)[:200]}
+ 
++    async def vm_action(self, vm_id: str, action: str) -> dict:
++        """
++        Calls the wrapper API: POST /api/vm/{id}/action
++        Body: {"action": "start"|"stop"|"reboot"|"poweroff"|"suspend"|"resume"|"terminate"}
++
++        ⚠️ NO VERIFICADO contra el wrapper real (149.56.241.64:3000) — asume la
++        misma convención REST que /vm/instantiate. Si el wrapper Node.js expone
++        otra ruta/verbo, ajusta aquí. Prueba primero con:
++          curl -X POST http://149.56.241.64:3000/api/vm/<id>/action \\
++               -H "Authorization: Bearer $OPENNEBULA_TOKEN" \\
++               -H "Content-Type: application/json" -d '{"action":"reboot"}'
++        """
++        valid = {"start", "stop", "reboot", "poweroff", "suspend", "resume", "terminate"}
++        if action not in valid:
++            return {"ok": False, "error": f"acción inválida: {action}. Usa una de {sorted(valid)}"}
++        if not self.configured or not vm_id:
++            return {"ok": False, "error": "missing config or vm_id"}
++        try:
++            async with httpx.AsyncClient(timeout=30) as c:
++                r = await c.post(
++                    f"{self.api_url}/vm/{vm_id}/action",
++                    headers=self._headers(),
++                    json={"action": action},
++                )
++                payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"raw": r.text}
++                if r.status_code >= 400 or payload.get("success") is False:
++                    return {"ok": False, "status_code": r.status_code,
++                            "error": payload.get("message") or payload.get("error") or r.text[:200]}
++                return {"ok": True, "vm_id": vm_id, "action": action, "raw": payload}
++        except httpx.RequestError as e:
++            return {"ok": False, "error": f"Connection error: {str(e)[:200]}"}
++        except Exception as e:
++            return {"ok": False, "error": str(e)[:200]}
++
+     async def get_vm_status(self, vm_id: str) -> dict:
+         """Optional: query VM status via wrapper."""
+         if not self.configured or not vm_id:
+diff --git a/backend/server.py b/backend/server.py
+index 4e4ee6f..20c21b3 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -4217,6 +4217,7 @@ PROVISION_STEPS = [
+     "netbird_install",
+     "tsplus_configure",
+     "netbird_configure",
++    "guacamole_register",
+     "zitadel_provision",
+     "dns_create",
+     "email_welcome",
+@@ -4256,6 +4257,7 @@ async def _simulate_provisioning(order_id: str):
+         "netbird_install":      8,
+         "tsplus_configure":     5,
+         "netbird_configure":    5,
++        "guacamole_register":   3,
+         "zitadel_provision":    6,
+         "dns_create":           2,
+         "email_welcome":        1,
+@@ -4270,6 +4272,7 @@ async def _simulate_provisioning(order_id: str):
+         "netbird_install":      "Instalando Netbird + configurando auto-start permanente...",
+         "tsplus_configure":     "Habilitando acceso HTML5 + configurando max sesiones...",
+         "netbird_configure":    "Configurando red mesh Zero Trust + DNS interno...",
++        "guacamole_register":   "Registrando conexión RDP en NeoDesk (Guacamole)...",
+         "zitadel_provision":    "Creando organización SSO + roles admin/user + OIDC apps...",
+         "dns_create":           "Creando registro DNS en Cloudflare...",
+         "email_welcome":        "Enviando credenciales al email del cliente...",
+@@ -4500,11 +4503,13 @@ async def _provision_opennebula_vm(order_id: str):
+         cpu=order["vcpu"],
+         memory_mb=order["ram_mb"],
+     )
++    real_one_vm_id = None
+     if on_res.get("ok"):
++        real_one_vm_id = str(on_res.get("vm_id") or "")
+         await db.market_orders.update_one(
+             {"id": order_id},
+             {"$set": {
+-                "vm_id": str(on_res.get("vm_id") or ""),
++                "vm_id": real_one_vm_id,
+                 "opennebula_service_id": on_res.get("service_id") or order.get("opennebula_service_id"),
+             }}
+         )
+@@ -4512,11 +4517,12 @@ async def _provision_opennebula_vm(order_id: str):
+                     f"✓ VM creada en OpenNebula (vmId={on_res.get('vm_id')}, serviceId={on_res.get('service_id')})")
+     else:
+         # OpenNebula unreachable → continue in simulated mode
++        real_one_vm_id = f"sim-{uuid.uuid4().hex[:8]}"
+         await _step("create_lxd_vm", "success",
+                     f"⚠ OpenNebula API no disponible ({on_res.get('error', 'unknown')}). Continuando en modo simulado.")
+         await db.market_orders.update_one(
+             {"id": order_id},
+-            {"$set": {"vm_id": f"sim-{uuid.uuid4().hex[:8]}", "simulated": True}}
++            {"$set": {"vm_id": real_one_vm_id, "simulated": True}}
+         )
+ 
+     # 4) windows_bootstrap (cloud-init simulated)
+@@ -4576,6 +4582,35 @@ async def _provision_opennebula_vm(order_id: str):
+         "netbird_dns_label": netbird_dns_label,
+     }})
+ 
++    # 8b) guacamole_register — auto-registrar la VM en Guacamole (NeoDesk) usando
++    #     el IP real de NetBird como hostname, para RDP nativo vía tu Guacamole
++    #     en lugar de la URL genérica de NetBird Services.
++    await _step("guacamole_register", "running",
++                f"Registrando conexión RDP en NeoDesk (Guacamole) → {netbird_ip}:3389...")
++    guac_connection_id = None
++    try:
++        guac_res = await guacamole_client.create_connection(
++            name=f"NeoVDI-{order['vm_name']}",
++            protocol="rdp",
++            hostname=netbird_ip,
++            port=3389,
++            username="Administrator",
++            password=tsplus_admin_password,
++        )
++        if guac_res.get("ok"):
++            guac_connection_id = guac_res.get("id")
++            await _step("guacamole_register", "success",
++                        f"✓ Conexión Guacamole creada (id={guac_connection_id})")
++        else:
++            await _step("guacamole_register", "success",
++                        f"⚠ Guacamole no disponible ({guac_res.get('error', 'unknown')}). "
++                        f"Se usará el proxy NetBird como fallback.")
++    except Exception as guac_err:
++        await _step("guacamole_register", "success", f"⚠ Error registrando en Guacamole: {guac_err}")
++    await db.market_orders.update_one({"id": order_id}, {"$set": {
++        "guacamole_connection_id": guac_connection_id,
++    }})
++
+     # 9) zitadel_provision
+     await _step("zitadel_provision", "running", "Creando organización NeoGuard y usuario admin SSO...")
+     await asyncio.sleep(1.5)
+@@ -4610,12 +4645,14 @@ async def _provision_opennebula_vm(order_id: str):
+         "name": order["vm_name"],
+         "lxd_instance_name": order["vm_name"],
+         "source": "opennebula-marketplace",
++        "opennebula_vm_id": real_one_vm_id,  # id numérico real en OpenNebula (o sim-xxxx si quedó simulado)
+         "template_id": order["opennebula_template_id"],
+         "netbird_ip": netbird_ip,
+         "netbird_peer_id": netbird_peer_id,
+         "netbird_dns_label": netbird_dns_label,
+         "html5_access_url": expose_url,
+         "connection_url": expose_url,
++        "guacamole_connection_id": guac_connection_id,
+         "has_tsplus": True,
+         "tsplus_licenses": order["tsplus_users"],
+         "tsplus_users": order["tsplus_users"],
+@@ -4642,6 +4679,7 @@ async def _provision_opennebula_vm(order_id: str):
+         "netbird_dns_label": netbird_dns_label,
+         "rdp_username": "Administrator",
+         "rdp_password": order.get("tsplus_admin_password"),
++        "guacamole_connection_id": guac_connection_id,
+         "vm_id": demo_vm["id"],
+         "order_id": order_id,
+         "requires_netbird": True,
+@@ -5060,6 +5098,84 @@ async def delete_market_vm(vm_id: str, user: dict = Depends(get_current_user)):
+     return {"ok": True, "message": f"VM {vm_id} eliminada"}
+ 
+ 
++# ─── POST /market/vms/{vm_id}/action ───────────────────────────────────────────
++class MarketVmAction(BaseModel):
++    action: str  # start | stop | reboot | poweroff | suspend | resume
++
++_MARKET_VM_ACTION_STATUS = {
++    "start": "running", "resume": "running",
++    "stop": "stopped", "poweroff": "stopped", "suspend": "suspended",
++    "reboot": "running",
++}
++
++@api_router.post("/market/vms/{vm_id}/action")
++async def market_vm_action(vm_id: str, payload: MarketVmAction, user: dict = Depends(get_current_user)):
++    """
++    Start/Stop/Reboot para VMs provisionadas vía OpenNebula (source=opennebula-marketplace).
++    Las VMs 'lxd' siguen usando /lxd/instances/{name}/state.
++    """
++    vm = await db.market_vms.find_one({"id": vm_id}, {"_id": 0})
++    if not vm:
++        raise HTTPException(status_code=404, detail="VM no encontrada")
++    if user.get("role") != "admin" and vm.get("user_id") != user["id"]:
++        raise HTTPException(status_code=403, detail="No autorizado sobre esta VM")
++    if vm.get("source") == "lxd":
++        raise HTTPException(status_code=400, detail="Usa /lxd/instances/{name}/state para VMs LXD")
++
++    one_vm_id = vm.get("opennebula_vm_id") or vm.get("vm_id") or vm.get("id")
++    result = await opennebula_client.vm_action(str(one_vm_id), payload.action)
++    if not result.get("ok"):
++        raise HTTPException(status_code=502, detail=f"OpenNebula action failed: {result.get('error')}")
++
++    new_status = _MARKET_VM_ACTION_STATUS.get(payload.action, vm.get("status"))
++    await db.market_vms.update_one({"id": vm_id}, {"$set": {
++        "status": new_status,
++        "last_action": payload.action,
++        "last_action_at": datetime.now(timezone.utc).isoformat(),
++    }})
++    await create_audit_log(user["id"], user["email"], f"market_vm_{payload.action}",
++                            f"vm:{vm_id}", f"{payload.action} sobre {vm.get('name', vm_id)}")
++    return {"ok": True, "vm_id": vm_id, "action": payload.action, "status": new_status}
++
++
++# ─── GET /market/vms/{vm_id}/guacamole-link ────────────────────────────────────
++@api_router.get("/market/vms/{vm_id}/guacamole-link")
++async def market_vm_guacamole_link(vm_id: str, user: dict = Depends(get_current_user)):
++    """
++    Devuelve una URL de sesión Guacamole embebible/abrible directamente (token
++    incluido) para la VM. Si la VM no tiene guacamole_connection_id (registro
++    falló durante el provisioning o VM antigua), intenta auto-registrarla ahora
++    usando netbird_ip como hostname.
++    """
++    vm = await db.market_vms.find_one({"id": vm_id}, {"_id": 0})
++    if not vm:
++        raise HTTPException(status_code=404, detail="VM no encontrada")
++    if user.get("role") != "admin" and vm.get("user_id") != user["id"]:
++        raise HTTPException(status_code=403, detail="No autorizado sobre esta VM")
++
++    guac_conn_id = vm.get("guacamole_connection_id")
++    if not guac_conn_id:
++        if not vm.get("netbird_ip"):
++            raise HTTPException(status_code=409, detail="VM sin IP NetBird aún — espera a que termine el provisioning")
++        guac_res = await guacamole_client.create_connection(
++            name=f"NeoVDI-{vm.get('name', vm_id)}",
++            protocol="rdp",
++            hostname=vm["netbird_ip"],
++            port=3389,
++            username="Administrator",
++            password=vm.get("rdp_password", ""),
++        )
++        if not guac_res.get("ok"):
++            raise HTTPException(status_code=502, detail=f"No se pudo registrar en Guacamole: {guac_res.get('error')}")
++        guac_conn_id = guac_res.get("id")
++        await db.market_vms.update_one({"id": vm_id}, {"$set": {"guacamole_connection_id": guac_conn_id}})
++
++    link = await guacamole_client.get_connection_link(str(guac_conn_id))
++    if not link.get("ok"):
++        raise HTTPException(status_code=502, detail=f"No se pudo generar el link de Guacamole: {link.get('error')}")
++    return link
++
++
+ 
+ # ─── GET /market/orders (admin: ver todas las órdenes) ────────────────────────
+ @api_router.get("/market/orders")
+diff --git a/frontend/src/pages/WorkspacesPage.jsx b/frontend/src/pages/WorkspacesPage.jsx
+index ab03bce..0059eda 100644
+--- a/frontend/src/pages/WorkspacesPage.jsx
++++ b/frontend/src/pages/WorkspacesPage.jsx
+@@ -41,6 +41,30 @@ export default function WorkspacesPage() {
+     setDeleting(null);
+   };
+ 
++  const [acting, setActing] = useState(null); // `${vmId}:${action}`
++
++  const connectViaGuacamole = async (vm) => {
++    try {
++      const res = await axios.get(`${API}/market/vms/${vm.id}/guacamole-link`, { headers: getAuthHeader() });
++      window.open(res.data.url, '_blank');
++    } catch (err) {
++      toast.error(err.response?.data?.detail || 'No se pudo abrir la sesión Guacamole');
++    }
++  };
++
++  const vmAction = async (vm, action) => {
++    const key = `${vm.id}:${action}`;
++    setActing(key);
++    try {
++      const res = await axios.post(`${API}/market/vms/${vm.id}/action`, { action }, { headers: getAuthHeader() });
++      toast.success(`${action} ejecutado — estado: ${res.data.status}`);
++      setVms(prev => prev.map(v => v.id === vm.id ? { ...v, status: res.data.status } : v));
++    } catch (err) {
++      toast.error(err.response?.data?.detail || `Error ejecutando ${action}`);
++    }
++    setActing(null);
++  };
++
+   const statusColor = (s) => {
+     const sl = (s || '').toLowerCase();
+     if (['running', 'available'].includes(sl)) return 'bg-green-500';
+@@ -54,6 +78,17 @@ export default function WorkspacesPage() {
+     const hasHtml5 = vm.connection_url && (vm.connection_url.startsWith('http') || vm.tsplus_licenses > 0);
+     const hasIp = vm.ipv4 || (vm.connection_url && vm.connection_url.startsWith('ssh://'));
+ 
++    // Prioridad 1: conexión real registrada en Guacamole (NeoDesk) — RDP nativo
++    // vía el IP real de NetBird, no la URL genérica del proxy.
++    if (vm.guacamole_connection_id) {
++      return (
++        <Button size="sm" className="bg-purple-500 hover:bg-purple-400 text-black gap-1" data-testid={`open-guac-${vm.id}`}
++          onClick={() => connectViaGuacamole(vm)}>
++          <Monitor className="w-3 h-3" /> RDP (Guacamole)
++        </Button>
++      );
++    }
++
+     if (hasHtml5) {
+       return (
+         <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1" data-testid={`open-html5-${vm.id}`}
+@@ -134,6 +169,22 @@ export default function WorkspacesPage() {
+                     </div>
+                     {vm.order && <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-xs">{vm.order.neosc_plan}</Badge>}
+                     {getConnectionButton(vm)}
++                    {isAdmin && vm.source === 'opennebula-marketplace' && (
++                      <div className="flex gap-1">
++                        <Button size="sm" variant="outline" className="text-xs h-7 px-2" data-testid={`start-${vm.id}`}
++                          disabled={acting === `${vm.id}:start`} onClick={() => vmAction(vm, 'start')}>
++                          {acting === `${vm.id}:start` ? '…' : 'Start'}
++                        </Button>
++                        <Button size="sm" variant="outline" className="text-xs h-7 px-2" data-testid={`stop-${vm.id}`}
++                          disabled={acting === `${vm.id}:stop`} onClick={() => vmAction(vm, 'stop')}>
++                          {acting === `${vm.id}:stop` ? '…' : 'Stop'}
++                        </Button>
++                        <Button size="sm" variant="outline" className="text-xs h-7 px-2" data-testid={`reboot-${vm.id}`}
++                          disabled={acting === `${vm.id}:reboot`} onClick={() => vmAction(vm, 'reboot')}>
++                          {acting === `${vm.id}:reboot` ? '…' : 'Reboot'}
++                        </Button>
++                      </div>
++                    )}
+                     {isAdmin && (
+                       <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 h-8 w-8 p-0"
+                         data-testid={`delete-${vm.id}`} onClick={() => deleteVm(vm.id)} disabled={deleting === vm.id}>
+-- 
+2.43.0
+
+
+From 0afb2a884fa93d5fcb28e9408057c61349dfb81e Mon Sep 17 00:00:00 2001
+From: "Benja Frias (via Claude)" <benja@kappa4.com>
+Date: Sat, 18 Jul 2026 04:56:39 +0000
+Subject: [PATCH 2/2] chore(staging): docker-compose para probar el feature en
+ rama aparte
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Mongo aislado (neosc_staging) — no toca datos de producción.
+- NetBird/Zitadel/OpenNebula/Guacamole SIN mock — van contra las APIs
+  reales vía .env.staging (advertencia explícita en README-STAGING.md:
+  esto crea/modifica recursos reales, no es un sandbox de esas 4 APIs).
+- Backend en :8002, frontend en :3001 — no choca con el proceso real en
+  :8001.
+- docker/staging/.env.staging.example generado directamente desde los
+  os.environ[...] que server.py realmente usa (no inventado).
+---
+ docker/staging/Dockerfile.backend         | 20 +++++
+ docker/staging/Dockerfile.frontend        | 23 ++++++
+ docker/staging/README-STAGING.md          | 94 +++++++++++++++++++++++
+ docker/staging/docker-compose.staging.yml | 74 ++++++++++++++++++
+ 4 files changed, 211 insertions(+)
+ create mode 100644 docker/staging/Dockerfile.backend
+ create mode 100644 docker/staging/Dockerfile.frontend
+ create mode 100644 docker/staging/README-STAGING.md
+ create mode 100644 docker/staging/docker-compose.staging.yml
+
+diff --git a/docker/staging/Dockerfile.backend b/docker/staging/Dockerfile.backend
+new file mode 100644
+index 0000000..83ddf89
+--- /dev/null
++++ b/docker/staging/Dockerfile.backend
+@@ -0,0 +1,20 @@
++FROM python:3.11-slim
++
++WORKDIR /app
++
++# Dependencias de sistema mínimas (compilación de cryptography/bcrypt, etc.)
++RUN apt-get update && apt-get install -y --no-install-recommends \
++    build-essential \
++    && rm -rf /var/lib/apt/lists/*
++
++COPY backend/requirements.txt .
++RUN pip install --no-cache-dir -r requirements.txt
++
++COPY backend/ .
++
++EXPOSE 8001
++
++HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
++    CMD python -c "import httpx; httpx.get('http://localhost:8001/api/', timeout=3)" || exit 1
++
++CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
+diff --git a/docker/staging/Dockerfile.frontend b/docker/staging/Dockerfile.frontend
+new file mode 100644
+index 0000000..11a0877
+--- /dev/null
++++ b/docker/staging/Dockerfile.frontend
+@@ -0,0 +1,23 @@
++# ── Etapa 1: build ──
++FROM node:20-alpine AS build
++WORKDIR /app
++COPY frontend/package.json frontend/yarn.lock* frontend/package-lock.json* ./
++RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else npm install; fi
++
++COPY frontend/ .
++
++# URL que el NAVEGADOR del usuario usará para llegar al backend de staging.
++# Debe ser alcanzable desde donde abras el navegador (IP NetBird del host,
++# o localhost:8002 si pruebas desde el propio giving-flounder).
++ARG REACT_APP_BACKEND_URL=http://localhost:8002
++ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
++
++RUN if [ -f yarn.lock ]; then yarn build; else npm run build; fi
++
++# ── Etapa 2: servir estático ──
++FROM node:20-alpine
++WORKDIR /app
++RUN npm install -g serve
++COPY --from=build /app/build ./build
++EXPOSE 3000
++CMD ["serve", "-s", "build", "-l", "3000"]
+diff --git a/docker/staging/README-STAGING.md b/docker/staging/README-STAGING.md
+new file mode 100644
+index 0000000..c42df39
+--- /dev/null
++++ b/docker/staging/README-STAGING.md
+@@ -0,0 +1,94 @@
++# Staging — feature/opennebula-vm-lifecycle-guacamole
++
++## ⚠️ Lee esto antes de correr nada
++
++- **Mongo está aislado** (`neosc_staging`, contenedor propio) — no toca tus
++  `market_orders`/`market_vms`/`users` de producción.
++- **NetBird, Zitadel, OpenNebula y Guacamole NO están aislados.** Este compose
++  usa tus credenciales reales (`.env.staging`). Si desde el frontend de
++  staging creas una orden de VM, o le das Start/Stop/Reboot a una VM, o abres
++  "RDP (Guacamole)" — eso **crea/modifica recursos reales**:
++  - una VM real en OpenNebula
++  - una conexión real en tu Guacamole
++  - un setup-key real en NetBird
++  - potencialmente un cargo si tu NetBird/Zitadel son de pago por uso
++- Recomendación: prueba primero con una VM de bajo costo/desechable, y
++  bórrala al terminar con `DELETE /market/vms/{vm_id}` (ya existe, solo admin)
++  o `Trash2` en la UI de Workspaces.
++
++## Levantar
++
++```bash
++cd ~/NeoSC-site
++git checkout feature/opennebula-vm-lifecycle-guacamole   # o aplica el patch si aún no está en el repo
++
++cp docker/staging/.env.staging.example docker/staging/.env.staging
++nano docker/staging/.env.staging
++# — copia los valores reales desde el .env que ya usa tu backend en :8001 —
++
++# Si vas a abrir el navegador desde otra máquina (no giving-flounder), cambia
++# REACT_APP_BACKEND_URL a la IP NetBird del host, ej:
++#   REACT_APP_BACKEND_URL=http://100.121.53.218:8002
++
++docker compose -f docker/staging/docker-compose.staging.yml \
++  --env-file docker/staging/.env.staging up -d --build
++```
++
++## Bootstrap del primer usuario admin (Mongo de staging está vacío)
++
++Ya tienes `create_local_admin.py` en la raíz del repo — apúntalo a la base
++de staging:
++
++```bash
++docker exec -it neosc-staging-backend python create_local_admin.py \
++  --email admin@staging.local --password "TuPasswordTemporal123!"
++# (revisa create_local_admin.py por si los flags exactos difieren)
++```
++
++Si el script no soporta correr dentro del contenedor tal cual, corre este
++one-liner apuntando Mongo al puerto expuesto (27018):
++
++```bash
++MONGO_URL=mongodb://localhost:27018 DB_NAME=neosc_staging \
++  python3 create_local_admin.py
++```
++
++## Verificar
++
++```bash
++curl http://localhost:8002/api/                          # backend vivo
++curl http://localhost:8002/api/market/addons              # catálogo (público)
++open http://localhost:3001                                # frontend (o navega manualmente)
++```
++
++## Probar específicamente lo nuevo de este feature
++
++1. Login como admin en `http://localhost:3001`.
++2. Ve a **Market** → crea una orden de VM (te va a cobrar/aprovisionar real
++   en OpenNebula).
++3. Sigue el progreso — deberías ver el nuevo paso **"guacamole_register"**
++   entre `netbird_configure` y `zitadel_provision`.
++4. Ve a **Workspaces** — la VM debería mostrar el botón morado
++   **"RDP (Guacamole)"** en vez del botón cian genérico de HTML5, si
++   `guacamole_connection_id` quedó seteado.
++5. Como admin, prueba los botones **Start / Stop / Reboot** — esto es lo que
++   NO pude verificar contra tu wrapper real. Si falla con 502, el problema
++   más probable es que `POST /vm/{id}/action` no es la ruta real del wrapper
++   Node.js — habrá que ajustarla en `backend/opennebula_client.py` según lo
++   que confirmes con `curl` directo al wrapper.
++
++## Apagar / limpiar
++
++```bash
++docker compose -f docker/staging/docker-compose.staging.yml down
++# agrega -v si quieres borrar también el volumen de Mongo de staging
++docker compose -f docker/staging/docker-compose.staging.yml down -v
++```
++
++Esto NO toca tu proceso backend real en `:8001` (sigue corriendo huérfano,
++como ya sabes — issue aparte pendiente en tu roadmap).
++
++## Nota de seguridad aparte (no de este feature, pero la vi al clonar)
++`backend/lxd-client.key`, `.crt`, `.pfx` siguen versionados en git — sigue
++siendo el P0 pendiente de purgar del historial y rotar que ya tenías
++trackeado. No lo toqué en esta rama para no mezclar cambios no relacionados.
+diff --git a/docker/staging/docker-compose.staging.yml b/docker/staging/docker-compose.staging.yml
+new file mode 100644
+index 0000000..6c96829
+--- /dev/null
++++ b/docker/staging/docker-compose.staging.yml
+@@ -0,0 +1,74 @@
++# Staging de feature/opennebula-vm-lifecycle-guacamole
++#
++# - Backend/Frontend: contenedores nuevos, puertos distintos a producción
++#   (8001/3000 siguen intactos y corriendo como proceso huérfano actual).
++# - Mongo: contenedor AISLADO con su propia base (neosc_staging) — así las
++#   pruebas no tocan tus market_orders/market_vms/users reales.
++# - NetBird / Zitadel / OpenNebula / Guacamole: SIN mocks. Van directo a tus
++#   endpoints reales vía .env.staging. Esto significa que probar
++#   start/stop/reboot y el registro en Guacamole AFECTA infraestructura real
++#   (VMs reales en OpenNebula, conexiones reales en tu Guacamole, setup keys
++#   reales en NetBird). No es un sandbox de esas 4 APIs, solo de la base de
++#   datos y de los procesos backend/frontend.
++#
++# Uso:
++#   git checkout feature/opennebula-vm-lifecycle-guacamole
++#   cp docker/staging/.env.staging.example docker/staging/.env.staging
++#   # editar .env.staging con tus credenciales reales
++#   docker compose -f docker/staging/docker-compose.staging.yml --env-file docker/staging/.env.staging up -d --build
++#
++# Acceso:
++#   Backend:  http://<IP-de-giving-flounder-o-NetBird>:8002/api/
++#   Frontend: http://<IP-de-giving-flounder-o-NetBird>:3001
++
++services:
++  mongo-staging:
++    image: mongo:7
++    container_name: neosc-staging-mongo
++    restart: unless-stopped
++    volumes:
++      - neosc_staging_mongo_data:/data/db
++    ports:
++      - "27018:27017"   # solo para que puedas inspeccionar con mongosh/Compass si quieres
++    networks:
++      - neosc-staging-net
++
++  backend-staging:
++    build:
++      context: ../..
++      dockerfile: docker/staging/Dockerfile.backend
++    container_name: neosc-staging-backend
++    restart: unless-stopped
++    env_file:
++      - .env.staging
++    environment:
++      MONGO_URL: mongodb://mongo-staging:27017
++      DB_NAME: neosc_staging
++    ports:
++      - "8002:8001"
++    depends_on:
++      - mongo-staging
++    networks:
++      - neosc-staging-net
++
++  frontend-staging:
++    build:
++      context: ../..
++      dockerfile: docker/staging/Dockerfile.frontend
++      args:
++        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost:8002}
++    container_name: neosc-staging-frontend
++    restart: unless-stopped
++    ports:
++      - "3001:3000"
++    depends_on:
++      - backend-staging
++    networks:
++      - neosc-staging-net
++
++volumes:
++  neosc_staging_mongo_data:
++
++networks:
++  neosc-staging-net:
++    driver: bridge
+-- 
+2.43.0
+

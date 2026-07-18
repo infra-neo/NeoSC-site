@@ -1,0 +1,468 @@
+From 6e599093dbc8706dee9a202798e39e12a2b55857 Mon Sep 17 00:00:00 2001
+From: "Claude (NeoSC assistant)" <claude@neosc.local>
+Date: Thu, 16 Jul 2026 08:11:18 +0000
+Subject: [PATCH] fix(auth): reemplazar auth local hardcodeada por bcrypt +
+ registro cerrado
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Problemas resueltos:
+- LoginPage.jsx exponía credenciales admin/demo en texto plano en el
+  bundle del frontend (Admin123!, Demo123! x3) — eliminado, reemplazado
+  por formulario real de login local.
+- hash_password() usaba SHA-256 sin salt — migrado a bcrypt, con
+  verificación retrocompatible y re-hash perezoso de hashes legacy.
+- /api/auth/register no requería autenticación (P0 conocido) — ahora
+  requiere admin autenticado.
+- seed_data() creaba admin con password fallback hardcodeado y 3
+  usuarios demo con password fija en cada arranque — ahora requiere
+  ADMIN_EMAIL/ADMIN_PASSWORD explícitos y demo users son opt-in vía
+  SEED_DEMO_USERS=true con passwords aleatorias.
+- Agregado scripts/create_local_admin.py para crear el primer admin
+  local sin pasar por la API (ya que /auth/register quedó cerrado).
+
+No afecta login SSO Zitadel, que sigue como método principal.
+---
+ backend/scripts/create_local_admin.py |  95 +++++++++++++++++++
+ backend/server.py                     | 126 ++++++++++++++++++--------
+ frontend/src/pages/LoginPage.jsx      | 118 +++++++++++-------------
+ 3 files changed, 236 insertions(+), 103 deletions(-)
+ create mode 100644 backend/scripts/create_local_admin.py
+
+diff --git a/backend/scripts/create_local_admin.py b/backend/scripts/create_local_admin.py
+new file mode 100644
+index 0000000..08f04ed
+--- /dev/null
++++ b/backend/scripts/create_local_admin.py
+@@ -0,0 +1,95 @@
++#!/usr/bin/env python3
++"""
++Crea (o resetea la contraseña de) un usuario admin local en MongoDB,
++usando el mismo hashing (bcrypt) que server.py.
++
++Necesario porque /api/auth/register ahora requiere estar autenticado
++como admin — este script es la única vía para crear el primer admin
++sin pasar por la API.
++
++Uso:
++    cd backend
++    python3 scripts/create_local_admin.py
++"""
++import asyncio
++import getpass
++import os
++import sys
++import uuid
++from datetime import datetime, timezone
++from pathlib import Path
++
++import bcrypt
++from dotenv import load_dotenv
++from motor.motor_asyncio import AsyncIOMotorClient
++
++ROOT_DIR = Path(__file__).resolve().parent.parent
++load_dotenv(ROOT_DIR / ".env")
++
++
++def hash_password(password: str) -> str:
++    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
++
++
++async def main():
++    mongo_url = os.environ.get("MONGO_URL")
++    db_name = os.environ.get("DB_NAME")
++    if not mongo_url or not db_name:
++        print("❌ MONGO_URL o DB_NAME no definidos en backend/.env")
++        sys.exit(1)
++
++    client = AsyncIOMotorClient(mongo_url)
++    db = client[db_name]
++
++    email = input("Email del admin: ").strip().lower()
++    if not email or "@" not in email:
++        print("❌ Email inválido.")
++        sys.exit(1)
++
++    name = input("Nombre para mostrar [Platform Admin]: ").strip() or "Platform Admin"
++
++    password = getpass.getpass("Password (mínimo 12 caracteres): ")
++    if len(password) < 12:
++        print("❌ La contraseña debe tener al menos 12 caracteres.")
++        sys.exit(1)
++    password_confirm = getpass.getpass("Confirma password: ")
++    if password != password_confirm:
++        print("❌ Las contraseñas no coinciden.")
++        sys.exit(1)
++
++    existing = await db.users.find_one({"email": email})
++    password_hash = hash_password(password)
++
++    if existing:
++        confirm = input(
++            f"⚠️  Ya existe un usuario con {email} (role={existing.get('role')}). "
++            f"¿Actualizar su password y rol a admin? [y/N]: "
++        ).strip().lower()
++        if confirm != "y":
++            print("Cancelado.")
++            sys.exit(0)
++        await db.users.update_one(
++            {"email": email},
++            {"$set": {"password_hash": password_hash, "role": "admin", "name": name}},
++        )
++        print(f"✅ Usuario {email} actualizado a admin con nueva password.")
++    else:
++        doc = {
++            "id": str(uuid.uuid4()),
++            "email": email,
++            "name": name,
++            "organization": "NeoSC Platform",
++            "tenant_id": None,
++            "role": "admin",
++            "mfa_enabled": True,
++            "created_at": datetime.now(timezone.utc).isoformat(),
++            "password_hash": password_hash,
++        }
++        await db.users.insert_one(doc)
++        print(f"✅ Admin local '{email}' creado.")
++
++    client.close()
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+diff --git a/backend/server.py b/backend/server.py
+index 4e4ee6f..9f3a971 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -12,6 +12,7 @@ import uuid
+ from datetime import datetime, timezone
+ import secrets
+ import hashlib
++import bcrypt
+ import httpx
+ from emergentintegrations.llm.chat import LlmChat, UserMessage
+ 
+@@ -192,7 +193,23 @@ class WorkspaceAssignment(BaseModel):
+ # ─── Helper Functions ─────────────────────────────────────────────────────────
+ 
+ def hash_password(password: str) -> str:
+-    return hashlib.sha256(password.encode()).hexdigest()
++    """bcrypt hash — reemplaza el SHA-256 sin salt anterior (inseguro)."""
++    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
++
++def _is_legacy_sha256_hash(stored_hash: str) -> bool:
++    # SHA-256 hex digest = 64 chars; bcrypt siempre empieza con $2b$/$2a$/$2y$
++    return len(stored_hash) == 64 and not stored_hash.startswith("$2")
++
++def verify_password(plain_password: str, stored_hash: str) -> bool:
++    """Verifica contra bcrypt. Si el hash guardado es el SHA-256 legacy, lo
++    valida con el algoritmo viejo por compatibilidad — el caller debe
++    re-hashear y guardar en bcrypt tras un match exitoso (ver login())."""
++    if _is_legacy_sha256_hash(stored_hash):
++        return hashlib.sha256(plain_password.encode()).hexdigest() == stored_hash
++    try:
++        return bcrypt.checkpw(plain_password.encode("utf-8"), stored_hash.encode("utf-8"))
++    except (ValueError, TypeError):
++        return False
+ 
+ def generate_token() -> str:
+     return secrets.token_urlsafe(32)
+@@ -270,7 +287,12 @@ async def get_current_user(authorization: str = Header(None)):
+ # ============ AUTH ENDPOINTS ============
+ 
+ @api_router.post("/auth/register", response_model=AuthToken)
+-async def register(user_data: UserCreate):
++async def register(user_data: UserCreate, current_user: dict = Depends(get_current_user)):
++    # P0 fix: este endpoint creaba cuentas sin ninguna autenticación previa.
++    # Ahora solo un admin ya autenticado puede crear usuarios locales.
++    if current_user.get('role') not in ('admin', 'platform_admin'):
++        raise HTTPException(status_code=403, detail="Solo un administrador puede crear usuarios locales")
++
+     # Check if user exists
+     existing = await db.users.find_one({"email": user_data.email}, {"_id": 0})
+     if existing:
+@@ -319,9 +341,18 @@ async def login(credentials: UserLogin):
+     if not user_doc:
+         raise HTTPException(status_code=401, detail="Invalid credentials")
+     
+-    if user_doc.get('password_hash') != hash_password(credentials.password):
++    stored_hash = user_doc.get('password_hash', '')
++    if not stored_hash or not verify_password(credentials.password, stored_hash):
+         raise HTTPException(status_code=401, detail="Invalid credentials")
+-    
++
++    # Migración perezosa: si el hash guardado era el SHA-256 legacy, lo
++    # reemplazamos por bcrypt ahora que sabemos la contraseña en texto plano.
++    if _is_legacy_sha256_hash(stored_hash):
++        await db.users.update_one(
++            {"email": credentials.email},
++            {"$set": {"password_hash": hash_password(credentials.password)}}
++        )
++
+     token = generate_token()
+     user_dict = {
+         "id": user_doc['id'],
+@@ -5351,43 +5382,58 @@ async def seed_data():
+     default_tenant = await ensure_default_tenant()
+     default_tid = default_tenant["id"]
+ 
+-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@windesk.cloud")
+-    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
+-
+-    existing_admin = await db.users.find_one({"email": admin_email})
+-    if not existing_admin:
+-        admin_user = User(
+-            email=admin_email,
+-            name="Platform Admin",
+-            organization="NeoSC Platform",
+-            tenant_id=default_tid,
+-            role="admin",
+-            mfa_enabled=True,
+-        )
+-        admin_doc = admin_user.model_dump()
+-        admin_doc['created_at'] = admin_doc['created_at'].isoformat()
+-        admin_doc['password_hash'] = hash_password(admin_password)
+-        await db.users.insert_one(admin_doc)
+-        logger.info(f"Admin user seeded: {admin_email}")
+-
+-    demo_users = [
+-        {"email": "usuario1@windesk.cloud", "name": "Usuario Demo 1", "password": "Demo123!"},
+-        {"email": "usuario2@windesk.cloud", "name": "Usuario Demo 2", "password": "Demo123!"},
+-        {"email": "usuario3@windesk.cloud", "name": "Usuario Demo 3", "password": "Demo123!"},
+-    ]
+-    for du in demo_users:
+-        existing = await db.users.find_one({"email": du["email"]})
+-        if not existing:
+-            user = User(
+-                email=du["email"],
+-                name=du["name"],
+-                organization="Demo Organization",
+-                role="user",
++    # Seguridad: ya no hay password de admin hardcodeado como fallback.
++    # ADMIN_EMAIL + ADMIN_PASSWORD deben definirse explícitamente en .env
++    # para que se cree (o re-sincronice) el admin local en el arranque.
++    admin_email = os.environ.get("ADMIN_EMAIL")
++    admin_password = os.environ.get("ADMIN_PASSWORD")
++
++    if admin_email and admin_password:
++        existing_admin = await db.users.find_one({"email": admin_email})
++        if not existing_admin:
++            admin_user = User(
++                email=admin_email,
++                name="Platform Admin",
++                organization="NeoSC Platform",
++                tenant_id=default_tid,
++                role="admin",
++                mfa_enabled=True,
+             )
+-            doc = user.model_dump()
+-            doc['created_at'] = doc['created_at'].isoformat()
+-            doc['password_hash'] = hash_password(du["password"])
+-            await db.users.insert_one(doc)
++            admin_doc = admin_user.model_dump()
++            admin_doc['created_at'] = admin_doc['created_at'].isoformat()
++            admin_doc['password_hash'] = hash_password(admin_password)
++            await db.users.insert_one(admin_doc)
++            logger.info(f"Admin user seeded: {admin_email}")
++    else:
++        logger.warning(
++            "ADMIN_EMAIL/ADMIN_PASSWORD no definidos — no se sembró ningún admin local. "
++            "Usa scripts/create_local_admin.py para crear el primero manualmente."
++        )
++
++    # Los usuarios demo con password fija ('Demo123!') eran visibles en texto
++    # plano en el frontend (LoginPage.jsx) — eliminados. Si se necesitan datos
++    # de demo para un entorno de pruebas, activar explícitamente con
++    # SEED_DEMO_USERS=true (nunca en producción).
++    if os.environ.get("SEED_DEMO_USERS", "false").lower() == "true":
++        demo_users = [
++            {"email": "usuario1@windesk.cloud", "name": "Usuario Demo 1", "password": secrets.token_urlsafe(12)},
++            {"email": "usuario2@windesk.cloud", "name": "Usuario Demo 2", "password": secrets.token_urlsafe(12)},
++            {"email": "usuario3@windesk.cloud", "name": "Usuario Demo 3", "password": secrets.token_urlsafe(12)},
++        ]
++        for du in demo_users:
++            existing = await db.users.find_one({"email": du["email"]})
++            if not existing:
++                user = User(
++                    email=du["email"],
++                    name=du["name"],
++                    organization="Demo Organization",
++                    role="user",
++                )
++                doc = user.model_dump()
++                doc['created_at'] = doc['created_at'].isoformat()
++                doc['password_hash'] = hash_password(du["password"])
++                await db.users.insert_one(doc)
++                logger.info(f"Demo user seeded: {du['email']} / password: {du['password']}")
+ 
+     # Create indexes
+     await db.users.create_index("email", unique=True)
+diff --git a/frontend/src/pages/LoginPage.jsx b/frontend/src/pages/LoginPage.jsx
+index 44f574c..803597a 100644
+--- a/frontend/src/pages/LoginPage.jsx
++++ b/frontend/src/pages/LoginPage.jsx
+@@ -3,8 +3,9 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+ import { useAuth } from '@/context/AuthContext';
+ import { ZITADEL_CLOUD_CONFIG } from '@/config/zitadel';
+ import { Button } from '@/components/ui/button';
++import { Input } from '@/components/ui/input';
+ import { toast } from 'sonner';
+-import { Zap, Crown, Users, Shield } from 'lucide-react';
++import { Shield, Lock, Mail } from 'lucide-react';
+ 
+ function generateRandomString() {
+   const array = new Uint8Array(32);
+@@ -22,18 +23,13 @@ async function generateCodeChallenge(verifier) {
+     .replace(/=/g, '');
+ }
+ 
+-const QUICK_ACCOUNTS = [
+-  { email: 'admin@windesk.cloud', password: 'Admin123!', label: 'Platform Admin', role: 'admin', icon: Crown, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20' },
+-  { email: 'usuario1@windesk.cloud', password: 'Demo123!', label: 'Usuario Demo 1', role: 'user', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20' },
+-  { email: 'usuario2@windesk.cloud', password: 'Demo123!', label: 'Usuario Demo 2', role: 'user', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20' },
+-  { email: 'usuario3@windesk.cloud', password: 'Demo123!', label: 'Usuario Demo 3', role: 'user', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20' },
+-];
+-
+ export default function LoginPage() {
+   const navigate = useNavigate();
+   const [searchParams] = useSearchParams();
+   const { login, user, loading: authLoading } = useAuth();
+-  const [loading, setLoading] = useState(null);
++  const [loading, setLoading] = useState(false);
++  const [email, setEmail] = useState('');
++  const [password, setPassword] = useState('');
+ 
+   const from = searchParams.get('from') || '/dashboard';
+ 
+@@ -44,15 +40,17 @@ export default function LoginPage() {
+     }
+   }, [authLoading, user, navigate, from]);
+ 
+-  const handleQuickLogin = async (account) => {
+-    setLoading(account.email);
++  const handleLocalLogin = async (e) => {
++    e.preventDefault();
++    if (!email || !password) return;
++    setLoading(true);
+     try {
+-      await login(account.email, account.password);
++      await login(email, password);
+       navigate(from, { replace: true });
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || 'Error de autenticación');
++      toast.error(err.response?.data?.detail || 'Usuario o contraseña incorrectos');
+     } finally {
+-      setLoading(null);
++      setLoading(false);
+     }
+   };
+ 
+@@ -113,61 +111,55 @@ export default function LoginPage() {
+             <div className="w-full border-t border-border" />
+           </div>
+           <div className="relative flex justify-center text-xs">
+-            <span className="bg-background px-3 text-muted-foreground">o acceso rápido local</span>
++            <span className="bg-background px-3 text-muted-foreground">o con cuenta local</span>
+           </div>
+         </div>
+ 
+-        {/* Quick Access Accounts */}
+-        <div className="space-y-3" data-testid="quick-access-list">
+-          {QUICK_ACCOUNTS.map((account) => {
+-            const Icon = account.icon;
+-            const isLoading = loading === account.email;
+-            return (
+-              <button
+-                key={account.email}
+-                onClick={() => handleQuickLogin(account)}
+-                disabled={loading !== null}
+-                data-testid={`quick-login-${account.role === 'admin' ? 'admin' : account.email.split('@')[0]}`}
+-                className={`
+-                  w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200
+-                  ${account.bg}
+-                  ${isLoading ? 'ring-2 ring-cyan-500/50' : ''}
+-                  disabled:opacity-50
+-                `}
+-              >
+-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+-                  account.role === 'admin' 
+-                    ? 'bg-gradient-to-br from-orange-500 to-amber-500' 
+-                    : 'bg-gradient-to-br from-cyan-500 to-cyan-600'
+-                }`}>
+-                  {isLoading ? (
+-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+-                  ) : (
+-                    <Icon className="w-5 h-5 text-white" />
+-                  )}
+-                </div>
+-                <div className="flex-1 text-left">
+-                  <div className="font-bold text-sm">{account.label}</div>
+-                  <div className="text-xs text-muted-foreground">{account.email}</div>
+-                </div>
+-                <div className="flex items-center gap-2">
+-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+-                    account.role === 'admin' 
+-                      ? 'bg-orange-500/20 text-orange-400' 
+-                      : 'bg-cyan-500/20 text-cyan-400'
+-                  }`}>
+-                    {account.role}
+-                  </span>
+-                  <Zap className={`w-4 h-4 ${account.color}`} />
+-                </div>
+-              </button>
+-            );
+-          })}
+-        </div>
++        {/* Local login form */}
++        <form onSubmit={handleLocalLogin} className="space-y-3" data-testid="local-login-form">
++          <div className="relative">
++            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
++            <Input
++              type="email"
++              placeholder="correo@empresa.com"
++              value={email}
++              onChange={(e) => setEmail(e.target.value)}
++              className="pl-9"
++              autoComplete="username"
++              data-testid="local-login-email"
++              required
++            />
++          </div>
++          <div className="relative">
++            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
++            <Input
++              type="password"
++              placeholder="Contraseña"
++              value={password}
++              onChange={(e) => setPassword(e.target.value)}
++              className="pl-9"
++              autoComplete="current-password"
++              data-testid="local-login-password"
++              required
++            />
++          </div>
++          <Button
++            type="submit"
++            className="w-full py-5"
++            disabled={loading}
++            data-testid="local-login-submit"
++          >
++            {loading ? (
++              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
++            ) : (
++              'Iniciar sesión'
++            )}
++          </Button>
++        </form>
+ 
+         <div className="text-center">
+           <p className="text-xs text-muted-foreground">
+-            Bypass local + NeoSC SSO
++            Las cuentas locales las crea un administrador de la plataforma.
+           </p>
+         </div>
+       </div>
+-- 
+2.43.0
+

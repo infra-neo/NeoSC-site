@@ -1,0 +1,23 @@
+# ── Etapa 1: build ──
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY frontend/package.json frontend/yarn.lock* frontend/package-lock.json* ./
+RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else npm install; fi
+
+COPY frontend/ .
+
+# URL que el NAVEGADOR del usuario usará para llegar al backend de staging.
+# Debe ser alcanzable desde donde abras el navegador (IP NetBird del host,
+# o localhost:8002 si pruebas desde el propio giving-flounder).
+ARG REACT_APP_BACKEND_URL=http://localhost:8002
+ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
+
+RUN if [ -f yarn.lock ]; then yarn build; else npm run build; fi
+
+# ── Etapa 2: servir estático ──
+FROM node:20-alpine
+WORKDIR /app
+RUN npm install -g serve
+COPY --from=build /app/build ./build
+EXPOSE 3000
+CMD ["serve", "-s", "build", "-l", "3000"]

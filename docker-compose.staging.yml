@@ -1,0 +1,74 @@
+# Staging de feature/opennebula-vm-lifecycle-guacamole
+#
+# - Backend/Frontend: contenedores nuevos, puertos distintos a producción
+#   (8001/3000 siguen intactos y corriendo como proceso huérfano actual).
+# - Mongo: contenedor AISLADO con su propia base (neosc_staging) — así las
+#   pruebas no tocan tus market_orders/market_vms/users reales.
+# - NetBird / Zitadel / OpenNebula / Guacamole: SIN mocks. Van directo a tus
+#   endpoints reales vía .env.staging. Esto significa que probar
+#   start/stop/reboot y el registro en Guacamole AFECTA infraestructura real
+#   (VMs reales en OpenNebula, conexiones reales en tu Guacamole, setup keys
+#   reales en NetBird). No es un sandbox de esas 4 APIs, solo de la base de
+#   datos y de los procesos backend/frontend.
+#
+# Uso:
+#   git checkout feature/opennebula-vm-lifecycle-guacamole
+#   cp docker/staging/.env.staging.example docker/staging/.env.staging
+#   # editar .env.staging con tus credenciales reales
+#   docker compose -f docker/staging/docker-compose.staging.yml --env-file docker/staging/.env.staging up -d --build
+#
+# Acceso:
+#   Backend:  http://<IP-de-giving-flounder-o-NetBird>:8002/api/
+#   Frontend: http://<IP-de-giving-flounder-o-NetBird>:3001
+
+services:
+  mongo-staging:
+    image: mongo:7
+    container_name: neosc-staging-mongo
+    restart: unless-stopped
+    volumes:
+      - neosc_staging_mongo_data:/data/db
+    ports:
+      - "27018:27017"   # solo para que puedas inspeccionar con mongosh/Compass si quieres
+    networks:
+      - neosc-staging-net
+
+  backend-staging:
+    build:
+      context: ../..
+      dockerfile: docker/staging/Dockerfile.backend
+    container_name: neosc-staging-backend
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      MONGO_URL: mongodb://mongo-staging:27017
+      DB_NAME: neosc_staging
+    ports:
+      - "8002:8001"
+    depends_on:
+      - mongo-staging
+    networks:
+      - neosc-staging-net
+
+  frontend-staging:
+    build:
+      context: ../..
+      dockerfile: docker/staging/Dockerfile.frontend
+      args:
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost:8002}
+    container_name: neosc-staging-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend-staging
+    networks:
+      - neosc-staging-net
+
+volumes:
+  neosc_staging_mongo_data:
+
+networks:
+  neosc-staging-net:
+    driver: bridge
