@@ -24,6 +24,7 @@ from tsplus_manager import tsplus_manager
 from notifications_hub import hub as notifications_hub, sse_generator
 from opennebula_client import opennebula_client, TEMPLATE_CATALOG
 from netbird_cloud_client import netbird_cloud_client
+import sunset_sync
 import html as html_escape_mod
 
 # MongoDB connection
@@ -4333,13 +4334,94 @@ async def _simulate_provisioning(order_id: str):
 # ─── GET /market/addons ────────────────────────────────────────────────────────
 @api_router.get("/market/templates")
 async def market_list_templates():
-    """Public OpenCloud Marketplace catalog (mirrors http://149.56.241.64:3000/marketplace.html)."""
+    """
+    Public OpenCloud Marketplace catalog.
+    Fetches LIVE from Sunset /api/templates, falls back to static TEMPLATE_CATALOG
+    if Sunset is unreachable so the UI never breaks.
+    """
     health = await opennebula_client.health()
+    templates = None
+    source = "static"
+    if health.get("ok"):
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=8) as c:
+                r = await c.get(
+                    f"{os.environ.get('OPENNEBULA_API_URL','').rstrip('/')}/templates",
+                    headers={"Authorization": f"Bearer {os.environ.get('OPENNEBULA_TOKEN','')}"},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    live = data.get("templates") if isinstance(data, dict) else data
+                    if isinstance(live, list) and live:
+                        # Merge Sunset fields into our marketplace shape
+                        merged = []
+                        for t in live:
+                            tpl_id = t.get("templateId") or t.get("id")
+                            base = next((c for c in TEMPLATE_CATALOG if c["templateId"] == tpl_id), None)
+                            merged.append({
+                                "templateId": tpl_id,
+                                "name": t.get("name") or (base or {}).get("name", ""),
+                                "badge": t.get("profile") or t.get("badge") or (base or {}).get("badge", "STD"),
+                                "version": t.get("version") or "1.0.0",
+                                "tier": (base or {}).get("tier", "business"),
+                                "tsplus_users": (base or {}).get("tsplus_users",
+                                                                    {"default": 3, "min": 3, "max": 100}),
+                                "description": t.get("description") or (base or {}).get("description", ""),
+                                "cpu": t.get("cpu") or (base or {}).get("cpu", 4),
+                                "memory": t.get("memory") or (base or {}).get("memory", 8192),
+                                "disk": t.get("disk") or (base or {}).get("disk", 100),
+                                "os": t.get("os") or (base or {}).get("os", "Windows"),
+                                "tags": t.get("tags") or (base or {}).get("tags", []),
+                                "category": t.get("category") or "windows",
+                                "service_id": t.get("service_id") or tpl_id,
+                                "price_monthly": (base or {}).get("price_monthly", 189),
+                                "price_yearly": (base or {}).get("price_yearly", 1890),
+                                "source": "sunset_live",
+                            })
+                        templates = merged
+                        source = "sunset_live"
+        except Exception as e:
+            logger.warning(f"sunset templates fetch failed: {e}")
+    if templates is None:
+        templates = opennebula_client.list_templates()
     return {
-        "templates": opennebula_client.list_templates(),
+        "templates": templates,
         "api_status": "ok" if health.get("ok") else "limited",
         "api_health": health,
+        "source": source,
     }
+
+
+# ─── Sunset internal read endpoints (Fase A) ─────────────────────────────────
+@api_router.get("/internal/sunset/vms/{tenant_id}")
+async def internal_sunset_vms(tenant_id: str, user: dict = Depends(get_current_user)):
+    """
+    Internal read endpoint: returns the CACHED state of VMs for a tenant from
+    Mongo's `market_vms` (updated periodically by sunset_sync worker).
+    Never hits Sunset directly — decoupled and cheap.
+    """
+    if user.get("role") != "admin" and user.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="not your tenant")
+    vms = await db.market_vms.find(
+        {"tenant_id": tenant_id},
+        {"_id": 0}
+    ).sort("provisioned_at", -1).to_list(200)
+    return {
+        "tenant_id": tenant_id,
+        "count": len(vms),
+        "vms": vms,
+        "source": "mongo_cache",
+        "note": "state is updated by sunset_sync every ~60s",
+    }
+
+
+@api_router.post("/internal/sunset/sync-now")
+async def internal_sunset_sync_now(user: dict = Depends(get_current_user)):
+    """Force an immediate sync tick (admin only) — useful for debugging."""
+    require_admin(user)
+    stats = await sunset_sync.sync_once(db)
+    return {"ok": True, "stats": stats}
 
 
 class MarketInstantiateRequest(BaseModel):
@@ -4611,6 +4693,14 @@ async def _provision_opennebula_vm(order_id: str):
         "lxd_instance_name": order["vm_name"],
         "source": "opennebula-marketplace",
         "template_id": order["opennebula_template_id"],
+        # Sunset-specific fields for Fase A sync worker
+        "sunset_vm_id": on_res.get("vm_id") if on_res.get("ok") else None,
+        "sunset_service_id": on_res.get("service_id") if on_res.get("ok") else None,
+        "sunset_last_synced_at": datetime.now(timezone.utc).isoformat(),
+        "sunset_reachable": bool(on_res.get("ok")),
+        # Guacamole auto-enrollment status (Fase B will flip this to ok/failed)
+        "guacamole_enrollment": "pending",
+        "guacamole_connection_id": None,
         "netbird_ip": netbird_ip,
         "netbird_peer_id": netbird_peer_id,
         "netbird_dns_label": netbird_dns_label,
@@ -5392,9 +5482,15 @@ async def seed_data():
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.market_orders.create_index("user_id")
+    await db.market_vms.create_index("sunset_vm_id")
+    await db.market_vms.create_index("tenant_id")
     await db.sessions.create_index("user_id")
 
     logger.info("Seed data completed")
+
+    # Start Sunset↔Mongo sync worker (Fase A)
+    app.state.sunset_sync_task = asyncio.create_task(sunset_sync.periodic_sync_loop(db))
+    logger.info("sunset_sync worker task started")
 
 
 # Include the router in the main app
@@ -5417,4 +5513,7 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    task = getattr(app.state, "sunset_sync_task", None)
+    if task and not task.done():
+        task.cancel()
     client.close()
