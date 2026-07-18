@@ -111,10 +111,22 @@ class OpenNebulaClient:
         return next((t for t in TEMPLATE_CATALOG if t["templateId"] == template_id), None)
 
     async def instantiate_vm(self, template_id: int, vm_name: str,
-                              cpu: int, memory_mb: int) -> dict:
+                              cpu: int, memory_mb: int,
+                              user_inputs: dict = None) -> dict:
         """
         Calls the wrapper API: POST /api/vm/instantiate
-        Body: {templateId, vmName, cpu, memory}
+        Body: {templateId, vmName, cpu, memory, userInputs?}
+
+        user_inputs maps to the template's USER_INPUTS/CONTEXT custom attributes
+        (e.g. NEOSC_RDP_USER, NEOSC_RDP_PASS, NEOSC_SETUP_KEY, NEOSC_ORDER_ID) —
+        these get interpolated into CONTEXT as $NEOSC_RDP_PASS etc, same mechanism
+        your template already declares for NEOSC_RDP_USER/NEOSC_RDP_PASS.
+
+        ASSUMPTION: the wrapper accepts a "userInputs" object in the instantiate
+        body mirroring OpenNebula's own USER_INPUTS naming. This is a best-guess
+        based on the template's CONTEXT block — verify against the wrapper's
+        actual source and adjust the key name below if it differs (could also
+        be "contextOverrides", "vmAttributes", etc. depending on how it was built).
         Returns: {ok, vm_id?, service_id?, message, raw}
         """
         if not self.configured:
@@ -126,6 +138,8 @@ class OpenNebulaClient:
             "cpu": cpu,
             "memory": memory_mb,
         }
+        if user_inputs:
+            body["userInputs"] = user_inputs
         try:
             async with httpx.AsyncClient(timeout=60) as c:
                 r = await c.post(
@@ -146,6 +160,38 @@ class OpenNebulaClient:
                     "message": payload.get("message") or "VM instanced",
                     "raw": payload,
                 }
+        except httpx.RequestError as e:
+            return {"ok": False, "error": f"Connection error: {str(e)[:200]}"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
+    async def reboot_vm(self, vm_id: str, hard: bool = False) -> dict:
+        """
+        Triggers an orchestrated reboot via the wrapper API — NEVER a self-reboot
+        from inside the guest. Used after TSplus+NetBird install so the agent
+        finishes registering and PostReboot-Sequence.ps1 (AtStartup scheduled task)
+        can run cleanly on the next boot.
+
+        ASSUMPTION: wrapper exposes POST /vm/{vmId}/reboot mirroring the existing
+        POST /vm/instantiate and GET /vm/{vmId} conventions. If your wrapper uses a
+        different route (e.g. POST /vm/{vmId}/action with {"action":"reboot"}),
+        adjust the `url` below — this is the one call in this client I could not
+        verify against the wrapper's actual source.
+        """
+        if not self.configured or not vm_id:
+            return {"ok": False, "error": "missing config or vm_id"}
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.post(
+                    f"{self.api_url}/vm/{vm_id}/reboot",
+                    headers=self._headers(),
+                    json={"hard": hard},
+                )
+                payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"raw": r.text}
+                if r.status_code >= 400 or payload.get("success") is False:
+                    return {"ok": False, "status_code": r.status_code,
+                            "error": payload.get("message") or payload.get("error") or r.text[:200]}
+                return {"ok": True, "message": payload.get("message") or "Reboot triggered", "raw": payload}
         except httpx.RequestError as e:
             return {"ok": False, "error": f"Connection error: {str(e)[:200]}"}
         except Exception as e:

@@ -31,12 +31,27 @@ export default function NeoConnectWizard() {
 
   const [form, setForm] = useState({
     org_name: '', slug: '', rfc: '', email_admin: '',
+    access_mode: 'tsplus_html5', // 'tsplus_html5' | 'direct_rdp'
     tsplus_host: '', tsplus_port: 443, tsplus_license: '',
     max_users: 10, has_ldap: false,
   });
 
   const [windowsHosts, setWindowsHosts] = useState([{ ip: '', name: '', rdp_port: 3389 }]);
   const [dnsConfig, setDnsConfig] = useState({ domain: '', use_own_dns: false, cname_target: '' });
+  const [gatewayToken, setGatewayToken] = useState(null);
+  const [gatewayTokenLoading, setGatewayTokenLoading] = useState(false);
+
+  const generateGatewayToken = async () => {
+    if (!tenantId) return;
+    setGatewayTokenLoading(true);
+    try {
+      const res = await axios.post(`${API}/admin/gateways/generate-token`, { tenant_id: tenantId }, { headers });
+      setGatewayToken(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error generando token');
+    }
+    setGatewayTokenLoading(false);
+  };
 
   const steps = [
     { label: 'Empresa', icon: Building2 },
@@ -92,6 +107,7 @@ export default function NeoConnectWizard() {
     try {
       // Register infrastructure
       await axios.post(`${API}/admin/tenants/${tenantId}/step/register-infra`, {
+        access_mode: form.access_mode,
         tsplus_host: form.tsplus_host,
         tsplus_port: form.tsplus_port,
         tsplus_license: form.tsplus_license,
@@ -112,7 +128,7 @@ export default function NeoConnectWizard() {
 
   const canNext = () => {
     if (step === 0) return form.org_name && form.email_admin && isAuthenticated;
-    if (step === 1) return form.tsplus_host;
+    if (step === 1) return form.access_mode === 'direct_rdp' || form.tsplus_host;
     return true;
   };
 
@@ -194,33 +210,72 @@ export default function NeoConnectWizard() {
         {step === 1 && (
           <div className="space-y-6" data-testid="neoconnect-step-1">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold">Tu servidor TSplus</h2>
-              <p className="text-muted-foreground text-sm mt-1">Necesitamos los datos de tu servidor para configurar la conexion segura</p>
+              <h2 className="text-2xl font-bold">Como acceden tus usuarios</h2>
+              <p className="text-muted-foreground text-sm mt-1">Elige el modo de acceso para tu infraestructura</p>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-xs">Host / IP del servidor TSplus *</Label>
-                  <Input value={form.tsplus_host} onChange={e => updateForm('tsplus_host', e.target.value)}
-                    placeholder="10.100.10.152 o tsplus.empresa.com" data-testid="nc-tsplus-host" />
+            {/* Access mode toggle */}
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => updateForm('access_mode', 'tsplus_html5')}
+                className={`text-left rounded-xl border p-4 transition-all ${
+                  form.access_mode === 'tsplus_html5' ? 'border-purple-500 bg-purple-500/10' : 'border-border bg-card hover:border-border/80'
+                }`} data-testid="nc-mode-tsplus">
+                <div className="flex items-center gap-2 mb-1">
+                  <Globe className="w-4 h-4 text-purple-400" />
+                  <span className="font-bold text-sm">Con TSplus (HTML5)</span>
                 </div>
-                <div>
-                  <Label className="text-xs">Puerto HTML5</Label>
-                  <Input type="number" value={form.tsplus_port} onChange={e => updateForm('tsplus_port', parseInt(e.target.value) || 443)} />
+                <p className="text-xs text-muted-foreground">Acceso clientless desde el navegador. Necesitas un servidor TSplus.</p>
+              </button>
+              <button onClick={() => updateForm('access_mode', 'direct_rdp')}
+                className={`text-left rounded-xl border p-4 transition-all ${
+                  form.access_mode === 'direct_rdp' ? 'border-purple-500 bg-purple-500/10' : 'border-border bg-card hover:border-border/80'
+                }`} data-testid="nc-mode-rdp">
+                <div className="flex items-center gap-2 mb-1">
+                  <Monitor className="w-4 h-4 text-purple-400" />
+                  <span className="font-bold text-sm">RDP directo (sin TSplus)</span>
                 </div>
-                <div>
-                  <Label className="text-xs">Licencia TSplus</Label>
-                  <Input value={form.tsplus_license} onChange={e => updateForm('tsplus_license', e.target.value)} placeholder="TSP-XXXX-XXXX" />
-                </div>
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2 text-sm pb-2">
-                    <input type="checkbox" checked={form.has_ldap} onChange={e => updateForm('has_ldap', e.target.checked)} className="rounded" />
-                    Usa Active Directory / LDAP
-                  </label>
+                <p className="text-xs text-muted-foreground">Tus empleados usan su cliente RDP normal, protegido por el tunel NeoMesh.</p>
+              </button>
+            </div>
+
+            {form.access_mode === 'tsplus_html5' ? (
+              <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs">Host / IP del servidor TSplus *</Label>
+                    <Input value={form.tsplus_host} onChange={e => updateForm('tsplus_host', e.target.value)}
+                      placeholder="10.100.10.152 o tsplus.empresa.com" data-testid="nc-tsplus-host" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Puerto HTML5</Label>
+                    <Input type="number" value={form.tsplus_port} onChange={e => updateForm('tsplus_port', parseInt(e.target.value) || 443)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Licencia TSplus</Label>
+                    <Input value={form.tsplus_license} onChange={e => updateForm('tsplus_license', e.target.value)} placeholder="TSP-XXXX-XXXX" />
+                  </div>
+                  <div className="flex items-end">
+                    <label className="flex items-center gap-2 text-sm pb-2">
+                      <input type="checkbox" checked={form.has_ldap} onChange={e => updateForm('has_ldap', e.target.checked)} className="rounded" />
+                      Usa Active Directory / LDAP
+                    </label>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card p-6 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Sin TSplus, tus empleados abren su cliente RDP normal (Escritorio Remoto de Windows,
+                  Microsoft Remote Desktop en Mac) y se conectan directo a la IP interna de cada equipo,
+                  tunelizado por NeoMesh. No hay portal web HTML5 en este modo.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  En el siguiente paso vas a registrar las maquinas Windows a las que quieres dar acceso
+                  (paso "Hosts") — esa lista es la que va a determinar exactamente a que pueden conectarse
+                  tus usuarios, nada mas.
+                </p>
+              </div>
+            )}
 
             {/* What happens next */}
             <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5">
@@ -233,11 +288,13 @@ export default function NeoConnectWizard() {
                 <div className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-400" /> App OIDC para tu dominio</div>
                 <div className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-400" /> Grupo VPN aislado (NeoMesh)</div>
                 <div className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-400" /> Setup Key para conector</div>
-                <div className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-400" /> Policy de acceso intra-grupo</div>
+                <div className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-400" />
+                  {form.access_mode === 'direct_rdp' ? 'Policy restringida solo a RDP (3389)' : 'Policy de acceso intra-grupo'}
+                </div>
               </div>
             </div>
 
-            <Button onClick={startProvisioning} disabled={loading || !form.tsplus_host}
+            <Button onClick={startProvisioning} disabled={loading || (form.access_mode === 'tsplus_html5' && !form.tsplus_host)}
               className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-5 gap-2" data-testid="nc-provision">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               Provisionar SSO + VPN automaticamente
@@ -258,6 +315,7 @@ export default function NeoConnectWizard() {
             <div className="flex gap-1 p-1 rounded-lg bg-muted/30 border border-border">
               {[
                 { id: 'agent', label: 'NetBird Agent', icon: Download, desc: 'Instalar en Windows/Linux' },
+                { id: 'gateway', label: 'NeoSC Gateway', icon: Key, desc: 'VM Windows existente como Gateway' },
                 { id: 'container', label: 'Docker Container', icon: Container, desc: 'Levantar container relay' },
                 { id: 'dns', label: 'DNS Redirect', icon: Globe, desc: 'Usar tu dominio propio' },
               ].map(tab => {
@@ -317,6 +375,63 @@ export default function NeoConnectWizard() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Gateway (Route Installer) tab */}
+            {connectorTab === 'gateway' && (
+              <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                <h3 className="font-bold text-sm">NeoSC Gateway — usa una VM Windows existente</h3>
+                <p className="text-xs text-muted-foreground">
+                  Si no tienes el mini-PC dedicado, puedes convertir cualquier VM Windows que ya
+                  tengas en tu red en el Gateway de NeoSC. Genera un token de activacion de un
+                  solo uso, descarga el instalador, y correlo en esa VM.
+                </p>
+
+                {!gatewayToken ? (
+                  <Button onClick={generateGatewayToken} disabled={gatewayTokenLoading || !tenantId}
+                    className="bg-purple-600 hover:bg-purple-500 text-white font-bold gap-2" data-testid="nc-gen-gw-token">
+                    {gatewayTokenLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                    Generar token de activacion
+                  </Button>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs">
+                      <Key className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div className="flex-1">
+                        <div className="text-muted-foreground">Token de activacion (un solo uso, expira en 48h):</div>
+                        <code className="text-amber-300 font-mono text-sm">{gatewayToken.token}</code>
+                      </div>
+                      <button onClick={() => copyToClipboard(gatewayToken.token)} className="p-1 rounded hover:bg-white/10">
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div>
+                      <a href="/downloads/Route-Installer.ps1" download
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold">
+                        <Download className="w-3 h-3" /> Descargar Route-Installer.ps1
+                      </a>
+                    </div>
+
+                    <div className="relative">
+                      <pre className="p-3 rounded-lg bg-black/40 text-[11px] text-green-400 font-mono overflow-x-auto">
+{`# Corre esto como Administrador en la VM Windows que sera tu Gateway:
+.\\Route-Installer.ps1 -Token "${gatewayToken.token}"`}
+                      </pre>
+                      <button onClick={() => copyToClipboard(`.\\Route-Installer.ps1 -Token "${gatewayToken.token}"`)}
+                        className="absolute top-2 right-2 p-1 rounded bg-white/10 hover:bg-white/20">
+                        <Copy className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+
+                    <p className="text-[10px] text-muted-foreground">
+                      El instalador te va a pedir confirmar la subred de tu red local (ej. 192.168.10.0/24) —
+                      esa es la red que tus empleados van a poder alcanzar via RDP, tunelizado por NeoMesh.
+                      No se abre ningun puerto en tu firewall.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -395,9 +510,13 @@ TTL:    300`}</pre>
         {step === 3 && (
           <div className="space-y-6" data-testid="neoconnect-step-3">
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold">Registra tus servidores Windows</h2>
+              <h2 className="text-2xl font-bold">
+                {form.access_mode === 'direct_rdp' ? 'Que maquinas pueden acceder tus usuarios' : 'Registra tus servidores Windows'}
+              </h2>
               <p className="text-muted-foreground text-sm mt-1">
-                Agrega las IPs o dominios de tus maquinas Windows con TSplus / RDP
+                {form.access_mode === 'direct_rdp'
+                  ? 'Esta lista es tu control de acceso: solo estas IPs y puertos quedaran permitidos por la policy de NeoMesh.'
+                  : 'Agrega las IPs o dominios de tus maquinas Windows con TSplus / RDP'}
               </p>
             </div>
 
@@ -445,10 +564,27 @@ TTL:    300`}</pre>
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-10 space-y-4">
               <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto" />
               <h2 className="text-3xl font-bold text-emerald-400">NeoConnect Activo</h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Tu infraestructura TSplus esta protegida con NeoGuard SSO + NeoMesh VPN.
-                Los usuarios pueden acceder via HTML5 con autenticacion segura.
-              </p>
+              {form.access_mode === 'direct_rdp' ? (
+                <>
+                  <p className="text-muted-foreground max-w-md mx-auto">
+                    Tu infraestructura esta protegida con NeoGuard SSO + NeoMesh VPN.
+                    Tus empleados abren su cliente RDP normal y se conectan directo a las
+                    maquinas que registraste, tunelizado y sin exponer puertos a internet.
+                  </p>
+                  {windowsHosts.filter(h => h.ip).length > 0 && (
+                    <div className="text-left max-w-md mx-auto rounded-lg bg-muted/30 p-4 text-xs font-mono space-y-1">
+                      {windowsHosts.filter(h => h.ip).map((h, i) => (
+                        <div key={i} className="text-emerald-300">{h.name || h.ip} → {h.ip}:{h.rdp_port}</div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted-foreground max-w-md mx-auto">
+                  Tu infraestructura TSplus esta protegida con NeoGuard SSO + NeoMesh VPN.
+                  Los usuarios pueden acceder via HTML5 con autenticacion segura.
+                </p>
+              )}
               <div className="flex gap-3 justify-center pt-4">
                 <Button onClick={() => navigate('/workspaces')} className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold gap-2">
                   <Monitor className="w-4 h-4" /> Ir a Workspaces

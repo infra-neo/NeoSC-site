@@ -138,3 +138,10 @@ frontend/node_modules/.cache/default-development/23.pack
 frontend/node_modules/.cache/default-development/1.pack
 frontend/node_modules/.cache/default-development/18.pack
 frontend/node_modules/.cache/default-development/3.pack
+
+# Artefactos accidentales / logs de test — no pertenecen al repo
+backend/index.html
+backend/index.html.1
+test.txt
+*.bak-*
+*.pybkp

@@ -9,14 +9,27 @@ import os
 import time
 import pytest
 import requests
+from pathlib import Path
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 if not BASE_URL:
-    # Backend .env doesn't have REACT_APP_BACKEND_URL; pull from frontend/.env
-    with open("/app/frontend/.env") as fh:
-        for line in fh:
-            if line.startswith("REACT_APP_BACKEND_URL="):
-                BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
+    # Try frontend/.env relative to this repo (works regardless of where the
+    # repo is checked out — /app on Emergent, ~/NeoSC-site self-hosted, etc.)
+    _candidates = [
+        Path(__file__).resolve().parents[2] / "frontend" / ".env",  # repo_root/frontend/.env
+        Path("/app/frontend/.env"),  # Emergent platform path (legacy fallback)
+    ]
+    for _env_path in _candidates:
+        if _env_path.exists():
+            with open(_env_path) as fh:
+                for line in fh:
+                    if line.startswith("REACT_APP_BACKEND_URL="):
+                        BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
+            if BASE_URL:
+                break
+if not BASE_URL:
+    # Last resort default for local/self-hosted dev
+    BASE_URL = "http://localhost:8001"
 
 API = f"{BASE_URL}/api"
 ADMIN_EMAIL = "admin@windesk.cloud"
@@ -100,8 +113,8 @@ class TestInstantiate:
         if not order_id:
             pytest.skip("instantiate did not produce order_id")
 
-        # Poll up to 60s for completion
-        deadline = time.time() + 60
+        # Poll up to 240s — reboot_vm + netbird_configure need real time now
+        deadline = time.time() + 420
         last = None
         while time.time() < deadline:
             r = requests.get(f"{API}/market/orders/{order_id}",
@@ -110,19 +123,18 @@ class TestInstantiate:
                 last = r.json()
                 if last.get("status") == "active":
                     break
-            time.sleep(2)
+            time.sleep(3)
 
         assert last is not None, "order endpoint not reachable"
         assert last.get("status") == "active", \
             f"order didn't reach active: status={last.get('status')}"
-        # netbird_ip + tunnel_hostname + vm_id populated
+        # netbird_ip + html5_access_url + vm_id populated
         assert last.get("netbird_ip"), f"netbird_ip missing: {last.get('netbird_ip')}"
-        assert last.get("tunnel_hostname"), \
-            f"tunnel_hostname missing: {last.get('tunnel_hostname')}"
+        assert last.get("html5_access_url"), \
+            f"html5_access_url missing: {last.get('html5_access_url')}"
         assert last.get("vm_id"), f"vm_id missing: {last.get('vm_id')}"
-        # tunnel hostname uses VM name
-        assert "TEST-qa-vm-001".lower() in last["tunnel_hostname"].lower() \
-            or last["vm_name"] in last["tunnel_hostname"]
+        if last.get("rdp_url"):
+            assert ":" in last["rdp_url"], f"rdp_url malformed: {last['rdp_url']}"
         # netbird_setup_key populated (real or fallback)
         # If NetBird Cloud token works, this is the actual setup-key string
         assert last.get("netbird_setup_key") is not None, \
@@ -130,7 +142,7 @@ class TestInstantiate:
         assert isinstance(last["netbird_setup_key"], str) \
             and len(last["netbird_setup_key"]) > 10
 
-    def test_all_12_provision_steps_success(self, admin_headers):
+    def test_all_provision_steps_success(self, admin_headers):
         order_id = getattr(pytest, "shared_order_id", None)
         if not order_id:
             pytest.skip("no order id from previous test")
@@ -140,7 +152,7 @@ class TestInstantiate:
         assert r.status_code == 200, r.text
         body = r.json()
         steps = body.get("steps", [])
-        assert len(steps) == 12, f"expected 12 steps, got {len(steps)}: " \
+        assert len(steps) == 14, f"expected 14 steps, got {len(steps)}: " \
             f"{[s.get('step_name') for s in steps]}"
         non_success = [s for s in steps if s.get("status") != "success"]
         assert not non_success, f"non-success steps: {non_success}"
@@ -150,7 +162,9 @@ class TestInstantiate:
 class TestNetBirdCloud:
     def test_setup_key_creation_directly(self):
         """Sanity: confirm the token can actually mint a setup key on api.netbird.io."""
-        token = "nbp_OJadsrm9YusgaWHrnWQpdZZydYffG811DIL9"
+        token = os.environ.get("NETBIRD_CLOUD_TOKEN", "")
+        if not token:
+            pytest.skip("NETBIRD_CLOUD_TOKEN not set in environment")
         r = requests.post(
             "https://api.netbird.io/api/setup-keys",
             headers={"Authorization": f"Token {token}",

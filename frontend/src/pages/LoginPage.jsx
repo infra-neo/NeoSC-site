@@ -3,8 +3,9 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { ZITADEL_CLOUD_CONFIG } from '@/config/zitadel';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Zap, Crown, Users, Shield } from 'lucide-react';
+import { Shield, Lock, Mail } from 'lucide-react';
 
 function generateRandomString() {
   const array = new Uint8Array(32);
@@ -22,18 +23,14 @@ async function generateCodeChallenge(verifier) {
     .replace(/=/g, '');
 }
 
-const QUICK_ACCOUNTS = [
-  { email: 'admin@windesk.cloud', password: 'Admin123!', label: 'Platform Admin', role: 'admin', icon: Crown, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20' },
-  { email: 'usuario1@windesk.cloud', password: 'Demo123!', label: 'Usuario Demo 1', role: 'user', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20' },
-  { email: 'usuario2@windesk.cloud', password: 'Demo123!', label: 'Usuario Demo 2', role: 'user', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20' },
-  { email: 'usuario3@windesk.cloud', password: 'Demo123!', label: 'Usuario Demo 3', role: 'user', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20' },
-];
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login, user, loading: authLoading } = useAuth();
-  const [loading, setLoading] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const from = searchParams.get('from') || '/dashboard';
 
@@ -44,15 +41,17 @@ export default function LoginPage() {
     }
   }, [authLoading, user, navigate, from]);
 
-  const handleQuickLogin = async (account) => {
-    setLoading(account.email);
+  const handleLocalLogin = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setLoading(true);
     try {
-      await login(account.email, account.password);
+      await login(email, password);
       navigate(from, { replace: true });
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Error de autenticación');
+      toast.error(err.response?.data?.detail || 'Usuario o contraseña incorrectos');
     } finally {
-      setLoading(null);
+      setLoading(false);
     }
   };
 
@@ -113,61 +112,55 @@ export default function LoginPage() {
             <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-xs">
-            <span className="bg-background px-3 text-muted-foreground">o acceso rápido local</span>
+            <span className="bg-background px-3 text-muted-foreground">o con cuenta local</span>
           </div>
         </div>
 
-        {/* Quick Access Accounts */}
-        <div className="space-y-3" data-testid="quick-access-list">
-          {QUICK_ACCOUNTS.map((account) => {
-            const Icon = account.icon;
-            const isLoading = loading === account.email;
-            return (
-              <button
-                key={account.email}
-                onClick={() => handleQuickLogin(account)}
-                disabled={loading !== null}
-                data-testid={`quick-login-${account.role === 'admin' ? 'admin' : account.email.split('@')[0]}`}
-                className={`
-                  w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200
-                  ${account.bg}
-                  ${isLoading ? 'ring-2 ring-cyan-500/50' : ''}
-                  disabled:opacity-50
-                `}
-              >
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  account.role === 'admin' 
-                    ? 'bg-gradient-to-br from-orange-500 to-amber-500' 
-                    : 'bg-gradient-to-br from-cyan-500 to-cyan-600'
-                }`}>
-                  {isLoading ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Icon className="w-5 h-5 text-white" />
-                  )}
-                </div>
-                <div className="flex-1 text-left">
-                  <div className="font-bold text-sm">{account.label}</div>
-                  <div className="text-xs text-muted-foreground">{account.email}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                    account.role === 'admin' 
-                      ? 'bg-orange-500/20 text-orange-400' 
-                      : 'bg-cyan-500/20 text-cyan-400'
-                  }`}>
-                    {account.role}
-                  </span>
-                  <Zap className={`w-4 h-4 ${account.color}`} />
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        {/* Local login form */}
+        <form onSubmit={handleLocalLogin} className="space-y-3" data-testid="local-login-form">
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="email"
+              placeholder="correo@empresa.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="pl-9"
+              autoComplete="username"
+              data-testid="local-login-email"
+              required
+            />
+          </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="password"
+              placeholder="Contraseña"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="pl-9"
+              autoComplete="current-password"
+              data-testid="local-login-password"
+              required
+            />
+          </div>
+          <Button
+            type="submit"
+            className="w-full py-5"
+            disabled={loading}
+            data-testid="local-login-submit"
+          >
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              'Iniciar sesión'
+            )}
+          </Button>
+        </form>
 
         <div className="text-center">
           <p className="text-xs text-muted-foreground">
-            Bypass local + NeoSC SSO
+            Las cuentas locales las crea un administrador de la plataforma.
           </p>
         </div>
       </div>

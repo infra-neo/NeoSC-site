@@ -22,10 +22,12 @@ const STEP_DEFS = [
   { name: 'netbird_install',      label: 'Instalando agente NeoMesh',               icon: '6' },
   { name: 'tsplus_configure',     label: 'Activando HTML5 + Universal Printer',     icon: '7' },
   { name: 'netbird_configure',    label: 'Configurando red Zero Trust',             icon: '8' },
-  { name: 'zitadel_provision',    label: 'Creando organización NeoGuard SSO',       icon: '9' },
-  { name: 'dns_create',           label: 'Configurando DNS y subdominio',           icon: '10' },
-  { name: 'email_welcome',        label: 'Enviando email de bienvenida',            icon: '11' },
-  { name: 'complete',             label: 'Workspace listo',                         icon: '12' },
+  { name: 'reboot_vm',            label: 'Reiniciando VM (orquestado)',             icon: '9' },
+  { name: 'expose_services',      label: 'Publicando endpoints RDP + HTML5',        icon: '10' },
+  { name: 'zitadel_provision',    label: 'Creando organización NeoGuard SSO',       icon: '11' },
+  { name: 'dns_create',           label: 'Configurando DNS y subdominio',           icon: '12' },
+  { name: 'email_welcome',        label: 'Enviando email de bienvenida',            icon: '13' },
+  { name: 'complete',             label: 'Workspace listo',                         icon: '14' },
 ];
 
 // Onboarding slides shown while provisioning
@@ -296,6 +298,13 @@ export default function ProvisionProgressPage() {
                     <Shield className="w-3 h-3 text-teal-400" />
                     <span className="text-muted-foreground">IP NetBird:</span>
                     <span className="text-white" data-testid="vm-netbird-ip">{vmData.netbird_ip}</span>
+                  </div>
+                )}
+                {vmData.rdp_url && (
+                  <div className="flex items-center gap-2">
+                    <Monitor className="w-3 h-3 text-purple-400" />
+                    <span className="text-muted-foreground">RDP:</span>
+                    <span className="text-white" data-testid="vm-rdp-url">{vmData.rdp_url}</span>
                   </div>
                 )}
                 {vmData.netbird_dns_label && (

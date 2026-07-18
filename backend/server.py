@@ -9,11 +9,23 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import secrets
 import hashlib
+import bcrypt
 import httpx
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+except ImportError:
+    # emergentintegrations is a private package only installable inside Emergent's
+    # platform. Outside of it (self-hosted / local dev), degrade gracefully —
+    # the 3 AI-chat endpoints that use it will return 503 instead of crashing
+    # the whole app on import.
+    LlmChat = None
+    UserMessage = None
+    logging.getLogger("server").warning(
+        "emergentintegrations not installed — NeoChat/AI endpoints disabled (this is expected outside Emergent's platform)"
+    )
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -192,7 +204,19 @@ class WorkspaceAssignment(BaseModel):
 # ─── Helper Functions ─────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """bcrypt hash — reemplaza el SHA-256 sin salt anterior (inseguro)."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+def _is_legacy_sha256_hash(stored_hash: str) -> bool:
+    return len(stored_hash) == 64 and not stored_hash.startswith("$2")
+
+def verify_password(plain_password: str, stored_hash: str) -> bool:
+    if _is_legacy_sha256_hash(stored_hash):
+        return hashlib.sha256(plain_password.encode()).hexdigest() == stored_hash
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), stored_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 
 def generate_token() -> str:
     return secrets.token_urlsafe(32)
@@ -270,7 +294,10 @@ async def get_current_user(authorization: str = Header(None)):
 # ============ AUTH ENDPOINTS ============
 
 @api_router.post("/auth/register", response_model=AuthToken)
-async def register(user_data: UserCreate):
+async def register(user_data: UserCreate, current_user: dict = Depends(get_current_user)):
+    if current_user.get('role') not in ('admin', 'platform_admin'):
+        raise HTTPException(status_code=403, detail="Solo un administrador puede crear usuarios locales")
+
     # Check if user exists
     existing = await db.users.find_one({"email": user_data.email}, {"_id": 0})
     if existing:
@@ -319,9 +346,16 @@ async def login(credentials: UserLogin):
     if not user_doc:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    if user_doc.get('password_hash') != hash_password(credentials.password):
+    stored_hash = user_doc.get('password_hash', '')
+    if not stored_hash or not verify_password(credentials.password, stored_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
+    if _is_legacy_sha256_hash(stored_hash):
+        await db.users.update_one(
+            {"email": credentials.email},
+            {"$set": {"password_hash": hash_password(credentials.password)}}
+        )
+
     token = generate_token()
     user_dict = {
         "id": user_doc['id'],
@@ -2583,6 +2617,280 @@ async def netbird_list_users(user: dict = Depends(get_current_user)):
         return r.json()
 
 
+async def _netbird_create_route(peer_id: str, network_cidr: str, access_group_ids: list,
+                                 description: str = "") -> dict:
+    """
+    Internal helper (not an API route) — creates a NetBird Network Route on the
+    self-hosted NetBird API, advertised by `peer_id`, reachable by whoever is in
+    `access_group_ids`. Used by the Gateway activation flow so employees can reach
+    the customer's LAN subnet through the Gateway peer without installing an agent
+    on every individual Windows machine.
+    """
+    body = {
+        "network": network_cidr,
+        "network_id": f"gw-{secrets.token_hex(4)}",
+        "description": description or f"NeoSC Gateway route to {network_cidr}",
+        "peer": peer_id,
+        "network_type": "IPv4",
+        "masquerade": True,
+        "metric": 9999,
+        "enabled": True,
+        "groups": access_group_ids,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{NETBIRD_API_URL}/api/routes", headers=netbird_headers(), json=body)
+            if r.status_code >= 400:
+                return {"ok": False, "status_code": r.status_code, "error": r.text[:300]}
+            return {"ok": True, "route": r.json()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+async def _netbird_delete_route(route_id: str) -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.delete(f"{NETBIRD_API_URL}/api/routes/{route_id}", headers=netbird_headers())
+            return {"ok": r.status_code < 400, "status_code": r.status_code}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+# ============ NEOSC GATEWAY: activation, routes, status tracking ============
+
+class GatewayGenerateTokenRequest(BaseModel):
+    tenant_id: str
+    expires_hours: int = 48
+
+
+@api_router.post("/admin/gateways/generate-token")
+async def gateway_generate_token(body: GatewayGenerateTokenRequest, user: dict = Depends(get_current_user)):
+    """
+    Admin (or triggered by a WHMCS webhook via neosc.php on order creation) mints
+    a single-use activation token for a customer to install the NeoSC Gateway on
+    their own infrastructure (existing Windows VM, no NanoPi/mini-PC required).
+    """
+    require_admin(user)
+    tenant = await db.organizations.find_one({"id": body.tenant_id}, {"_id": 0})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    raw_token = f"NEOSC-GW-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}"
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=body.expires_hours)
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "token_hash": token_hash,
+        "tenant_id": body.tenant_id,
+        "status": "unused",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "used_at": None,
+        "used_by_gateway_id": None,
+    }
+    await db.gateway_activation_tokens.insert_one(doc)
+    await create_audit_log(user["id"], user.get("email",""), "gateway_token_generated", f"tenant:{body.tenant_id}", "", True)
+
+    # Return the raw token ONLY here — it's never recoverable again (we only store the hash).
+    return {"token": raw_token, "expires_at": doc["expires_at"], "tenant_id": body.tenant_id}
+
+
+class GatewayActivateRequest(BaseModel):
+    token: str
+    hostname: Optional[str] = None
+    os_info: Optional[str] = None
+
+
+@api_router.post("/gateway/activate")
+async def gateway_activate(body: GatewayActivateRequest):
+    """
+    Called by Route-Installer.ps1 running on the customer's designated Windows VM.
+    No admin auth — the activation token itself IS the credential (single-use,
+    short-lived, generated at purchase time). Returns a NetBird setup key scoped
+    to a dedicated 'gateway' group for this tenant, plus a gateway_secret used to
+    authenticate the installer's later calls (route-confirmed, heartbeat).
+    """
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+    token_doc = await db.gateway_activation_tokens.find_one({"token_hash": token_hash})
+    if not token_doc:
+        raise HTTPException(status_code=404, detail="Invalid activation token")
+    if token_doc["status"] != "unused":
+        raise HTTPException(status_code=409, detail=f"Token already {token_doc['status']}")
+    if datetime.fromisoformat(token_doc["expires_at"]) < datetime.now(timezone.utc):
+        await db.gateway_activation_tokens.update_one({"id": token_doc["id"]}, {"$set": {"status": "expired"}})
+        raise HTTPException(status_code=410, detail="Activation token expired")
+
+    tenant = await db.organizations.find_one({"id": token_doc["tenant_id"]}, {"_id": 0})
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found for this token")
+
+    # Dedicated 'gateway' group per tenant — separate from the employee group, so
+    # the Gateway peer itself isn't lumped in with human users in NetBird's UI/ACLs.
+    gw_group_name = f"neosc-gw-{tenant.get('slug', tenant['id'])}"
+    group_id = None
+    async with httpx.AsyncClient(timeout=15) as c:
+        existing = await c.get(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers())
+        if existing.status_code < 400:
+            for g in existing.json():
+                if g.get("name") == gw_group_name:
+                    group_id = g.get("id")
+                    break
+        if not group_id:
+            created = await c.post(f"{NETBIRD_API_URL}/api/groups", headers=netbird_headers(),
+                                    json={"name": gw_group_name})
+            if created.status_code < 400:
+                group_id = created.json().get("id")
+
+    if not group_id:
+        raise HTTPException(status_code=502, detail="Could not create/find NetBird group for gateway")
+
+    setup_key = None
+    async with httpx.AsyncClient(timeout=15) as c:
+        sk_res = await c.post(f"{NETBIRD_API_URL}/api/setup-keys", headers=netbird_headers(), json={
+            "name": f"gateway-{token_doc['tenant_id'][:8]}",
+            "type": "reusable", "expires_in": 172800,  # 48h to actually run the installer
+            "revoked": False, "auto_groups": [group_id], "usage_limit": 1, "ephemeral": False,
+        })
+        if sk_res.status_code < 400:
+            setup_key = sk_res.json().get("key")
+
+    if not setup_key:
+        raise HTTPException(status_code=502, detail="Could not create NetBird setup key")
+
+    gateway_id = str(uuid.uuid4())
+    gateway_secret = secrets.token_urlsafe(32)
+    gateway_doc = {
+        "id": gateway_id,
+        "tenant_id": token_doc["tenant_id"],
+        "name": body.hostname or f"gateway-{gateway_id[:8]}",
+        "status": "pending",
+        "host_type": "existing-vm",
+        "os_info": body.os_info or "",
+        "netbird_group_id": group_id,
+        "netbird_peer_id": None,
+        "netbird_route_id": None,
+        "subnet_cidr": None,
+        "gateway_secret_hash": hashlib.sha256(gateway_secret.encode()).hexdigest(),
+        "last_heartbeat_at": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "activated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.gateways.insert_one(gateway_doc)
+    await db.gateway_activation_tokens.update_one({"id": token_doc["id"]}, {"$set": {
+        "status": "used", "used_at": datetime.now(timezone.utc).isoformat(), "used_by_gateway_id": gateway_id,
+    }})
+    await create_audit_log("system", "installer", "gateway_activated", f"tenant:{token_doc['tenant_id']}", f"gateway:{gateway_id}", True)
+
+    return {
+        "gateway_id": gateway_id,
+        "gateway_secret": gateway_secret,   # shown ONCE — installer must persist it locally
+        "setup_key": setup_key,
+        "backend_url": os.environ.get("WEBAPP_PUBLIC_URL", "https://manager.kappa4.com"),
+        "employee_group_id": tenant.get("netbird_group_id"),  # for route-confirmed access scoping
+    }
+
+
+def _check_gateway_secret(gateway: dict, provided_secret: str):
+    if not gateway or not provided_secret:
+        raise HTTPException(status_code=401, detail="Missing gateway credentials")
+    if hashlib.sha256(provided_secret.encode()).hexdigest() != gateway.get("gateway_secret_hash"):
+        raise HTTPException(status_code=401, detail="Invalid gateway_secret")
+
+
+class GatewayRouteConfirmRequest(BaseModel):
+    gateway_id: str
+    gateway_secret: str
+    peer_id: str
+    subnet_cidr: str
+
+
+@api_router.post("/gateway/route-confirmed")
+async def gateway_route_confirmed(body: GatewayRouteConfirmRequest):
+    """
+    Called by Route-Installer.ps1 once `netbird up` succeeds and it has detected
+    the local subnet. Creates the actual NetBird Network Route so employees (the
+    tenant's netbird_group_id) can reach the customer's LAN through this peer.
+    """
+    gateway = await db.gateways.find_one({"id": body.gateway_id}, {"_id": 0})
+    _check_gateway_secret(gateway, body.gateway_secret)
+
+    tenant = await db.organizations.find_one({"id": gateway["tenant_id"]}, {"_id": 0})
+    employee_group_id = tenant.get("netbird_group_id") if tenant else None
+    if not employee_group_id:
+        raise HTTPException(status_code=409, detail="Tenant has no employee NetBird group yet — run NeoConnect enrollment first")
+
+    route_res = await _netbird_create_route(
+        peer_id=body.peer_id, network_cidr=body.subnet_cidr,
+        access_group_ids=[employee_group_id],
+        description=f"NeoSC Gateway {gateway['id'][:8]} -> {body.subnet_cidr}",
+    )
+    if not route_res.get("ok"):
+        raise HTTPException(status_code=502, detail=f"Could not create NetBird route: {route_res.get('error')}")
+
+    await db.gateways.update_one({"id": body.gateway_id}, {"$set": {
+        "status": "active",
+        "netbird_peer_id": body.peer_id,
+        "netbird_route_id": route_res["route"].get("id"),
+        "subnet_cidr": body.subnet_cidr,
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    await create_audit_log("system", "installer", "gateway_route_confirmed", f"gateway:{body.gateway_id}", body.subnet_cidr, True)
+    return {"ok": True, "route_id": route_res["route"].get("id")}
+
+
+class GatewayHeartbeatRequest(BaseModel):
+    gateway_id: str
+    gateway_secret: str
+
+
+@api_router.post("/internal/gateway/heartbeat")
+async def gateway_heartbeat(body: GatewayHeartbeatRequest):
+    gateway = await db.gateways.find_one({"id": body.gateway_id}, {"_id": 0})
+    _check_gateway_secret(gateway, body.gateway_secret)
+    await db.gateways.update_one({"id": body.gateway_id}, {"$set": {
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        "status": "active" if gateway.get("status") != "revoked" else "revoked",
+    }})
+    return {"ok": True}
+
+
+@api_router.get("/admin/gateways")
+async def list_gateways(user: dict = Depends(get_current_user)):
+    """Support/admin dashboard — status of every customer Gateway."""
+    require_admin(user)
+    gateways = await db.gateways.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    now = datetime.now(timezone.utc)
+    for gw in gateways:
+        last = gw.get("last_heartbeat_at")
+        if gw.get("status") == "revoked":
+            gw["is_online"] = False
+        elif last and (now - datetime.fromisoformat(last)).total_seconds() < 300:  # 5 min grace
+            gw["is_online"] = True
+        else:
+            gw["is_online"] = False
+    return {"gateways": gateways, "total": len(gateways)}
+
+
+@api_router.post("/admin/gateways/{gateway_id}/revoke")
+async def revoke_gateway(gateway_id: str, user: dict = Depends(get_current_user)):
+    """Kill switch — cuts the customer's Gateway access immediately (non-payment, offboarding, etc.)."""
+    require_admin(user)
+    gateway = await db.gateways.find_one({"id": gateway_id}, {"_id": 0})
+    if not gateway:
+        raise HTTPException(status_code=404, detail="Gateway not found")
+
+    if gateway.get("netbird_route_id"):
+        await _netbird_delete_route(gateway["netbird_route_id"])
+    if gateway.get("netbird_peer_id"):
+        async with httpx.AsyncClient(timeout=15) as c:
+            await c.delete(f"{NETBIRD_API_URL}/api/peers/{gateway['netbird_peer_id']}", headers=netbird_headers())
+
+    await db.gateways.update_one({"id": gateway_id}, {"$set": {"status": "revoked"}})
+    await create_audit_log(user["id"], user.get("email",""), "gateway_revoked", f"gateway:{gateway_id}", "", True)
+    return {"ok": True, "status": "revoked"}
+
+
 # ============ TENANT ENROLLMENT SERVICE ============
 
 class TenantEnrollment(BaseModel):
@@ -2811,11 +3119,20 @@ async def enroll_step_register_infra(tenant_id: str, body: dict, user: dict = De
     require_admin(user)
     tenant = await db.organizations.find_one({"id": tenant_id}, {"_id": 0})
     if not tenant: raise HTTPException(status_code=404, detail="Tenant not found")
-    infra = {"tsplus_host": body.get("tsplus_host",""), "tsplus_port": body.get("tsplus_port",443),
-             "tsplus_license": body.get("tsplus_license",""), "connection_type": body.get("connection_type","web"),
-             "has_ldap": body.get("has_ldap",False), "verified": False}
+    access_mode = body.get("access_mode", "tsplus_html5")  # "tsplus_html5" | "direct_rdp"
+    infra = {
+        "access_mode": access_mode,
+        "tsplus_host": body.get("tsplus_host", ""), "tsplus_port": body.get("tsplus_port", 443),
+        "tsplus_license": body.get("tsplus_license", ""), "connection_type": body.get("connection_type", "web"),
+        "has_ldap": body.get("has_ldap", False),
+        # Previously collected in the frontend but silently dropped — now persisted.
+        "windows_hosts": body.get("windows_hosts", []),
+        "dns_config": body.get("dns_config", {}),
+        "verified": False,
+    }
     await db.organizations.update_one({"id": tenant_id}, {"$set": {"client_infrastructure": infra, "enrollment_steps.register_infra": "completed"}})
-    await create_audit_log(user["id"], user.get("email",""), "enroll_register_infra", f"tenant:{tenant_id}", str({"tsplus_host": infra["tsplus_host"]}), True)
+    await create_audit_log(user["id"], user.get("email",""), "enroll_register_infra", f"tenant:{tenant_id}",
+                            str({"access_mode": access_mode, "tsplus_host": infra["tsplus_host"], "hosts": len(infra["windows_hosts"])}), True)
     return {"step": "register_infra", "status": "completed", "details": infra}
 
 @api_router.post("/admin/tenants/{tenant_id}/step/finalize")
@@ -2832,10 +3149,41 @@ async def enroll_step_finalize(tenant_id: str, user: dict = Depends(get_current_
 
     # Create a workspace (market_vm) for this tenant so it appears in Workspaces list
     infra = tenant.get("client_infrastructure", {})
+    access_mode = infra.get("access_mode", "tsplus_html5")
     tsplus_host = infra.get("tsplus_host", "")
     tsplus_port = infra.get("tsplus_port", 443)
-    protocol = "https" if tsplus_port == 443 else "http"
-    connection_url = f"{protocol}://{tsplus_host}:{tsplus_port}" if tsplus_host else "https://web.proxy.kappa4.com/"
+    windows_hosts = infra.get("windows_hosts", [])
+
+    if access_mode == "direct_rdp":
+        # No TSplus, no HTML5 — employees connect with their native RDP client
+        # straight through the NetBird tunnel to the customer's own machines.
+        connection_url = ""  # nothing to open in a browser/iframe for this mode
+        rdp_targets = [
+            {"ip": h.get("ip", ""), "name": h.get("name") or h.get("ip", ""),
+             "port": h.get("rdp_port", 3389)}
+            for h in windows_hosts if h.get("ip")
+        ]
+
+        # Tighten the group policy created earlier (netbird-policy step) from
+        # "allow all protocols" down to just RDP — least privilege for this mode.
+        policy_id = tenant.get("netbird_policy_id")
+        group_id = tenant.get("netbird_group_id")
+        if policy_id and group_id:
+            try:
+                ports = sorted({str(h.get("rdp_port", 3389)) for h in windows_hosts}) or ["3389"]
+                async with httpx.AsyncClient(timeout=15) as c:
+                    await c.put(f"{NETBIRD_API_URL}/api/policies/{policy_id}", headers=netbird_headers(), json={
+                        "name": f"neosc-allow-{tenant.get('slug', '')}", "enabled": True,
+                        "rules": [{"name": f"rdp-only-{tenant.get('slug', '')}", "enabled": True, "action": "accept",
+                                   "bidirectional": True, "protocol": "tcp", "ports": ports,
+                                   "sources": [group_id], "destinations": [group_id]}]
+                    })
+            except Exception as e:
+                logger.warning(f"Could not tighten NetBird policy to RDP-only for tenant {tenant_id}: {e}")
+    else:
+        protocol = "https" if tsplus_port == 443 else "http"
+        connection_url = f"{protocol}://{tsplus_host}:{tsplus_port}" if tsplus_host else "https://web.proxy.kappa4.com/"
+        rdp_targets = []
 
     vm_id = f"vm-{tenant_id}"
     existing_vm = await db.market_vms.find_one({"id": vm_id})
@@ -2852,6 +3200,8 @@ async def enroll_step_finalize(tenant_id: str, user: dict = Depends(get_current_
             "disk_gb": 120,
             "tsplus_licenses": tenant.get("max_users", 5),
             "connection_url": connection_url,
+            "access_mode": access_mode,
+            "rdp_targets": rdp_targets,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.market_vms.insert_one(vm_doc)
@@ -4207,6 +4557,64 @@ def _calculate_price(plan: str, billing: str, vcpu: int, ram_gb: int,
     return base
 
 
+# ─── Webhook: VM avisa que su peer de NetBird ya está conectado ───────────────
+class NetbirdReadyPayload(BaseModel):
+    order_id: str
+    peer_id: str
+    netbird_ip: str
+
+
+@api_router.post("/internal/vm/netbird-ready")
+async def vm_netbird_ready(payload: NetbirdReadyPayload):
+    """
+    Llamado desde DENTRO de la VM (InstallNeoTunnel.ps1) una vez que su propio
+    agente NetBird confirma conexión. Reemplaza el polling ciego que el backend
+    hacía antes contra la API de NetBird — la VM ya sabe su propio peer_id al
+    instante, no hace falta adivinar por nombre/grupo desde afuera.
+
+    Este endpoint:
+    1. Crea los 2 servicios reverse-proxy (RDP TCP + HTTP) usando el peer_id real
+    2. Guarda una señal en la orden que el pipeline (_provision_opennebula_vm)
+       está esperando, para que netbird_configure/expose_services avancen
+       inmediatamente en vez de hacer polling externo.
+
+    Nota de seguridad: no requiere el NETBIRD_CLOUD_TOKEN — ese token nunca sale
+    del backend. La VM solo manda datos que ya conoce de sí misma.
+    """
+    order = await db.market_orders.find_one({"id": payload.order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="order not found")
+
+    expose_res = await netbird_cloud_client.expose_vdi_peer(
+        vm_name=order["vm_name"], peer_id=payload.peer_id,
+    )
+
+    signal = {
+        "peer_id": payload.peer_id,
+        "netbird_ip": payload.netbird_ip,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "expose_ok": bool(expose_res.get("ok")),
+    }
+    if expose_res.get("ok"):
+        signal["rdp_url"] = expose_res["rdp_url"]
+        signal["html_url"] = expose_res["html_url"]
+    else:
+        signal["expose_error"] = expose_res.get("error")
+
+    await db.market_orders.update_one(
+        {"id": payload.order_id},
+        {"$set": {"netbird_ready_signal": signal}},
+    )
+
+    if not expose_res.get("ok"):
+        # Still 200 — the VM did its job correctly; the exposure failure will
+        # surface in the pipeline logs via the signal's expose_error field.
+        return {"ok": True, "expose_ok": False, "error": expose_res.get("error")}
+
+    return {"ok": True, "expose_ok": True,
+            "rdp_url": expose_res["rdp_url"], "html_url": expose_res["html_url"]}
+
+
 # ─── Helper: crear provisioning steps en BD ───────────────────────────────────
 PROVISION_STEPS = [
     "payment_confirmed",
@@ -4217,6 +4625,8 @@ PROVISION_STEPS = [
     "netbird_install",
     "tsplus_configure",
     "netbird_configure",
+    "reboot_vm",
+    "expose_services",
     "zitadel_provision",
     "dns_create",
     "email_welcome",
@@ -4256,6 +4666,8 @@ async def _simulate_provisioning(order_id: str):
         "netbird_install":      8,
         "tsplus_configure":     5,
         "netbird_configure":    5,
+        "reboot_vm":            10,
+        "expose_services":      3,
         "zitadel_provision":    6,
         "dns_create":           2,
         "email_welcome":        1,
@@ -4270,6 +4682,8 @@ async def _simulate_provisioning(order_id: str):
         "netbird_install":      "Instalando Netbird + configurando auto-start permanente...",
         "tsplus_configure":     "Habilitando acceso HTML5 + configurando max sesiones...",
         "netbird_configure":    "Configurando red mesh Zero Trust + DNS interno...",
+        "reboot_vm":            "Reiniciando VM para finalizar instalación (orquestado, no self-reboot)...",
+        "expose_services":      "Publicando endpoints NetBird Reverse Proxy (RDP 3389 + HTTP 80)...",
         "zitadel_provision":    "Creando organización SSO + roles admin/user + OIDC apps...",
         "dns_create":           "Creando registro DNS en Cloudflare...",
         "email_welcome":        "Enviando credenciales al email del cliente...",
@@ -4472,10 +4886,18 @@ async def _provision_opennebula_vm(order_id: str):
     await asyncio.sleep(0.5)
     await _step("payment_confirmed", "success", "Pago aprobado (simulado)")
 
-    # 2) generate_credentials — NetBird setup key
+    # 2) generate_credentials — NetBird setup key (tied to a dedicated per-order group,
+    #    so we can reliably find the resulting peer by GROUP membership instead of by
+    #    name — the golden image sets its own random hostname on first boot, e.g.
+    #    "NEOSC-VDI-8755", which never matches the vm_name we requested).
     await _step("generate_credentials", "running", "Generando NetBird setup key + credenciales TSplus...")
+    nb_group_id = None
+    nb_group_res = await netbird_cloud_client.create_group(f"order-{order_id[:8]}")
+    if nb_group_res.get("ok"):
+        nb_group_id = nb_group_res.get("id")
     nb_key_res = await netbird_cloud_client.create_setup_key(
         name=f"order-{order_id[:8]}-{order['vm_name']}",
+        group_ids=[nb_group_id] if nb_group_id else None,
         expires_in_days=7,
         ephemeral=False,
     )
@@ -4499,6 +4921,12 @@ async def _provision_opennebula_vm(order_id: str):
         vm_name=order["vm_name"],
         cpu=order["vcpu"],
         memory_mb=order["ram_mb"],
+        user_inputs={
+            "NEOSC_SETUP_KEY": setup_key or "",
+            "NEOSC_ORDER_ID": order_id,
+            "NEOSC_RDP_USER": "Administrator",
+            "NEOSC_RDP_PASS": tsplus_admin_password,
+        },
     )
     if on_res.get("ok"):
         await db.market_orders.update_one(
@@ -4543,54 +4971,155 @@ async def _provision_opennebula_vm(order_id: str):
 
     # 8) netbird_configure — POLL real peer registration to get the actual mesh IP
     await _step("netbird_configure", "running",
-                f"Esperando registro del peer '{order['vm_name']}' en NetBird Cloud (puede tardar ~30-60s)...")
+                f"Esperando señal de la VM (callback netbird-ready) o registro por polling (grupo order-{order_id[:8]})...")
     netbird_ip = None
     netbird_peer_id = None
     netbird_dns_label = None
     peer_attempts = 0
+    signal_rdp_url = None
+    signal_html_url = None
+
     if setup_key:
-        # Real polling: list /api/peers every 4s, look for the VM name match
-        poll_res = await netbird_cloud_client.poll_peer_until_registered(
-            vm_name=order["vm_name"],
-            max_attempts=20,   # 20 * 4s = 80s max
-            delay_s=4,
-        )
-        peer_attempts = poll_res.get("attempts", 0)
-        if poll_res.get("ok"):
-            netbird_ip = poll_res.get("netbird_ip")
+        # FAST PATH: check for the VM's own callback signal first — cheap DB
+        # reads, no external API calls, resolves in seconds once the VM POSTs.
+        signal_deadline = time.time() + 200  # ~200s covers the real ~2min install
+        while time.time() < signal_deadline:
+            fresh = await db.market_orders.find_one({"id": order_id}, {"netbird_ready_signal": 1})
+            sig = (fresh or {}).get("netbird_ready_signal")
+            if sig:
+                netbird_ip = sig.get("netbird_ip")
+                netbird_peer_id = sig.get("peer_id")
+                signal_rdp_url = sig.get("rdp_url")
+                signal_html_url = sig.get("html_url")
+                break
+            await asyncio.sleep(2)
+
+        if netbird_peer_id:
+            await _step("netbird_configure", "success",
+                        f"✓ Señal recibida de la VM. Peer: {netbird_peer_id} / IP: {netbird_ip}")
+        else:
+            # FALLBACK: VM callback never arrived (network issue, old golden
+            # image without the callback script, etc.) — degrade to the old
+            # blind-polling approach against the NetBird API directly.
+            if nb_group_id:
+                poll_res = await netbird_cloud_client.poll_peer_by_group(
+                    group_id=nb_group_id, max_attempts=20, delay_s=4,  # 80s more
+                )
+            else:
+                poll_res = await netbird_cloud_client.poll_peer_until_registered(
+                    vm_name=order["vm_name"], max_attempts=20, delay_s=4,
+                )
+            peer_attempts = poll_res.get("attempts", 0)
+            if poll_res.get("ok"):
+                netbird_ip = poll_res.get("netbird_ip")
             netbird_peer_id = poll_res.get("peer_id")
             netbird_dns_label = poll_res.get("dns_label")
-    if not netbird_ip:
-        # Fallback synthetic IP within the customer's NetBird mesh subnet (10.0.6.0/24)
-        # Used when no real peer registered within the polling window
+            if not netbird_ip:
+                # Fallback synthetic IP within the customer's NetBird mesh subnet
+                import random
+                netbird_ip = f"10.0.6.{random.randint(50, 240)}"
+                await _step("netbird_configure", "success",
+                            f"⚠ Peer no detectado tras {peer_attempts} intentos (señal + polling). Mesh IP simulada: {netbird_ip}")
+            else:
+                await _step("netbird_configure", "success",
+                            f"✓ Peer registrado por polling en {peer_attempts} intento(s). Mesh IP real: {netbird_ip}")
+    else:
         import random
         netbird_ip = f"10.0.6.{random.randint(50, 240)}"
         await _step("netbird_configure", "success",
-                    f"⚠ Peer no detectado tras {peer_attempts} intentos. Mesh IP simulada: {netbird_ip}")
-    else:
-        await _step("netbird_configure", "success",
-                    f"✓ Peer registrado en {peer_attempts} intento(s). Mesh IP real: {netbird_ip} (dns: {netbird_dns_label})")
+                    f"⚠ Sin setup_key — Mesh IP simulada: {netbird_ip}")
+
     await db.market_orders.update_one({"id": order_id}, {"$set": {
         "netbird_ip": netbird_ip,
         "netbird_peer_id": netbird_peer_id,
         "netbird_dns_label": netbird_dns_label,
     }})
 
-    # 9) zitadel_provision
+    # Real path only makes sense if we have both a real OpenNebula vm_id and a real
+    # NetBird peer_id — otherwise (demo/simulated mode) we skip straight to the
+    # fallback URL further down, same as before.
+    real_vm_id = str(on_res.get("vm_id")) if on_res.get("ok") else None
+    is_real_pipeline = bool(real_vm_id and netbird_peer_id)
+
+    # 9) reboot_vm — orchestrated reboot via wrapper API (never a self-reboot from
+    #    inside the guest). This is required for TSplus + NetBird to finish their
+    #    post-install sequence (PostReboot-Sequence.ps1 via AtStartup scheduled task).
+    await _step("reboot_vm", "running",
+                f"Reiniciando VM {order['vm_name']} (vmId={real_vm_id}) vía wrapper API...")
+    if is_real_pipeline:
+        reboot_res = await opennebula_client.reboot_vm(real_vm_id)
+        if reboot_res.get("ok"):
+            reconnect_res = await netbird_cloud_client.wait_for_peer_connected(
+                peer_id=netbird_peer_id, max_attempts=20, delay_s=5,  # up to 100s
+            )
+            if reconnect_res.get("ok"):
+                await _step("reboot_vm", "success",
+                            f"✓ VM reiniciada y peer reconectado en {reconnect_res.get('attempts')} intento(s)")
+            else:
+                # Reboot fired but we couldn't confirm reconnect in time — continue anyway,
+                # the VM is very likely still coming back up; expose_services will retry.
+                await _step("reboot_vm", "success",
+                            f"⚠ Reboot disparado pero no se confirmó reconexión del peer a tiempo: {reconnect_res.get('error')}")
+        else:
+            await _step("reboot_vm", "success",
+                        f"⚠ No se pudo disparar el reboot orquestado ({reboot_res.get('error')}). Continuando sin reboot.")
+            is_real_pipeline = False  # don't attempt real service creation against a stale peer
+    else:
+        await asyncio.sleep(2)
+        await _step("reboot_vm", "success", "⚠ Modo simulado — reboot omitido (sin vm_id/peer_id reales)")
+
+    # 10) expose_services — create the 2 NetBird Reverse Proxy services (TCP 3389 + HTTP 80)
+    #     for THIS specific VM, replacing the old global hardcoded expose URL.
+    #     If the VM's own callback (netbird-ready webhook) already created these
+    #     (signal_rdp_url/signal_html_url set), reuse them instead of calling the
+    #     NetBird API a second time — avoids creating duplicate services.
+    await _step("expose_services", "running",
+                f"Creando servicios NetBird Reverse Proxy (RDP 3389 + HTTP 80) para peer {netbird_peer_id}...")
+    rdp_url = None
+    html_url = None
+    if signal_html_url:
+        rdp_url = signal_rdp_url
+        html_url = signal_html_url
+        await _step("expose_services", "success",
+                    f"✓ Servicios ya creados por la VM (callback). RDP: {rdp_url} · HTML5: {html_url}")
+    elif is_real_pipeline:
+        expose_res = await netbird_cloud_client.expose_vdi_peer(
+            vm_name=order["vm_name"], peer_id=netbird_peer_id,
+        )
+        if expose_res.get("ok"):
+            rdp_url = expose_res["rdp_url"]
+            html_url = expose_res["html_url"]
+            await _step("expose_services", "success",
+                        f"✓ RDP: {rdp_url} · HTML5: {html_url}")
+        else:
+            await _step("expose_services", "success",
+                        f"⚠ No se pudieron crear los servicios reverse-proxy ({expose_res.get('error')}). Usando URL de fallback.")
+    else:
+        await asyncio.sleep(1)
+        await _step("expose_services", "success", "⚠ Modo simulado — servicios reverse-proxy omitidos")
+
+    if not html_url:
+        # Fallback: shared/static demo URL — same behavior as before this patch
+        html_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
+    expose_url = html_url
+
+    await db.market_orders.update_one({"id": order_id}, {"$set": {
+        "html5_access_url": expose_url,
+        "rdp_url": rdp_url,
+        "tunnel_hostname": None,
+    }})
+
+    # 11) zitadel_provision
     await _step("zitadel_provision", "running", "Creando organización NeoGuard y usuario admin SSO...")
     await asyncio.sleep(1.5)
     await _step("zitadel_provision", "success", "✓ Organización creada en NeoGuard")
 
-    # 10) dns_create — use NetBird expose service URL as primary access URL (no kappa4 tunnel)
-    expose_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
-    await db.market_orders.update_one({"id": order_id}, {"$set": {
-        "html5_access_url": expose_url,
-        "tunnel_hostname": None,
-    }})
+    # 12) dns_create — final confirmation step, URL is already real (per-VM) at this point
     await _step("dns_create", "running",
-                f"Configurando proxy NetBird Services ({expose_url}) → {netbird_ip}...")
+                f"Confirmando resolución DNS ({expose_url}) → {netbird_ip}...")
     await asyncio.sleep(1)
-    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → {netbird_ip}")
+    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → {netbird_ip}"
+                + (f" · RDP: {rdp_url}" if rdp_url else ""))
 
     # 11) email_welcome
     await _step("email_welcome", "running", f"Enviando email a {order.get('admin_email')}...")
@@ -4616,6 +5145,7 @@ async def _provision_opennebula_vm(order_id: str):
         "netbird_dns_label": netbird_dns_label,
         "html5_access_url": expose_url,
         "connection_url": expose_url,
+        "rdp_url": rdp_url,
         "has_tsplus": True,
         "tsplus_licenses": order["tsplus_users"],
         "tsplus_users": order["tsplus_users"],
@@ -4638,6 +5168,7 @@ async def _provision_opennebula_vm(order_id: str):
         "image": "windows-server-2025",
         "host_url": expose_url,
         "html5_url": expose_url,
+        "rdp_url": rdp_url,
         "netbird_ip": netbird_ip,
         "netbird_dns_label": netbird_dns_label,
         "rdp_username": "Administrator",
@@ -4657,6 +5188,7 @@ async def _provision_opennebula_vm(order_id: str):
             "vm_id": demo_vm["id"],
             "netbird_ip": netbird_ip,
             "html5_access_url": expose_url,
+            "rdp_url": rdp_url,
             "workspace_id": workspace_doc["id"],
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }}
@@ -5351,11 +5883,11 @@ async def seed_data():
     default_tenant = await ensure_default_tenant()
     default_tid = default_tenant["id"]
 
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@windesk.cloud")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
 
-    existing_admin = await db.users.find_one({"email": admin_email})
-    if not existing_admin:
+    existing_admin = await db.users.find_one({"email": admin_email}) if (admin_email and admin_password) else None
+    if admin_email and admin_password and not existing_admin:
         admin_user = User(
             email=admin_email,
             name="Platform Admin",
@@ -5370,11 +5902,17 @@ async def seed_data():
         await db.users.insert_one(admin_doc)
         logger.info(f"Admin user seeded: {admin_email}")
 
+    if not (admin_email and admin_password):
+        logger.warning(
+            "ADMIN_EMAIL/ADMIN_PASSWORD no definidos — no se sembró ningún admin local. "
+            "Usa scripts/create_local_admin.py para crear el primero manualmente."
+        )
+
     demo_users = [
-        {"email": "usuario1@windesk.cloud", "name": "Usuario Demo 1", "password": "Demo123!"},
-        {"email": "usuario2@windesk.cloud", "name": "Usuario Demo 2", "password": "Demo123!"},
-        {"email": "usuario3@windesk.cloud", "name": "Usuario Demo 3", "password": "Demo123!"},
-    ]
+        {"email": "usuario1@windesk.cloud", "name": "Usuario Demo 1", "password": secrets.token_urlsafe(12)},
+        {"email": "usuario2@windesk.cloud", "name": "Usuario Demo 2", "password": secrets.token_urlsafe(12)},
+        {"email": "usuario3@windesk.cloud", "name": "Usuario Demo 3", "password": secrets.token_urlsafe(12)},
+    ] if os.environ.get("SEED_DEMO_USERS", "false").lower() == "true" else []
     for du in demo_users:
         existing = await db.users.find_one({"email": du["email"]})
         if not existing:
