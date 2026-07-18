@@ -4663,16 +4663,73 @@ async def _provision_opennebula_vm(order_id: str):
     await asyncio.sleep(1.5)
     await _step("zitadel_provision", "success", "✓ Organización creada en NeoGuard")
 
-    # 10) dns_create — use NetBird expose service URL as primary access URL (no kappa4 tunnel)
+    # ── FASE B · Real Guacamole enrollment ──────────────────────────────────
+    # Create an RDP connection in Guacamole targeting the VM's NetBird IP.
+    # If Guacamole is unreachable we degrade gracefully: enrollment=failed but
+    # the rest of the provisioning succeeds and the user still gets the
+    # NetBird HTML5 URL as fallback.
+    guacamole_connection_id = None
+    guacamole_enrollment = "failed"
+    guacamole_error = None
+    try:
+        conn_name = f"neosc-{order['vm_name']}"
+        guac_res = await guacamole_client.create_connection(
+            name=conn_name,
+            protocol="rdp",
+            hostname=netbird_ip,
+            port=3389,
+            username="Administrator",
+            password=order.get("tsplus_admin_password") or "",
+            extra_params={
+                "server-layout": "es-la-qwerty",
+                "color-depth": "24",
+                "enable-full-window-drag": "true",
+                "disable-auth": "false",
+            },
+        )
+        if guac_res.get("ok"):
+            guacamole_connection_id = guac_res.get("id") or guac_res.get("identifier")
+            guacamole_enrollment = "ok"
+            logger.info(f"guacamole enrollment ok: order={order_id} conn={guacamole_connection_id}")
+        else:
+            guacamole_error = str(guac_res)[:200]
+            logger.warning(f"guacamole enrollment failed: order={order_id} err={guacamole_error}")
+    except Exception as e:
+        guacamole_error = str(e)[:200]
+        logger.warning(f"guacamole enrollment exception: order={order_id} err={guacamole_error}")
+
+    # 10) dns_create — persist Guacamole URL as primary HTML5 access when available
     expose_url = os.environ.get("NETBIRD_DEFAULT_EXPOSE_URL", "https://vdi.eu1.netbird.services").rstrip("/")
+    # If Guacamole connection was created, generate the guac-native connect URL
+    # (client-side will resolve /guacamole/#/client/<encoded> via the running guac server)
+    guacamole_connect_url = None
+    if guacamole_connection_id:
+        try:
+            link_res = await guacamole_client.get_connection_link(guacamole_connection_id)
+            if link_res.get("ok"):
+                guacamole_connect_url = link_res.get("url") or link_res.get("connect_url")
+        except Exception as e:
+            logger.warning(f"guac link generation failed: {e}")
+
+    # Prefer Guacamole HTML5 URL when enrollment succeeded; fallback to NetBird service URL
+    primary_access_url = guacamole_connect_url or expose_url
     await db.market_orders.update_one({"id": order_id}, {"$set": {
-        "html5_access_url": expose_url,
+        "html5_access_url": primary_access_url,
+        "guacamole_connection_id": guacamole_connection_id,
+        "guacamole_enrollment": guacamole_enrollment,
+        "guacamole_error": guacamole_error,
+        "netbird_expose_url": expose_url,
         "tunnel_hostname": None,
     }})
-    await _step("dns_create", "running",
-                f"Configurando proxy NetBird Services ({expose_url}) → {netbird_ip}...")
+    if guacamole_enrollment == "ok":
+        await _step("dns_create", "running",
+                    f"✓ Guacamole enrollment OK (conn_id={guacamole_connection_id}). Configurando HTML5...")
+    else:
+        await _step("dns_create", "running",
+                    f"⚠ Guacamole enrollment falló ({guacamole_error or 'unreachable'}). Usando NetBird Services como fallback.")
     await asyncio.sleep(1)
-    await _step("dns_create", "success", f"✓ Acceso HTML5: {expose_url} → {netbird_ip}")
+    await _step("dns_create", "success",
+                f"✓ Acceso HTML5: {primary_access_url} → {netbird_ip}")
 
     # 11) email_welcome
     await _step("email_welcome", "running", f"Enviando email a {order.get('admin_email')}...")
@@ -4698,14 +4755,16 @@ async def _provision_opennebula_vm(order_id: str):
         "sunset_service_id": on_res.get("service_id") if on_res.get("ok") else None,
         "sunset_last_synced_at": datetime.now(timezone.utc).isoformat(),
         "sunset_reachable": bool(on_res.get("ok")),
-        # Guacamole auto-enrollment status (Fase B will flip this to ok/failed)
-        "guacamole_enrollment": "pending",
-        "guacamole_connection_id": None,
+        # Guacamole auto-enrollment status (Fase B)
+        "guacamole_enrollment": guacamole_enrollment,
+        "guacamole_connection_id": guacamole_connection_id,
+        "guacamole_connect_url": guacamole_connect_url,
         "netbird_ip": netbird_ip,
         "netbird_peer_id": netbird_peer_id,
         "netbird_dns_label": netbird_dns_label,
-        "html5_access_url": expose_url,
-        "connection_url": expose_url,
+        "html5_access_url": primary_access_url,
+        "connection_url": primary_access_url,
+        "netbird_expose_url": expose_url,
         "has_tsplus": True,
         "tsplus_licenses": order["tsplus_users"],
         "tsplus_users": order["tsplus_users"],
@@ -4726,14 +4785,18 @@ async def _provision_opennebula_vm(order_id: str):
         "type": "vdi-tsplus",
         "status": "running",
         "image": "windows-server-2025",
-        "host_url": expose_url,
-        "html5_url": expose_url,
+        "host_url": primary_access_url,
+        "html5_url": primary_access_url,
         "netbird_ip": netbird_ip,
         "netbird_dns_label": netbird_dns_label,
         "rdp_username": "Administrator",
         "rdp_password": order.get("tsplus_admin_password"),
         "vm_id": demo_vm["id"],
         "order_id": order_id,
+        # Guacamole enrollment (Fase B)
+        "guacamole_connection_id": guacamole_connection_id,
+        "guacamole_enrollment": guacamole_enrollment,
+        "guacamole_connect_url": guacamole_connect_url,
         "requires_netbird": True,
         "is_vdi_marketplace": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -4746,7 +4809,9 @@ async def _provision_opennebula_vm(order_id: str):
             "status": "active",
             "vm_id": demo_vm["id"],
             "netbird_ip": netbird_ip,
-            "html5_access_url": expose_url,
+            "html5_access_url": primary_access_url,
+            "guacamole_connection_id": guacamole_connection_id,
+            "guacamole_enrollment": guacamole_enrollment,
             "workspace_id": workspace_doc["id"],
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }}

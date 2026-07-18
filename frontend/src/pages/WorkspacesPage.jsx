@@ -53,13 +53,44 @@ export default function WorkspacesPage() {
     const source = vm.source || '';
     const hasHtml5 = vm.connection_url && (vm.connection_url.startsWith('http') || vm.tsplus_licenses > 0);
     const hasIp = vm.ipv4 || (vm.connection_url && vm.connection_url.startsWith('ssh://'));
+    const guacOk = vm.guacamole_enrollment === 'ok' && !!vm.guacamole_connection_id;
+    const running = (vm.status || '').toLowerCase() === 'running';
 
     if (hasHtml5) {
+      // If we have a real Guacamole enrollment, show a rich button;
+      // otherwise fall back to the plain NetBird HTML5 button.
+      if (guacOk) {
+        return (
+          <div className="flex items-center gap-1.5">
+            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px]" title="Guacamole conn_id vm.guacamole_connection_id">
+              Guac #{vm.guacamole_connection_id}
+            </Badge>
+            <Button
+              size="sm"
+              disabled={!running}
+              className={`gap-1 text-black font-bold ${running ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-slate-600 cursor-not-allowed'}`}
+              data-testid={`open-html5-${vm.id}`}
+              title={running ? 'Abrir escritorio HTML5 vía Guacamole' : 'La VM debe estar running para conectar'}
+              onClick={() => running && window.open(vm.guacamole_connect_url || vm.connection_url, '_blank')}
+            >
+              <Globe className="w-3 h-3" /> Conectar
+            </Button>
+          </div>
+        );
+      }
+      // Fallback: NetBird Services URL
       return (
-        <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1" data-testid={`open-html5-${vm.id}`}
-          onClick={() => window.open(vm.connection_url || 'https://web.proxy.kappa4.com/', '_blank')}>
-          <Globe className="w-3 h-3" /> HTML5
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {vm.guacamole_enrollment === 'failed' && (
+            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[9px]" title={vm.guacamole_error || ''}>
+              Guac fallback
+            </Badge>
+          )}
+          <Button size="sm" className="bg-cyan-500 hover:bg-cyan-400 text-black gap-1" data-testid={`open-html5-${vm.id}`}
+            onClick={() => window.open(vm.connection_url || 'https://web.proxy.kappa4.com/', '_blank')}>
+            <Globe className="w-3 h-3" /> HTML5
+          </Button>
+        </div>
       );
     }
     if (source === 'lxd' || hasIp) {
