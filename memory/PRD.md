@@ -8,6 +8,12 @@ React 19 + FastAPI + MongoDB + Tailwind + Shadcn/UI + framer-motion + sonner. JW
 
 ## What's Implemented
 
+### Phase 19 — Workspace Embed + Auto-cleanup missing VMs (Feb 2026) ✅
+- **Embedded HTML5 desktop**: `WorkspacesPage.jsx` reemplaza `window.open()` por Dialog + `<iframe>` con Fullscreen / Nueva pestaña / Cerrar (data-testids: `embed-connection-dialog`, `embed-connection-iframe`, `embed-fullscreen-btn`, `embed-external-btn`, `embed-close-btn`). No abre pestañas nuevas.
+- **DELETE cascade**: `DELETE /api/market/vms/{id}` ahora borra la conexión Guacamole (`guacamole_client.delete_connection`) antes de eliminar el doc de Mongo. Response incluye `guacamole` con status.
+- **Sunset auto-cleanup**: `sunset_sync.probe_state` devuelve `not_found=True` cuando el wrapper responde 404 o `{error:true, message:"vmId inválido/no encontrado/..."}`. `sync_once` incrementa `sunset_missing_count`; tras `MISSING_THRESHOLD=2` misses consecutivos, `_cleanup_missing_vms` borra la VM de Mongo, cascada Guacamole `delete_connection`, y marca `market_orders.status="deleted"`.
+- Testing iter-18: 3/3 backend pytest + 100% frontend Playwright.
+
 ### Phase 18 — Wizard Simplification + Real NetBird Polling + Workspace Integration (Feb 2026) ✅
 - **Step 2 TSplus simplificado**: removidas las 4 ediciones (System/Printer/Mobile Web/Enterprise). Único producto: "TSplus Remote Enterprise Access" con badge "14 días gratis". Licencias fijas: 3 / 5 / 10 / 15 / 25 / ∞ (no se permite otro valor).
 - **Step 3 Infraestructura — 4 combos VM con allow-rules**: XS(2vCPU/4GB/50GB)→[3], S(4/8/50)→[3,5], M(8/16/100)→[3,5,10,15], L(16/32/100)→[cualquier]. Combos inválidos se muestran disabled con Lock. Removidos los sliders de CPU/RAM/Disk.
