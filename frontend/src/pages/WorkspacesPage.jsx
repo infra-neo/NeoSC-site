@@ -41,6 +41,30 @@ export default function WorkspacesPage() {
     setDeleting(null);
   };
 
+  const [acting, setActing] = useState(null); // `${vmId}:${action}`
+
+  const connectViaGuacamole = async (vm) => {
+    try {
+      const res = await axios.get(`${API}/market/vms/${vm.id}/guacamole-link`, { headers: getAuthHeader() });
+      window.open(res.data.url, '_blank');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'No se pudo abrir la sesión Guacamole');
+    }
+  };
+
+  const vmAction = async (vm, action) => {
+    const key = `${vm.id}:${action}`;
+    setActing(key);
+    try {
+      const res = await axios.post(`${API}/market/vms/${vm.id}/action`, { action }, { headers: getAuthHeader() });
+      toast.success(`${action} ejecutado — estado: ${res.data.status}`);
+      setVms(prev => prev.map(v => v.id === vm.id ? { ...v, status: res.data.status } : v));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || `Error ejecutando ${action}`);
+    }
+    setActing(null);
+  };
+
   const statusColor = (s) => {
     const sl = (s || '').toLowerCase();
     if (['running', 'available'].includes(sl)) return 'bg-green-500';
@@ -53,6 +77,17 @@ export default function WorkspacesPage() {
     const source = vm.source || '';
     const hasHtml5 = vm.connection_url && (vm.connection_url.startsWith('http') || vm.tsplus_licenses > 0);
     const hasIp = vm.ipv4 || (vm.connection_url && vm.connection_url.startsWith('ssh://'));
+
+    // Prioridad 1: conexión real registrada en Guacamole (NeoDesk) — RDP nativo
+    // vía el IP real de NetBird, no la URL genérica del proxy.
+    if (vm.guacamole_connection_id) {
+      return (
+        <Button size="sm" className="bg-purple-500 hover:bg-purple-400 text-black gap-1" data-testid={`open-guac-${vm.id}`}
+          onClick={() => connectViaGuacamole(vm)}>
+          <Monitor className="w-3 h-3" /> RDP (Guacamole)
+        </Button>
+      );
+    }
 
     if (hasHtml5) {
       return (
@@ -134,6 +169,22 @@ export default function WorkspacesPage() {
                     </div>
                     {vm.order && <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 text-xs">{vm.order.neosc_plan}</Badge>}
                     {getConnectionButton(vm)}
+                    {isAdmin && vm.source === 'opennebula-marketplace' && (
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="outline" className="text-xs h-7 px-2" data-testid={`start-${vm.id}`}
+                          disabled={acting === `${vm.id}:start`} onClick={() => vmAction(vm, 'start')}>
+                          {acting === `${vm.id}:start` ? '…' : 'Start'}
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-xs h-7 px-2" data-testid={`stop-${vm.id}`}
+                          disabled={acting === `${vm.id}:stop`} onClick={() => vmAction(vm, 'stop')}>
+                          {acting === `${vm.id}:stop` ? '…' : 'Stop'}
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-xs h-7 px-2" data-testid={`reboot-${vm.id}`}
+                          disabled={acting === `${vm.id}:reboot`} onClick={() => vmAction(vm, 'reboot')}>
+                          {acting === `${vm.id}:reboot` ? '…' : 'Reboot'}
+                        </Button>
+                      </div>
+                    )}
                     {isAdmin && (
                       <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 h-8 w-8 p-0"
                         data-testid={`delete-${vm.id}`} onClick={() => deleteVm(vm.id)} disabled={deleting === vm.id}>

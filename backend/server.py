@@ -4217,6 +4217,7 @@ PROVISION_STEPS = [
     "netbird_install",
     "tsplus_configure",
     "netbird_configure",
+    "guacamole_register",
     "zitadel_provision",
     "dns_create",
     "email_welcome",
@@ -4256,6 +4257,7 @@ async def _simulate_provisioning(order_id: str):
         "netbird_install":      8,
         "tsplus_configure":     5,
         "netbird_configure":    5,
+        "guacamole_register":   3,
         "zitadel_provision":    6,
         "dns_create":           2,
         "email_welcome":        1,
@@ -4270,6 +4272,7 @@ async def _simulate_provisioning(order_id: str):
         "netbird_install":      "Instalando Netbird + configurando auto-start permanente...",
         "tsplus_configure":     "Habilitando acceso HTML5 + configurando max sesiones...",
         "netbird_configure":    "Configurando red mesh Zero Trust + DNS interno...",
+        "guacamole_register":   "Registrando conexión RDP en NeoDesk (Guacamole)...",
         "zitadel_provision":    "Creando organización SSO + roles admin/user + OIDC apps...",
         "dns_create":           "Creando registro DNS en Cloudflare...",
         "email_welcome":        "Enviando credenciales al email del cliente...",
@@ -4500,11 +4503,13 @@ async def _provision_opennebula_vm(order_id: str):
         cpu=order["vcpu"],
         memory_mb=order["ram_mb"],
     )
+    real_one_vm_id = None
     if on_res.get("ok"):
+        real_one_vm_id = str(on_res.get("vm_id") or "")
         await db.market_orders.update_one(
             {"id": order_id},
             {"$set": {
-                "vm_id": str(on_res.get("vm_id") or ""),
+                "vm_id": real_one_vm_id,
                 "opennebula_service_id": on_res.get("service_id") or order.get("opennebula_service_id"),
             }}
         )
@@ -4512,11 +4517,12 @@ async def _provision_opennebula_vm(order_id: str):
                     f"✓ VM creada en OpenNebula (vmId={on_res.get('vm_id')}, serviceId={on_res.get('service_id')})")
     else:
         # OpenNebula unreachable → continue in simulated mode
+        real_one_vm_id = f"sim-{uuid.uuid4().hex[:8]}"
         await _step("create_lxd_vm", "success",
                     f"⚠ OpenNebula API no disponible ({on_res.get('error', 'unknown')}). Continuando en modo simulado.")
         await db.market_orders.update_one(
             {"id": order_id},
-            {"$set": {"vm_id": f"sim-{uuid.uuid4().hex[:8]}", "simulated": True}}
+            {"$set": {"vm_id": real_one_vm_id, "simulated": True}}
         )
 
     # 4) windows_bootstrap (cloud-init simulated)
@@ -4576,6 +4582,35 @@ async def _provision_opennebula_vm(order_id: str):
         "netbird_dns_label": netbird_dns_label,
     }})
 
+    # 8b) guacamole_register — auto-registrar la VM en Guacamole (NeoDesk) usando
+    #     el IP real de NetBird como hostname, para RDP nativo vía tu Guacamole
+    #     en lugar de la URL genérica de NetBird Services.
+    await _step("guacamole_register", "running",
+                f"Registrando conexión RDP en NeoDesk (Guacamole) → {netbird_ip}:3389...")
+    guac_connection_id = None
+    try:
+        guac_res = await guacamole_client.create_connection(
+            name=f"NeoVDI-{order['vm_name']}",
+            protocol="rdp",
+            hostname=netbird_ip,
+            port=3389,
+            username="Administrator",
+            password=tsplus_admin_password,
+        )
+        if guac_res.get("ok"):
+            guac_connection_id = guac_res.get("id")
+            await _step("guacamole_register", "success",
+                        f"✓ Conexión Guacamole creada (id={guac_connection_id})")
+        else:
+            await _step("guacamole_register", "success",
+                        f"⚠ Guacamole no disponible ({guac_res.get('error', 'unknown')}). "
+                        f"Se usará el proxy NetBird como fallback.")
+    except Exception as guac_err:
+        await _step("guacamole_register", "success", f"⚠ Error registrando en Guacamole: {guac_err}")
+    await db.market_orders.update_one({"id": order_id}, {"$set": {
+        "guacamole_connection_id": guac_connection_id,
+    }})
+
     # 9) zitadel_provision
     await _step("zitadel_provision", "running", "Creando organización NeoGuard y usuario admin SSO...")
     await asyncio.sleep(1.5)
@@ -4610,12 +4645,14 @@ async def _provision_opennebula_vm(order_id: str):
         "name": order["vm_name"],
         "lxd_instance_name": order["vm_name"],
         "source": "opennebula-marketplace",
+        "opennebula_vm_id": real_one_vm_id,  # id numérico real en OpenNebula (o sim-xxxx si quedó simulado)
         "template_id": order["opennebula_template_id"],
         "netbird_ip": netbird_ip,
         "netbird_peer_id": netbird_peer_id,
         "netbird_dns_label": netbird_dns_label,
         "html5_access_url": expose_url,
         "connection_url": expose_url,
+        "guacamole_connection_id": guac_connection_id,
         "has_tsplus": True,
         "tsplus_licenses": order["tsplus_users"],
         "tsplus_users": order["tsplus_users"],
@@ -4642,6 +4679,7 @@ async def _provision_opennebula_vm(order_id: str):
         "netbird_dns_label": netbird_dns_label,
         "rdp_username": "Administrator",
         "rdp_password": order.get("tsplus_admin_password"),
+        "guacamole_connection_id": guac_connection_id,
         "vm_id": demo_vm["id"],
         "order_id": order_id,
         "requires_netbird": True,
@@ -5058,6 +5096,84 @@ async def delete_market_vm(vm_id: str, user: dict = Depends(get_current_user)):
     await db.market_orders.update_many({"vm_id": vm_id}, {"$set": {"status": "deleted"}})
     await create_audit_log(user['id'], user['email'], "delete_market_vm", f"vm:{vm_id}", "Market VM deleted")
     return {"ok": True, "message": f"VM {vm_id} eliminada"}
+
+
+# ─── POST /market/vms/{vm_id}/action ───────────────────────────────────────────
+class MarketVmAction(BaseModel):
+    action: str  # start | stop | reboot | poweroff | suspend | resume
+
+_MARKET_VM_ACTION_STATUS = {
+    "start": "running", "resume": "running",
+    "stop": "stopped", "poweroff": "stopped", "suspend": "suspended",
+    "reboot": "running",
+}
+
+@api_router.post("/market/vms/{vm_id}/action")
+async def market_vm_action(vm_id: str, payload: MarketVmAction, user: dict = Depends(get_current_user)):
+    """
+    Start/Stop/Reboot para VMs provisionadas vía OpenNebula (source=opennebula-marketplace).
+    Las VMs 'lxd' siguen usando /lxd/instances/{name}/state.
+    """
+    vm = await db.market_vms.find_one({"id": vm_id}, {"_id": 0})
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM no encontrada")
+    if user.get("role") != "admin" and vm.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="No autorizado sobre esta VM")
+    if vm.get("source") == "lxd":
+        raise HTTPException(status_code=400, detail="Usa /lxd/instances/{name}/state para VMs LXD")
+
+    one_vm_id = vm.get("opennebula_vm_id") or vm.get("vm_id") or vm.get("id")
+    result = await opennebula_client.vm_action(str(one_vm_id), payload.action)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=f"OpenNebula action failed: {result.get('error')}")
+
+    new_status = _MARKET_VM_ACTION_STATUS.get(payload.action, vm.get("status"))
+    await db.market_vms.update_one({"id": vm_id}, {"$set": {
+        "status": new_status,
+        "last_action": payload.action,
+        "last_action_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    await create_audit_log(user["id"], user["email"], f"market_vm_{payload.action}",
+                            f"vm:{vm_id}", f"{payload.action} sobre {vm.get('name', vm_id)}")
+    return {"ok": True, "vm_id": vm_id, "action": payload.action, "status": new_status}
+
+
+# ─── GET /market/vms/{vm_id}/guacamole-link ────────────────────────────────────
+@api_router.get("/market/vms/{vm_id}/guacamole-link")
+async def market_vm_guacamole_link(vm_id: str, user: dict = Depends(get_current_user)):
+    """
+    Devuelve una URL de sesión Guacamole embebible/abrible directamente (token
+    incluido) para la VM. Si la VM no tiene guacamole_connection_id (registro
+    falló durante el provisioning o VM antigua), intenta auto-registrarla ahora
+    usando netbird_ip como hostname.
+    """
+    vm = await db.market_vms.find_one({"id": vm_id}, {"_id": 0})
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM no encontrada")
+    if user.get("role") != "admin" and vm.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="No autorizado sobre esta VM")
+
+    guac_conn_id = vm.get("guacamole_connection_id")
+    if not guac_conn_id:
+        if not vm.get("netbird_ip"):
+            raise HTTPException(status_code=409, detail="VM sin IP NetBird aún — espera a que termine el provisioning")
+        guac_res = await guacamole_client.create_connection(
+            name=f"NeoVDI-{vm.get('name', vm_id)}",
+            protocol="rdp",
+            hostname=vm["netbird_ip"],
+            port=3389,
+            username="Administrator",
+            password=vm.get("rdp_password", ""),
+        )
+        if not guac_res.get("ok"):
+            raise HTTPException(status_code=502, detail=f"No se pudo registrar en Guacamole: {guac_res.get('error')}")
+        guac_conn_id = guac_res.get("id")
+        await db.market_vms.update_one({"id": vm_id}, {"$set": {"guacamole_connection_id": guac_conn_id}})
+
+    link = await guacamole_client.get_connection_link(str(guac_conn_id))
+    if not link.get("ok"):
+        raise HTTPException(status_code=502, detail=f"No se pudo generar el link de Guacamole: {link.get('error')}")
+    return link
 
 
 

@@ -151,6 +151,40 @@ class OpenNebulaClient:
         except Exception as e:
             return {"ok": False, "error": str(e)[:200]}
 
+    async def vm_action(self, vm_id: str, action: str) -> dict:
+        """
+        Calls the wrapper API: POST /api/vm/{id}/action
+        Body: {"action": "start"|"stop"|"reboot"|"poweroff"|"suspend"|"resume"|"terminate"}
+
+        ⚠️ NO VERIFICADO contra el wrapper real (149.56.241.64:3000) — asume la
+        misma convención REST que /vm/instantiate. Si el wrapper Node.js expone
+        otra ruta/verbo, ajusta aquí. Prueba primero con:
+          curl -X POST http://149.56.241.64:3000/api/vm/<id>/action \\
+               -H "Authorization: Bearer $OPENNEBULA_TOKEN" \\
+               -H "Content-Type: application/json" -d '{"action":"reboot"}'
+        """
+        valid = {"start", "stop", "reboot", "poweroff", "suspend", "resume", "terminate"}
+        if action not in valid:
+            return {"ok": False, "error": f"acción inválida: {action}. Usa una de {sorted(valid)}"}
+        if not self.configured or not vm_id:
+            return {"ok": False, "error": "missing config or vm_id"}
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.post(
+                    f"{self.api_url}/vm/{vm_id}/action",
+                    headers=self._headers(),
+                    json={"action": action},
+                )
+                payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"raw": r.text}
+                if r.status_code >= 400 or payload.get("success") is False:
+                    return {"ok": False, "status_code": r.status_code,
+                            "error": payload.get("message") or payload.get("error") or r.text[:200]}
+                return {"ok": True, "vm_id": vm_id, "action": action, "raw": payload}
+        except httpx.RequestError as e:
+            return {"ok": False, "error": f"Connection error: {str(e)[:200]}"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200]}
+
     async def get_vm_status(self, vm_id: str) -> dict:
         """Optional: query VM status via wrapper."""
         if not self.configured or not vm_id:
