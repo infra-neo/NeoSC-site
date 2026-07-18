@@ -3,13 +3,15 @@ import { useAuth } from '@/context/AuthContext';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import axios from 'axios';
 import {
   Building2, Monitor, DollarSign, ShoppingCart,
   Users, Shield, Activity, Lock, Play, RefreshCw,
   Pause, RotateCcw, AlertTriangle, CheckCircle2,
-  Info, XCircle, Cpu, Zap
+  Info, XCircle, Cpu, Zap, Trash2, RefreshCcw
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,6 +25,12 @@ export default function AdminGlobalPage() {
   const [systemLogs, setSystemLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('tenants');
+  // Reconcile Sunset dialog state
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileRunning, setReconcileRunning] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState(null);
+  const [reconcileDeleteLegacy, setReconcileDeleteLegacy] = useState(false);
+  const [reconcileDryRun, setReconcileDryRun] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -114,6 +122,30 @@ export default function AdminGlobalPage() {
     }
   };
 
+  const runReconcile = async () => {
+    setReconcileRunning(true);
+    setReconcileResult(null);
+    try {
+      const res = await axios.post(
+        `${API}/admin/sunset/reconcile`,
+        { delete_legacy_without_sunset_id: reconcileDeleteLegacy, dry_run: reconcileDryRun },
+        { headers: getAuthHeader() },
+      );
+      setReconcileResult(res.data.result);
+      const r = res.data.result;
+      toast.success(
+        reconcileDryRun
+          ? `Dry-run: ${r.deleted.length} candidatos, ${r.legacy_orphans.length} legacy`
+          : `Reconcile: ${r.deleted.length} eliminadas, ${r.legacy_orphans.length} legacy`
+      );
+      if (!reconcileDryRun) load();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error reconciliando Sunset');
+    } finally {
+      setReconcileRunning(false);
+    }
+  };
+
   const planColor = (plan) => {
     if (plan === 'Enterprise') return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
     if (plan === 'Business') return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
@@ -153,9 +185,21 @@ export default function AdminGlobalPage() {
               <h1 className="text-2xl font-bold" data-testid="admin-global-title">Admin Global</h1>
               <p className="text-muted-foreground text-sm mt-0.5">Panel de administración de plataforma</p>
             </div>
-            <Button size="sm" variant="outline" onClick={load} className="gap-1.5" data-testid="refresh-admin">
-              <RefreshCw className="w-3.5 h-3.5" /> Actualizar
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={load} className="gap-1.5" data-testid="refresh-admin">
+                <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setReconcileOpen(true); setReconcileResult(null); }}
+                className="gap-1.5 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                data-testid="reconcile-sunset-btn"
+                title="Buscar VMs huérfanas y limpiar Guacamole"
+              >
+                <RefreshCcw className="w-3.5 h-3.5" /> Reconciliar Sunset
+              </Button>
+            </div>
           </div>
 
           {/* KPI Cards */}
@@ -218,6 +262,133 @@ export default function AdminGlobalPage() {
           )}
         </div>
       </main>
+
+      {/* Reconcile Sunset Dialog */}
+      <Dialog open={reconcileOpen} onOpenChange={setReconcileOpen}>
+        <DialogContent className="max-w-2xl" data-testid="reconcile-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCcw className="w-4 h-4 text-amber-400" /> Reconciliar VMs con Sunset
+            </DialogTitle>
+            <DialogDescription>
+              Reconcilia cada VM del market contra Sunset. Las VMs con <code>sunset_vm_id</code>
+              cuya presencia Sunset no confirma serán eliminadas (Mongo + Guacamole).
+              Las VMs sin <code>sunset_vm_id</code> (legacy) sólo se listan a menos que actives la opción.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+              <Checkbox
+                checked={reconcileDryRun}
+                onCheckedChange={setReconcileDryRun}
+                data-testid="reconcile-dry-run"
+              />
+              <div>
+                <div className="font-medium">Dry-run (no elimina nada)</div>
+                <div className="text-xs text-muted-foreground">Muestra qué eliminaría sin ejecutar</div>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+              <Checkbox
+                checked={reconcileDeleteLegacy}
+                onCheckedChange={setReconcileDeleteLegacy}
+                data-testid="reconcile-delete-legacy"
+              />
+              <div>
+                <div className="font-medium text-red-400">Eliminar también legacy (sin sunset_vm_id)</div>
+                <div className="text-xs text-muted-foreground">
+                  Elimina VMs antiguas que nunca se registraron en Sunset. Cascada Guacamole.
+                </div>
+              </div>
+            </label>
+
+            {reconcileResult && (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2 max-h-72 overflow-y-auto"
+                   data-testid="reconcile-result">
+                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  <div>
+                    <div className="text-lg font-black text-cyan-400 font-mono">{reconcileResult.scanned}</div>
+                    <div className="text-muted-foreground">Escaneadas</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-black text-red-400 font-mono">{reconcileResult.deleted.length}</div>
+                    <div className="text-muted-foreground">{reconcileResult.dry_run ? 'A eliminar' : 'Eliminadas'}</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-black text-amber-400 font-mono">{reconcileResult.legacy_orphans.length}</div>
+                    <div className="text-muted-foreground">Legacy</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-black text-green-400 font-mono">{reconcileResult.confirmed_present.length}</div>
+                    <div className="text-muted-foreground">Presentes</div>
+                  </div>
+                </div>
+
+                {reconcileResult.deleted.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                      <Trash2 className="inline w-3 h-3 mr-1" />
+                      {reconcileResult.dry_run ? 'Se eliminarían' : 'Eliminadas'}
+                    </div>
+                    {reconcileResult.deleted.map((v, i) => (
+                      <div key={i} className="text-xs font-mono flex items-center gap-2">
+                        <span className="text-red-400">✕</span>
+                        <span className="text-muted-foreground">{v.id}</span>
+                        <span>{v.name || '—'}</span>
+                        <Badge className="bg-red-500/10 text-red-400 border-red-500/30 text-[9px]">
+                          {v.reason}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {reconcileResult.legacy_orphans.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                      <AlertTriangle className="inline w-3 h-3 mr-1" /> Legacy (sin sunset_vm_id)
+                    </div>
+                    {reconcileResult.legacy_orphans.map((v, i) => (
+                      <div key={i} className="text-xs font-mono flex items-center gap-2">
+                        <span className="text-amber-400">⚠</span>
+                        <span className="text-muted-foreground">{v.id}</span>
+                        <span>{v.name || '—'}</span>
+                        {v.guacamole_connection_id && (
+                          <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">
+                            Guac #{v.guacamole_connection_id}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setReconcileOpen(false)} data-testid="reconcile-cancel">
+              Cerrar
+            </Button>
+            <Button
+              onClick={runReconcile}
+              disabled={reconcileRunning}
+              className={reconcileDryRun ? 'bg-cyan-500 hover:bg-cyan-400 text-black' : 'bg-red-500 hover:bg-red-400 text-white'}
+              data-testid="reconcile-run-btn"
+            >
+              {reconcileRunning ? (
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" /> Ejecutando...</>
+              ) : reconcileDryRun ? (
+                <><CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Ejecutar dry-run</>
+              ) : (
+                <><Trash2 className="w-3.5 h-3.5 mr-1.5" /> Ejecutar reconcile</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

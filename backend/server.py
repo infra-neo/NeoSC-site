@@ -4165,6 +4165,13 @@ async def gateway_vm_deploy(body: GatewayDeployRequest, user: dict = Depends(get
     Deploy a new Gateway VM by cloning Gateway-NeoSC base and registering it
     on NetBird Cloud with a route that exposes body.subnet_to_expose.
     """
+    require_admin(user)
+    # Validate CIDR early
+    try:
+        import ipaddress
+        ipaddress.ip_network(body.subnet_to_expose, strict=False)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"subnet_to_expose CIDR inválido: {e}")
     tenant_id = user.get("tenant_id") or user["id"]
     gw_id = str(uuid.uuid4())
     suffix = (body.name_suffix or gw_id[:6]).replace(" ", "").lower()[:12]
@@ -4634,6 +4641,104 @@ async def internal_sunset_sync_now(user: dict = Depends(get_current_user)):
     require_admin(user)
     stats = await sunset_sync.sync_once(db)
     return {"ok": True, "stats": stats}
+
+
+class ReconcileRequest(BaseModel):
+    delete_legacy_without_sunset_id: bool = False  # opt-in: also delete VMs that never had a sunset_vm_id
+    dry_run: bool = False
+
+
+@api_router.post("/admin/sunset/reconcile")
+async def admin_sunset_reconcile(body: ReconcileRequest, user: dict = Depends(get_current_user)):
+    """
+    Force reconciliation of market_vms against Sunset.
+
+    Behaviour:
+      - For every VM with `sunset_vm_id`: probe Sunset. If not_found → cascade delete
+        (Guacamole conn + Mongo doc + mark orders as deleted).
+      - For every VM WITHOUT a real `sunset_vm_id` (legacy record): listed as
+        `legacy_orphans`. Deleted only if `delete_legacy_without_sunset_id=true`.
+      - `dry_run=true` reports the actions that WOULD happen without touching DB.
+
+    Only admin.
+    """
+    require_admin(user)
+    all_vms = await db.market_vms.find({}, {"_id": 0}).to_list(2000)
+
+    result = {
+        "scanned": len(all_vms),
+        "deleted": [],           # list of {id, name, reason, guacamole}
+        "legacy_orphans": [],    # id/name of VMs without any sunset_vm_id
+        "confirmed_present": [], # ids Sunset confirmed alive
+        "unreachable": [],       # ids where Sunset couldn't be reached
+        "dry_run": body.dry_run,
+    }
+
+    for vm in all_vms:
+        vm_id = vm.get("id")
+        name = vm.get("name") or vm.get("lxd_instance_name")
+        sunset_id = vm.get("sunset_vm_id") or vm.get("vm_id")
+        conn_id = vm.get("guacamole_connection_id")
+
+        # Legacy record: never had a real sunset_vm_id
+        if not sunset_id or str(sunset_id).startswith(("vm-", "sim-")):
+            entry = {"id": vm_id, "name": name, "reason": "no_sunset_vm_id",
+                     "guacamole_connection_id": conn_id, "status": vm.get("status")}
+            if body.delete_legacy_without_sunset_id and not body.dry_run:
+                # Cascade delete
+                guac_res = None
+                if conn_id:
+                    try:
+                        guac_res = await guacamole_client.delete_connection(str(conn_id))
+                    except Exception as e:
+                        guac_res = {"ok": False, "error": str(e)}
+                await db.market_vms.delete_one({"id": vm_id})
+                await db.market_orders.update_many(
+                    {"vm_id": vm_id},
+                    {"$set": {"status": "deleted", "deleted_reason": "reconcile_legacy",
+                              "deleted_at": datetime.now(timezone.utc).isoformat()}}
+                )
+                entry["guacamole"] = guac_res
+                result["deleted"].append(entry)
+            else:
+                result["legacy_orphans"].append(entry)
+            continue
+
+        # Probe Sunset for this VM
+        res = await sunset_sync.probe_state(str(sunset_id))
+        if res.get("not_found"):
+            entry = {"id": vm_id, "name": name, "reason": "sunset_not_found",
+                     "sunset_vm_id": sunset_id, "guacamole_connection_id": conn_id}
+            if body.dry_run:
+                result["deleted"].append({**entry, "would_delete": True})
+                continue
+            guac_res = None
+            if conn_id:
+                try:
+                    guac_res = await guacamole_client.delete_connection(str(conn_id))
+                except Exception as e:
+                    guac_res = {"ok": False, "error": str(e)}
+            await db.market_vms.delete_one({"id": vm_id})
+            await db.market_orders.update_many(
+                {"vm_id": vm_id},
+                {"$set": {"status": "deleted", "deleted_reason": "reconcile_not_found",
+                          "deleted_at": datetime.now(timezone.utc).isoformat()}}
+            )
+            entry["guacamole"] = guac_res
+            result["deleted"].append(entry)
+        elif res.get("ok"):
+            result["confirmed_present"].append({"id": vm_id, "name": name, "state": res.get("state")})
+        else:
+            result["unreachable"].append({"id": vm_id, "name": name, "error": res.get("error")})
+
+    await create_audit_log(
+        user["id"], user["email"], "sunset_reconcile", "market_vms",
+        f"Reconcile: deleted={len(result['deleted'])} legacy={len(result['legacy_orphans'])} "
+        f"present={len(result['confirmed_present'])} unreachable={len(result['unreachable'])} "
+        f"dry_run={body.dry_run} delete_legacy={body.delete_legacy_without_sunset_id}"
+    )
+
+    return {"ok": True, "result": result}
 
 
 class MarketInstantiateRequest(BaseModel):
