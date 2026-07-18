@@ -1,0 +1,32 @@
+{
+  "summary": "Iter-19 validated Guacamole token passthrough via new GET /api/market/vms/{vm_id}/connect-url. Backend: 6/6 pytest cases pass — Guacamole VM returns fresh token URL, NetBird fallback works, 404 for missing, 403 for non-admin accessing other user's VM, admin can access any VM, and two consecutive calls return DIFFERENT tokens (confirmed fresh mint via Guacamole /api/tokens each time). Frontend: /workspaces Conectar button calls GET /connect-url, receives 200 body {ok, url with token=, guacamole:true, connection_id}, iframe src is set with the fresh Guacamole URL containing token=. No new tab was opened. Guacamole embed loaded WITHOUT asking user to log in again — reached the connection lookup (conn_id=999 is a stub so Guacamole responds 'The requested connection does not exist', which is expected per task note and proves the SSO/token auth passthrough itself succeeded).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Workspaces embed Dialog", "issues": ["Missing Description or aria-describedby on DialogContent — Radix a11y warning in console. Minor a11y polish."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_connect_url_passthrough.py",
+    "/app/test_reports/pytest/connect_url_passthrough.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py get_market_vm_connect_url (line 5416) correctly enforces owner-or-admin ACL, delegates to guacamole_client.get_connection_link which mints a fresh token via POST /api/tokens each call (no caching), returns netbird-fallback when no guacamole_connection_id, and 404 when neither exists.",
+    "guacamole_client.get_connection_link builds URL with token in the URL FRAGMENT (#/client/<b64>?token=...) — anyone parsing the URL must handle fragment, not urlparse().query. Frontend just assigns it to iframe src so this is fine.",
+    "WorkspacesPage.jsx openEmbed() sets embedLoading + empty url first, then fetches /connect-url, then sets embedVm.url. Spinner path exists but for fast responses (~500ms) is invisible to human — acceptable UX.",
+    "Endpoint calls Guacamole synchronously each click. If Guacamole is slow this adds latency; consider caching token for ~30s per user or showing skeleton. Non-blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_connect_url_passthrough.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@windesk.cloud/Admin123! and usuario1@windesk.cloud/Demo123! from /app/memory/test_credentials.md. Login response key is access_token.",
+  "seed_data_creation": "Backend test fixture seeds 3 market_vms docs (vm-test-passthrough-guac, -netbird, -other-owner) and cleans them in teardown. UI test seeded vm-test-passthrough-ui with source=lxd, user_id=admin id, guacamole_connection_id=999, guacamole_enrollment=ok — deleted after test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GET /api/market/vms/{id}/connect-url is verified. /market/my-vms only surfaces VMs where the doc has source=lxd (any owner for admin), or tenant_id set, or an active market_order pointing to it. Use source=lxd + user_id=<admin id> to make a VM appear on /workspaces for UI tests. Guacamole token lives in the URL FRAGMENT — extract with url.split('token=',1)[1].split('&',1)[0], not urlparse.",
+  "rca of the issue": "N/A — feature verified working end-to-end. The Guacamole 'connection 999 does not exist' banner seen in the iframe is expected because the seed used a fake conn_id; it demonstrates the token authenticated the user (no login prompt) and only the connection lookup failed after auth."
+}

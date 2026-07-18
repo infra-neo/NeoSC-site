@@ -5412,6 +5412,39 @@ async def get_my_market_vms(user: dict = Depends(get_current_user)):
     return {"vms": vms}
 
 
+# ─── GET /market/vms/{vm_id}/connect-url — Fresh Guacamole token passthrough ──
+@api_router.get("/market/vms/{vm_id}/connect-url")
+async def get_market_vm_connect_url(vm_id: str, user: dict = Depends(get_current_user)):
+    """
+    Return a freshly-minted Guacamole connect URL so the embedded iframe
+    doesn't ask the user to log in again. Tokens are short-lived (~60 min)
+    so we mint a new one every time the user clicks Conectar.
+    """
+    vm = await db.market_vms.find_one({"id": vm_id}, {"_id": 0})
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM no encontrada")
+    # Owner or admin only
+    if user.get("role") != "admin" and vm.get("user_id") and vm["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    conn_id = vm.get("guacamole_connection_id")
+    if not conn_id:
+        # Fallback: return the stored connection_url (NetBird HTML5) unchanged
+        fallback = vm.get("connection_url") or vm.get("html5_access_url")
+        if not fallback:
+            raise HTTPException(status_code=404, detail="VM sin URL de conexión")
+        return {"ok": True, "url": fallback, "source": "netbird-fallback", "guacamole": False}
+    link = await guacamole_client.get_connection_link(str(conn_id))
+    if not link.get("ok"):
+        raise HTTPException(status_code=502, detail=f"Guacamole no disponible: {link.get('error')}")
+    return {
+        "ok": True,
+        "url": link["url"],
+        "guacamole": True,
+        "connection_id": conn_id,
+        "guacamole_url": link.get("guacamole_url"),
+    }
+
+
 # ─── DELETE /market/vms/{vm_id} ────────────────────────────────────────────────
 @api_router.delete("/market/vms/{vm_id}")
 async def delete_market_vm(vm_id: str, user: dict = Depends(get_current_user)):

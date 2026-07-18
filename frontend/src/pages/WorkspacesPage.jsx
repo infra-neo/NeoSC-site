@@ -19,6 +19,7 @@ export default function WorkspacesPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);
   const [embedVm, setEmbedVm] = useState(null); // { url, name, vmId }
+  const [embedLoading, setEmbedLoading] = useState(false);
 
   const loadData = async () => {
     try {
@@ -51,9 +52,28 @@ export default function WorkspacesPage() {
     return 'bg-muted-foreground';
   };
 
-  const openEmbed = (vm, url) => {
-    if (!url) { toast.error('No hay URL de conexión disponible'); return; }
-    setEmbedVm({ url, name: vm.lxd_instance_name || vm.name, vmId: vm.id });
+  const openEmbed = async (vm, fallbackUrl) => {
+    // Ask backend for a fresh Guacamole token (short-lived) so the iframe
+    // doesn't prompt the user to log in again. Falls back to the stored URL.
+    setEmbedLoading(true);
+    setEmbedVm({ url: '', name: vm.lxd_instance_name || vm.name, vmId: vm.id });
+    try {
+      const res = await axios.get(`${API}/market/vms/${vm.id}/connect-url`, { headers: getAuthHeader() });
+      const url = res.data?.url || fallbackUrl;
+      if (!url) { toast.error('No hay URL de conexión disponible'); setEmbedVm(null); return; }
+      setEmbedVm({ url, name: vm.lxd_instance_name || vm.name, vmId: vm.id, guacamole: !!res.data?.guacamole });
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message;
+      if (fallbackUrl) {
+        toast.warning(`Usando URL cacheada: ${msg}`);
+        setEmbedVm({ url: fallbackUrl, name: vm.lxd_instance_name || vm.name, vmId: vm.id, guacamole: false });
+      } else {
+        toast.error(msg || 'No se pudo generar la URL de conexión');
+        setEmbedVm(null);
+      }
+    } finally {
+      setEmbedLoading(false);
+    }
   };
 
   const getConnectionButton = (vm) => {
@@ -291,14 +311,23 @@ export default function WorkspacesPage() {
             </div>
           </DialogHeader>
           {embedVm && (
-            <iframe
-              id="embed-connection-iframe"
-              src={embedVm.url}
-              title={embedVm.name}
-              className="flex-1 w-full border-0 bg-black"
-              allow="clipboard-read; clipboard-write; fullscreen; autoplay"
-              data-testid="embed-connection-iframe"
-            />
+            embedLoading || !embedVm.url ? (
+              <div className="flex-1 flex items-center justify-center bg-black">
+                <div className="text-center">
+                  <div className="w-10 h-10 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-cyan-400 text-sm font-mono">Autenticando con Guacamole...</p>
+                </div>
+              </div>
+            ) : (
+              <iframe
+                id="embed-connection-iframe"
+                src={embedVm.url}
+                title={embedVm.name}
+                className="flex-1 w-full border-0 bg-black"
+                allow="clipboard-read; clipboard-write; fullscreen; autoplay"
+                data-testid="embed-connection-iframe"
+              />
+            )
           )}
         </DialogContent>
       </Dialog>
